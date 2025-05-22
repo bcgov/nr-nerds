@@ -14,7 +14,13 @@ const graphqlWithAuth = graphql.defaults({
   headers: { authorization: `token ${GH_TOKEN}` },
 });
 
-const repos = yaml.load(fs.readFileSync("transfer/repos.yaml")).repos;
+const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
+
+// Helper to ensure repo is in owner/repo format
+function withOrg(repo, org) {
+  if (repo.includes('/')) return repo;
+  return `${org}/${repo}`;
+}
 
 // Dynamically fetch the Sprint field and select the current sprint option
 async function getCurrentSprintValue() {
@@ -175,7 +181,8 @@ async function processRepo(repo) {
 (async () => {
   for (const repo of repos) {
     try {
-      await processRepo(repo);
+      const fullRepo = withOrg(repo, ORG);
+      await processRepo(fullRepo);
     } catch (e) {
       console.error(`Error processing ${repo}:`, e.message);
     }
