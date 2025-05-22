@@ -19,6 +19,7 @@ const graphqlWithAuth = graphql.defaults({
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
 const RECENT_DAYS = 2;
+const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || 'DerekRoberts';
 
 // Helper to ensure repo is in owner/repo format
 function withOrg(repo, org) {
@@ -120,6 +121,42 @@ async function getCurrentSprintValue() {
   }
   if (!currentSprint) throw new Error('Could not determine current sprint from Sprint field options');
   return { fieldId: sprintField.id, value: currentSprint.name };
+}
+
+// Dynamically fetch the Sprint field and select the current sprint iteration (date overlap)
+async function getCurrentSprintIteration() {
+  const projectRes = await graphqlWithAuth(`
+    query($projectId:ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 30) {
+            nodes {
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration { iterations { id title startDate duration } }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { projectId: PROJECT_ID });
+  const fields = projectRes.node.fields.nodes;
+  // Find the Sprint field (iteration type, case-insensitive)
+  const sprintField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'sprint' && f.configuration && f.configuration.iterations);
+  if (!sprintField) throw new Error('Could not find a Sprint iteration field');
+  const today = new Date();
+  for (const iter of sprintField.configuration.iterations) {
+    const start = new Date(iter.startDate);
+    const end = new Date(start);
+    // duration is in days
+    end.setDate(start.getDate() + (iter.duration || 13));
+    if (today >= start && today <= end) {
+      return { fieldId: sprintField.id, iterationId: iter.id, title: iter.title };
+    }
+  }
+  throw new Error('Could not determine current sprint iteration');
 }
 
 async function addToProject(contentId) {
@@ -288,91 +325,63 @@ async function setSprintField(itemId, sprintValue) {
   });
 }
 
+// Set the Sprint field to the current sprint iteration
+async function setSprintIterationField(itemId) {
+  const { fieldId, iterationId, title } = await getCurrentSprintIteration();
+  await graphqlWithAuth(`
+    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId,
+        value: { iterationId: $iterationId }
+      }) { projectV2Item { id } }
+  `, {
+    projectId: PROJECT_ID,
+    itemId,
+    fieldId,
+    iterationId
+  });
+  console.log(`  Assigned to current sprint: ${title}`);
+}
+
+// Helper: assign PR to author and add to project, assign to current sprint
 async function processRepo(repo) {
-  // Get closed issues and PRs in the last RECENT_DAYS days
-  const [owner, name] = repo.split("/");
-  const sinceDate = new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000);
-  const since = sinceDate.toISOString();
-
-  console.log(`\nProcessing repository: ${repo}`);
-  console.log(`  Checking for issues/PRs closed or merged in the last ${RECENT_DAYS} days (since ${sinceDate.toISOString().slice(0,10)})...`);
-
-  // Issues
-  let issuesRes = await graphqlWithAuth(`
-    query($owner:String!, $name:String!, $since:DateTime!) {
+  const [owner, name] = repo.split('/');
+  // Get open and closed PRs authored by GITHUB_AUTHOR
+  const prsRes = await graphqlWithAuth(`
+    query($owner: String!, $name: String!, $author: String!) {
       repository(owner: $owner, name: $name) {
-        issues(states: CLOSED, filterBy: {since: $since}, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id, number, title, closedAt }
-        }
-      }
-    }
-  `, { owner, name, since });
-  if (!issuesRes.repository.issues.nodes.length) {
-    console.log("  No recently closed issues found.");
-  }
-  for (const issue of issuesRes.repository.issues.nodes) {
-    const itemId = await addToProject(issue.id);
-    await setStatus(itemId, 'Sprint');
-    await setSprintField(itemId, 'Sprint 24'); // Example sprint value
-    console.log(`  Added issue #${issue.number} to project and moved to Sprint`);
-  }
-
-  // PRs (open and closed)
-  let prsRes = await graphqlWithAuth(`
-    query($owner:String!, $name:String!) {
-      repository(owner: $owner, name: $name) {
-        pullRequests(states: [OPEN, CLOSED], first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        pullRequests(first: 50, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC},
+          filterBy: {createdBy: $author}) {
           nodes {
-            id, number, title, closedAt, merged, mergedAt, state, author { login }
-            closingIssuesReferences(first: 10) { nodes { id, number, title } }
+            id
+            number
+            title
+            state
+            author { login }
           }
         }
       }
     }
-  `, { owner, name });
-  let prCount = 0;
+  `, { owner, name, author: GITHUB_AUTHOR });
   for (const pr of prsRes.repository.pullRequests.nodes) {
+    // Add PR to project
     const itemId = await addToProject(pr.id);
-    await setStatus(itemId, pr.merged ? 'Done' : 'Sprint');
-    await setSprintField(itemId, 'Sprint 24'); // Example sprint value
-    // Only assign PR to author if author is DerekRoberts
-    if (pr.author && pr.author.login && pr.author.login === 'DerekRoberts') {
-      await graphqlWithAuth(`
-        mutation($itemId:ID!, $assignee:String!) {
-          updateProjectV2ItemFieldValue(input: {
-            projectId: $projectId,
-            itemId: $itemId,
-            fieldId: "assignees",
-            value: { users: [$assignee] }
-          }) { projectV2Item { id } }
-        }
-      `, { projectId: PROJECT_ID, itemId, assignee: pr.author.login });
-      console.log(`  Assigned PR #${pr.number} to author (${pr.author.login})`);
-    }
-    // Assign linked issues to PR author (if PR is closed/merged)
-    if (pr.state === 'CLOSED' && pr.merged && pr.closingIssuesReferences && pr.closingIssuesReferences.nodes.length > 0 && pr.author && pr.author.login) {
-      for (const linkedIssue of pr.closingIssuesReferences.nodes) {
-        const linkedItemId = await addToProject(linkedIssue.id);
-        await setStatus(linkedItemId, 'Done');
-        await setSprintField(linkedItemId, 'Sprint 24'); // Example sprint value
-        await graphqlWithAuth(`
-          mutation($itemId:ID!, $assignee:String!) {
-            updateProjectV2ItemFieldValue(input: {
-              projectId: $projectId,
-              itemId: $itemId,
-              fieldId: "assignees",
-              value: { users: [$assignee] }
-            }) { projectV2Item { id } }
-          }
-        `, { projectId: PROJECT_ID, itemId: linkedItemId, assignee: pr.author.login });
-        console.log(`  Assigned linked issue #${linkedIssue.number} to PR author (${pr.author.login}) and moved to Done`);
+    // Assign PR to author in project
+    await graphqlWithAuth(`
+      mutation($itemId:ID!, $assignee:String!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: "assignees",
+          value: { users: [$assignee] }
+        }) { projectV2Item { id } }
       }
-    }
-    console.log(`  Added PR #${pr.number} to project${pr.state === 'CLOSED' && pr.merged ? ' and moved to Done' : ''}`);
-    prCount++;
-  }
-  if (prCount === 0) {
-    console.log("  No recent PRs found.");
+    `, { projectId: PROJECT_ID, itemId, assignee: GITHUB_AUTHOR });
+    // Assign to current sprint (iteration field)
+    await setSprintIterationField(itemId);
+    console.log(`  PR #${pr.number} assigned to ${GITHUB_AUTHOR} and current sprint.`);
   }
 }
 
