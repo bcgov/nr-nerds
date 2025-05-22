@@ -85,7 +85,13 @@ async function getCurrentSprintValue() {
   const fields = projectRes.node.fields.nodes;
   // Find the Sprint field
   const sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.options);
-  if (!sprintField) throw new Error('Could not find a Sprint field');
+  if (!sprintField) {
+    console.error('Could not find a Sprint field. Available fields:');
+    for (const f of fields) {
+      console.error(`  - ${f.name}`);
+    }
+    throw new Error('Could not find a Sprint field');
+  }
   // Find the latest sprint whose date is not in the future
   const today = new Date();
   let currentSprint = null;
