@@ -7,6 +7,7 @@ const GH_TOKEN = process.env.GH_TOKEN;
 // For now, PROJECT_ID is hardcoded as: PVT_kwDOAA37OM4AFuzg
 const PROJECT_ID = "PVT_kwDOAA37OM4AFuzg"; // GitHub Project (beta) node ID
 const ORG = process.env.ORG || "bcgov";
+const PROJECT_NUMBER = process.env.PROJECT_NUMBER || 16; // Default to 16 if not set
 
 // NOTE: This script is now fully hardcoded to use the project node ID.
 // If you want to use dynamic lookup by project number, use sync-to-project.js as your entrypoint instead of project-sync.js.
