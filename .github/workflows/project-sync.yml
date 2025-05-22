@@ -1,0 +1,28 @@
+name: Sync Closed Items to Project
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # every 30 minutes
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @octokit/graphql js-yaml
+
+      - name: Run sync script
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROJECT_ID: ${{ secrets.PROJECT_ID }}
+          SPRINT_FIELD_ID: ${{ secrets.SPRINT_FIELD_ID }}
+          SPRINT_VALUE: ${{ secrets.SPRINT_VALUE }}
+        run: node transfer/scripts/sync-to-project.js
