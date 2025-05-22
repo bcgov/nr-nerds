@@ -18,6 +18,8 @@ const graphqlWithAuth = graphql.defaults({
 
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
+const RECENT_DAYS = 2;
+
 // Helper to ensure repo is in owner/repo format
 function withOrg(repo, org) {
   if (repo.includes('/')) return repo;
@@ -173,11 +175,13 @@ async function moveToDone(itemId, doneFieldId, doneOptionId) {
 }
 
 async function processRepo(repo) {
-  // Get closed issues and PRs in the last 2 days
+  // Get closed issues and PRs in the last RECENT_DAYS days
   const [owner, name] = repo.split("/");
-  const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  const sinceDate = new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000);
+  const since = sinceDate.toISOString();
 
   console.log(`\nProcessing repository: ${repo}`);
+  console.log(`  Checking for issues/PRs closed or merged in the last ${RECENT_DAYS} days (since ${sinceDate.toISOString().slice(0,10)})...`);
 
   // Issues
   let issuesRes = await graphqlWithAuth(`
