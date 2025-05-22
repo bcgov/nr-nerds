@@ -23,6 +23,39 @@ function withOrg(repo, org) {
   return `${org}/${repo}`;
 }
 
+// Get project and fields using correct GraphQL fragments for all field types
+async function getProjectAndFields(org, projectNumber) {
+  const projectRes = await graphqlWithAuth(`
+    query($org: String!, $number: Int!) {
+      organization(login: $org) {
+        projectV2(number: $number) {
+          id
+          title
+          fields(first: 30) {
+            nodes {
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration { iterations { id title startDate } }
+              }
+              ... on ProjectV2Field {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { org, number: Number(projectNumber) });
+  return projectRes.organization.projectV2;
+}
+
 // Dynamically fetch the Sprint field and select the current sprint option
 async function getCurrentSprintValue() {
   const projectRes = await graphqlWithAuth(`
