@@ -190,10 +190,16 @@ async function processRepo(repo) {
 }
 
 (async () => {
+  const project = await getProjectAndFields(ORG, PROJECT_NUMBER);
+  if (!project) {
+    throw new Error(`Could not resolve to a ProjectV2 with the number ${PROJECT_NUMBER} in org ${ORG}. Check that the project number and org are correct, and that your token has access.`);
+  }
+  const PROJECT_ID = project.id;
+  console.log(`\n---\nSyncing to GitHub Project: '${project.title}' (ID: ${PROJECT_ID}) in org: '${ORG}'\n---`);
   for (const repo of repos) {
     try {
       const fullRepo = withOrg(repo, ORG);
-      await processRepo(fullRepo);
+      await processRepo(fullRepo, PROJECT_ID, SPRINT_FIELD_ID, SPRINT_VALUE, DONE_FIELD_ID, DONE_VALUE);
     } catch (e) {
       console.error(`Error processing ${repo}:`, e.message);
     }
