@@ -143,6 +143,8 @@ async function processRepo(repo) {
   const [owner, name] = repo.split("/");
   const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
 
+  console.log(`\nProcessing repository: ${repo}`);
+
   // Issues
   let issuesRes = await graphqlWithAuth(`
     query($owner:String!, $name:String!, $since:DateTime!) {
@@ -153,12 +155,14 @@ async function processRepo(repo) {
       }
     }
   `, { owner, name, since });
-  const { fieldId: doneFieldId, optionId: doneOptionId } = await getDoneFieldAndOption();
+  if (!issuesRes.repository.issues.nodes.length) {
+    console.log("  No recently closed issues found.");
+  }
   for (const issue of issuesRes.repository.issues.nodes) {
     const itemId = await addToProject(issue.id);
     await setSprint(itemId);
     await moveToDone(itemId, doneFieldId, doneOptionId);
-    console.log(`Added issue #${issue.number} to project and moved to Done`);
+    console.log(`  Added issue #${issue.number} to project and moved to Done`);
   }
 
   // PRs
@@ -166,16 +170,22 @@ async function processRepo(repo) {
     query($owner:String!, $name:String!) {
       repository(owner: $owner, name: $name) {
         pullRequests(states: CLOSED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id, number, title, closedAt }
+          nodes { id, number, title, closedAt, merged, mergedAt }
         }
       }
     }
   `, { owner, name });
+  let prCount = 0;
   for (const pr of prsRes.repository.pullRequests.nodes) {
+    if (!pr.merged) continue; // Only process merged PRs
     const itemId = await addToProject(pr.id);
     await setSprint(itemId);
     await moveToDone(itemId, doneFieldId, doneOptionId);
-    console.log(`Added PR #${pr.number} to project and moved to Done`);
+    console.log(`  Added merged PR #${pr.number} to project and moved to Done`);
+    prCount++;
+  }
+  if (prCount === 0) {
+    console.log("  No recently merged PRs found.");
   }
 }
 
