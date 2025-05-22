@@ -134,23 +134,8 @@ async function addToProject(contentId) {
   return addRes.addProjectV2ItemById.item.id;
 }
 
-async function setSprint(itemId) {
-  // Set sprint field value dynamically
-  const { fieldId, value } = await getCurrentSprintValue();
-  await graphqlWithAuth(`
-    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:String!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId,
-        itemId: $itemId,
-        fieldId: $fieldId,
-        value: { text: $value }
-      }) { projectV2Item { id } }
-    }
-  `, { projectId: PROJECT_ID, itemId, fieldId, value });
-}
-
-// Dynamically fetch the Done field and option ID
-async function getDoneFieldAndOption() {
+// Set the Status field to a given option name (e.g., 'Sprint', 'Done')
+async function setStatus(itemId, statusName) {
   const projectRes = await graphqlWithAuth(`
     query($projectId:ID!) {
       node(id: $projectId) {
@@ -162,10 +147,6 @@ async function getDoneFieldAndOption() {
                 name
                 options { id name }
               }
-              ... on ProjectV2Field {
-                id
-                name
-              }
             }
           }
         }
@@ -173,15 +154,10 @@ async function getDoneFieldAndOption() {
     }
   `, { projectId: PROJECT_ID });
   const fields = projectRes.node.fields.nodes;
-  // Try to find a field named 'Status' or 'Column'
-  const doneField = fields.find(f => f.name && (f.name.toLowerCase().includes('status') || f.name.toLowerCase().includes('column')) && f.options);
-  if (!doneField) throw new Error('Could not find a Status/Column field');
-  const doneOption = doneField.options.find(o => o.name.toLowerCase() === 'done');
-  if (!doneOption) throw new Error('Could not find a Done option in the Status/Column field');
-  return { fieldId: doneField.id, optionId: doneOption.id };
-}
-
-async function moveToDone(itemId, doneFieldId, doneOptionId) {
+  const statusField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'status' && f.options);
+  if (!statusField) throw new Error('Could not find a Status field');
+  const statusOption = statusField.options.find(o => o.name.toLowerCase() === statusName.toLowerCase());
+  if (!statusOption) throw new Error(`Could not find a Status option named '${statusName}'`);
   await graphqlWithAuth(`
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:ID!) {
       updateProjectV2ItemFieldValue(input: {
@@ -191,7 +167,7 @@ async function moveToDone(itemId, doneFieldId, doneOptionId) {
         value: { singleSelectOptionId: $optionId }
       }) { projectV2Item { id } }
     }
-  `, { projectId: PROJECT_ID, itemId, fieldId: doneFieldId, optionId: doneOptionId });
+  `, { projectId: PROJECT_ID, itemId, fieldId: statusField.id, optionId: statusOption.id });
 }
 
 async function processRepo(repo) {
@@ -218,9 +194,8 @@ async function processRepo(repo) {
   }
   for (const issue of issuesRes.repository.issues.nodes) {
     const itemId = await addToProject(issue.id);
-    await setSprint(itemId);
-    await moveToDone(itemId, doneFieldId, doneOptionId);
-    console.log(`  Added issue #${issue.number} to project and moved to Done`);
+    await setStatus(itemId, 'Sprint');
+    console.log(`  Added issue #${issue.number} to project and moved to Sprint`);
   }
 
   // PRs (open and closed)
@@ -239,11 +214,7 @@ async function processRepo(repo) {
   let prCount = 0;
   for (const pr of prsRes.repository.pullRequests.nodes) {
     const itemId = await addToProject(pr.id);
-    await setSprint(itemId);
-    // Only move to Done if PR is closed/merged
-    if (pr.state === 'CLOSED' && pr.merged) {
-      await moveToDone(itemId, doneFieldId, doneOptionId);
-    }
+    await setStatus(itemId, pr.merged ? 'Done' : 'Sprint');
     // Only assign PR to author if author is DerekRoberts
     if (pr.author && pr.author.login && pr.author.login === 'DerekRoberts') {
       await graphqlWithAuth(`
@@ -262,8 +233,7 @@ async function processRepo(repo) {
     if (pr.state === 'CLOSED' && pr.merged && pr.closingIssuesReferences && pr.closingIssuesReferences.nodes.length > 0 && pr.author && pr.author.login) {
       for (const linkedIssue of pr.closingIssuesReferences.nodes) {
         const linkedItemId = await addToProject(linkedIssue.id);
-        await setSprint(linkedItemId);
-        await moveToDone(linkedItemId, doneFieldId, doneOptionId);
+        await setStatus(linkedItemId, 'Done');
         await graphqlWithAuth(`
           mutation($itemId:ID!, $assignee:String!) {
             updateProjectV2ItemFieldValue(input: {
