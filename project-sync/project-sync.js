@@ -86,11 +86,11 @@ async function getCurrentSprintValue() {
   // Find the Sprint field (single-select or iteration)
   let sprintField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'sprint' && (f.options || f.configuration));
   if (!sprintField) {
-    console.error('Could not find a Sprint field. Available fields:');
-    for (const f of fields) {
-      console.error(`  - ${f.name} (${f.constructor?.name || typeof f})`);
+    console.error('Could not find a Sprint field. Dumping all available project fields:');
+    fields.forEach((f, idx) => {
+      console.error(`--- Field #${idx + 1} ---`);
       console.error(JSON.stringify(f, null, 2));
-    }
+    });
     throw new Error('Could not find a Sprint field');
   }
   // If iteration field, find the latest sprint whose startDate is not in the future
