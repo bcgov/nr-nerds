@@ -12,8 +12,8 @@ const graphqlWithAuth = graphql.defaults({
 
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
-async function getProjectAndFields() {
-  // Get project node ID and fields dynamically
+// Get project and fields using correct GraphQL fragments for all field types
+async function getProjectAndFields(org, projectNumber) {
   const projectRes = await graphqlWithAuth(`
     query($org: String!, $number: Int!) {
       organization(login: $org) {
@@ -21,19 +21,27 @@ async function getProjectAndFields() {
           id
           fields(first: 30) {
             nodes {
-              id
-              name
               ... on ProjectV2SingleSelectField {
+                id
+                name
                 options { id name }
+              }
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration { iterations { id title startDate } }
+              }
+              ... on ProjectV2Field {
+                id
+                name
               }
             }
           }
         }
       }
     }
-  `, { org: ORG, number: Number(PROJECT_NUMBER) });
-  const project = projectRes.organization.projectV2;
-  return project;
+  `, { org, number: Number(projectNumber) });
+  return projectRes.organization.projectV2;
 }
 
 async function addToProject(contentId, projectId) {
@@ -118,7 +126,7 @@ async function processRepo(repo, projectId, sprintFieldId, sprintValue, doneFiel
 }
 
 (async () => {
-  const project = await getProjectAndFields();
+  const project = await getProjectAndFields(ORG, PROJECT_NUMBER);
   const PROJECT_ID = project.id;
   // Find field IDs by name
   const SPRINT_FIELD = project.fields.nodes.find(f => f.name.toLowerCase().includes("sprint"));
