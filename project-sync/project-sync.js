@@ -195,6 +195,99 @@ async function setStatus(itemId, statusName) {
   });
 }
 
+// Set the Sprint field to a value (single-select, iteration, or text)
+async function setSprintField(itemId, sprintValue) {
+  const projectRes = await graphqlWithAuth(`
+    query($projectId:ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 30) {
+            nodes {
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration { iterations { id title startDate } }
+              }
+              ... on ProjectV2Field {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { projectId: PROJECT_ID });
+  const fields = projectRes.node.fields.nodes;
+  // Find the Sprint field (case-insensitive)
+  const sprintField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'sprint');
+  if (!sprintField) throw new Error('Could not find a Sprint field');
+
+  // If single-select, find the matching option
+  if (sprintField.options) {
+    let option = sprintField.options.find(o => o.name === sprintValue);
+    if (!option) throw new Error(`Could not find Sprint option '${sprintValue}'`);
+    await graphqlWithAuth(`
+      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $singleSelectOptionId:ID!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { singleSelectOptionId: $singleSelectOptionId }
+        }) { projectV2Item { id } }
+      }
+    `, {
+      projectId: PROJECT_ID,
+      itemId,
+      fieldId: sprintField.id,
+      singleSelectOptionId: option.id
+    });
+    return;
+  }
+  // If iteration, find the current iteration (by title or date)
+  if (sprintField.configuration && sprintField.configuration.iterations) {
+    let iter = sprintField.configuration.iterations.find(i => i.title === sprintValue);
+    if (!iter) throw new Error(`Could not find Sprint iteration '${sprintValue}'`);
+    await graphqlWithAuth(`
+      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { iterationId: $iterationId }
+        }) { projectV2Item { id } }
+      }
+    `, {
+      projectId: PROJECT_ID,
+      itemId,
+      fieldId: sprintField.id,
+      iterationId: iter.id
+    });
+    return;
+  }
+  // If text field, set as text
+  await graphqlWithAuth(`
+    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:String!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId,
+        itemId: $itemId,
+        fieldId: $fieldId,
+        value: { text: $value }
+      }) { projectV2Item { id } }
+    }
+  `, {
+    projectId: PROJECT_ID,
+    itemId,
+    fieldId: sprintField.id,
+    value: sprintValue
+  });
+}
+
 async function processRepo(repo) {
   // Get closed issues and PRs in the last RECENT_DAYS days
   const [owner, name] = repo.split("/");
@@ -220,6 +313,7 @@ async function processRepo(repo) {
   for (const issue of issuesRes.repository.issues.nodes) {
     const itemId = await addToProject(issue.id);
     await setStatus(itemId, 'Sprint');
+    await setSprintField(itemId, 'Sprint 24'); // Example sprint value
     console.log(`  Added issue #${issue.number} to project and moved to Sprint`);
   }
 
@@ -240,6 +334,7 @@ async function processRepo(repo) {
   for (const pr of prsRes.repository.pullRequests.nodes) {
     const itemId = await addToProject(pr.id);
     await setStatus(itemId, pr.merged ? 'Done' : 'Sprint');
+    await setSprintField(itemId, 'Sprint 24'); // Example sprint value
     // Only assign PR to author if author is DerekRoberts
     if (pr.author && pr.author.login && pr.author.login === 'DerekRoberts') {
       await graphqlWithAuth(`
@@ -259,6 +354,7 @@ async function processRepo(repo) {
       for (const linkedIssue of pr.closingIssuesReferences.nodes) {
         const linkedItemId = await addToProject(linkedIssue.id);
         await setStatus(linkedItemId, 'Done');
+        await setSprintField(linkedItemId, 'Sprint 24'); // Example sprint value
         await graphqlWithAuth(`
           mutation($itemId:ID!, $assignee:String!) {
             updateProjectV2ItemFieldValue(input: {
