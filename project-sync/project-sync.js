@@ -234,7 +234,7 @@ async function processRepo(repo) {
   for (const repo of repos) {
     try {
       const fullRepo = withOrg(repo, ORG);
-      await processRepo(fullRepo, PROJECT_ID, SPRINT_FIELD_ID, SPRINT_VALUE, DONE_FIELD_ID, DONE_VALUE);
+      await processRepo(fullRepo);
     } catch (e) {
       console.error(`Error processing ${repo}:`, e.message);
       hadError = true;
