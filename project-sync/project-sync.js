@@ -2,6 +2,8 @@ const { graphql } = require("@octokit/graphql");
 const fs = require("fs");
 const yaml = require("js-yaml");
 
+// NOTE: This script is for dynamic project lookup. If you want to use a hardcoded project node ID, use sync-to-project.js instead.
+
 const GH_TOKEN = process.env.GH_TOKEN;
 const ORG = process.env.ORG || "bcgov";
 const PROJECT_NUMBER = process.env.PROJECT_NUMBER; // e.g. 16
@@ -127,6 +129,9 @@ async function processRepo(repo, projectId, sprintFieldId, sprintValue, doneFiel
 
 (async () => {
   const project = await getProjectAndFields(ORG, PROJECT_NUMBER);
+  if (!project) {
+    throw new Error(`Could not resolve to a ProjectV2 with the number ${PROJECT_NUMBER} in org ${ORG}. Check that the project number and org are correct, and that your token has access.`);
+  }
   const PROJECT_ID = project.id;
   // Find field IDs by name
   const SPRINT_FIELD = project.fields.nodes.find(f => f.name.toLowerCase().includes("sprint"));
