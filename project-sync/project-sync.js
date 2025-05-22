@@ -158,6 +158,8 @@ async function setStatus(itemId, statusName) {
   if (!statusField) throw new Error('Could not find a Status field');
   const statusOption = statusField.options.find(o => o.name.toLowerCase() === statusName.toLowerCase());
   if (!statusOption) throw new Error(`Could not find a Status option named '${statusName}'`);
+  // Debug: print the status option id and its type
+  console.log(`Setting Status field: option '${statusName}' with id:`, statusOption.id, 'type:', typeof statusOption.id);
   await graphqlWithAuth(`
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $singleSelectOptionId:ID!) {
       updateProjectV2ItemFieldValue(input: {
@@ -167,7 +169,12 @@ async function setStatus(itemId, statusName) {
         value: { singleSelectOptionId: $singleSelectOptionId }
       }) { projectV2Item { id } }
     }
-  `, { projectId: PROJECT_ID, itemId, fieldId: statusField.id, singleSelectOptionId: statusOption.id });
+  `, {
+    projectId: PROJECT_ID,
+    itemId,
+    fieldId: statusField.id,
+    singleSelectOptionId: statusOption.id // do NOT convert to string, must be ID type
+  });
 }
 
 async function processRepo(repo) {
