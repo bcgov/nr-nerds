@@ -1,4 +1,4 @@
 repos:
-  - bcgov/repo1
-  - bcgov/repo2
-  - bcgov/repo3
+  - quickstart-openshift
+  - quickstart-openshift-backends
+  - quickstart-openshift-helpers
