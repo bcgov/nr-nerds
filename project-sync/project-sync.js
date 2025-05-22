@@ -208,7 +208,7 @@ async function processRepo(repo) {
     query($owner:String!, $name:String!) {
       repository(owner: $owner, name: $name) {
         pullRequests(states: CLOSED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id, number, title, closedAt, merged, mergedAt }
+          nodes { id, number, title, closedAt, merged, mergedAt, author { login } }
         }
       }
     }
@@ -219,6 +219,20 @@ async function processRepo(repo) {
     const itemId = await addToProject(pr.id);
     await setSprint(itemId);
     await moveToDone(itemId, doneFieldId, doneOptionId);
+    // Assign PR to author if author is the current user
+    if (pr.author && pr.author.login && pr.author.login.toLowerCase() === process.env.GITHUB_ACTOR?.toLowerCase()) {
+      await graphqlWithAuth(`
+        mutation($itemId:ID!, $assignee:String!) {
+          updateProjectV2ItemFieldValue(input: {
+            projectId: $projectId,
+            itemId: $itemId,
+            fieldId: "assignees",
+            value: { users: [$assignee] }
+          }) { projectV2Item { id } }
+        }
+      `, { projectId: PROJECT_ID, itemId, assignee: pr.author.login });
+      console.log(`  Assigned merged PR #${pr.number} to author (${pr.author.login})`);
+    }
     console.log(`  Added merged PR #${pr.number} to project and moved to Done`);
     prCount++;
   }
