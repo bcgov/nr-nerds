@@ -134,6 +134,17 @@ async function addToProject(contentId) {
   return addRes.addProjectV2ItemById.item.id;
 }
 
+// Helper to fetch the global node ID for a single-select option
+async function getGlobalNodeIdForOption(shortId) {
+  const res = await graphqlWithAuth(`
+    query($id:ID!) {
+      node(id: $id) { id }
+    }
+  `, { id: shortId });
+  // If the node is not found, return the original shortId (will fail, but helps debug)
+  return res.node?.id || shortId;
+}
+
 // Set the Status field to a given option name (e.g., 'Sprint', 'Done')
 async function setStatus(itemId, statusName) {
   const projectRes = await graphqlWithAuth(`
@@ -164,6 +175,9 @@ async function setStatus(itemId, statusName) {
   console.log('Status field object:', JSON.stringify(statusField, null, 2));
   // Debug: print the full status option object
   console.log('Status option object:', JSON.stringify(statusOption, null, 2));
+  // Fetch the global node ID for the option
+  const globalOptionId = await getGlobalNodeIdForOption(statusOption.id);
+  console.log('Using global node ID for status option:', globalOptionId);
   await graphqlWithAuth(`
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $singleSelectOptionId:ID!) {
       updateProjectV2ItemFieldValue(input: {
@@ -177,7 +191,7 @@ async function setStatus(itemId, statusName) {
     projectId: PROJECT_ID,
     itemId,
     fieldId: statusField.id,
-    singleSelectOptionId: statusOption.id // do NOT convert to string, must be ID type
+    singleSelectOptionId: globalOptionId
   });
 }
 
