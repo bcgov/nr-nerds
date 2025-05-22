@@ -7,6 +7,9 @@ const GH_TOKEN = process.env.GH_TOKEN;
 // For now, PROJECT_ID is hardcoded as: PVT_kwDOAA37OM4AFuzg
 const PROJECT_ID = "PVT_kwDOAA37OM4AFuzg"; // GitHub Project (beta) node ID
 
+// NOTE: This script is now fully hardcoded to use the project node ID.
+// If you want to use dynamic lookup by project number, use sync-to-project.js as your entrypoint instead of project-sync.js.
+
 const graphqlWithAuth = graphql.defaults({
   headers: { authorization: `token ${GH_TOKEN}` },
 });
