@@ -163,14 +163,14 @@ async function processRepo(repo) {
 
   // PRs
   let prsRes = await graphqlWithAuth(`
-    query($owner:String!, $name:String!, $since:DateTime!) {
+    query($owner:String!, $name:String!) {
       repository(owner: $owner, name: $name) {
         pullRequests(states: CLOSED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes { id, number, title, closedAt }
         }
       }
     }
-  `, { owner, name, since });
+  `, { owner, name });
   for (const pr of prsRes.repository.pullRequests.nodes) {
     const itemId = await addToProject(pr.id);
     await setSprint(itemId);
