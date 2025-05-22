@@ -25,6 +25,10 @@ async function getCurrentSprintValue() {
                 name
                 options { id name }
               }
+              ... on ProjectV2Field {
+                id
+                name
+              }
             }
           }
         }
@@ -33,7 +37,7 @@ async function getCurrentSprintValue() {
   `, { projectId: PROJECT_ID });
   const fields = projectRes.node.fields.nodes;
   // Find the Sprint field
-  const sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint'));
+  const sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.options);
   if (!sprintField) throw new Error('Could not find a Sprint field');
   // Find the latest sprint whose date is not in the future
   const today = new Date();
@@ -91,6 +95,10 @@ async function getDoneFieldAndOption() {
                 name
                 options { id name }
               }
+              ... on ProjectV2Field {
+                id
+                name
+              }
             }
           }
         }
@@ -99,7 +107,7 @@ async function getDoneFieldAndOption() {
   `, { projectId: PROJECT_ID });
   const fields = projectRes.node.fields.nodes;
   // Try to find a field named 'Status' or 'Column'
-  const doneField = fields.find(f => f.name && (f.name.toLowerCase().includes('status') || f.name.toLowerCase().includes('column')));
+  const doneField = fields.find(f => f.name && (f.name.toLowerCase().includes('status') || f.name.toLowerCase().includes('column')) && f.options);
   if (!doneField) throw new Error('Could not find a Status/Column field');
   const doneOption = doneField.options.find(o => o.name.toLowerCase() === 'done');
   if (!doneOption) throw new Error('Could not find a Done option in the Status/Column field');
