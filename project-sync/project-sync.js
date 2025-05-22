@@ -348,12 +348,11 @@ async function setSprintIterationField(itemId) {
 // Helper: assign PR to author and add to project, assign to current sprint
 async function processRepo(repo) {
   const [owner, name] = repo.split('/');
-  // Get open and closed PRs authored by GITHUB_AUTHOR
+  // Get open and closed PRs, then filter by author in JS
   const prsRes = await graphqlWithAuth(`
-    query($owner: String!, $name: String!, $author: String!) {
+    query($owner: String!, $name: String!) {
       repository(owner: $owner, name: $name) {
-        pullRequests(first: 50, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC},
-          filterBy: {createdBy: $author}) {
+        pullRequests(first: 50, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
             id
             number
@@ -364,8 +363,8 @@ async function processRepo(repo) {
         }
       }
     }
-  `, { owner, name, author: GITHUB_AUTHOR });
-  for (const pr of prsRes.repository.pullRequests.nodes) {
+  `, { owner, name });
+  for (const pr of prsRes.repository.pullRequests.nodes.filter(pr => pr.author && pr.author.login === GITHUB_AUTHOR)) {
     // Add PR to project
     const itemId = await addToProject(pr.id);
     // Assign PR to author in project
