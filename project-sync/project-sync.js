@@ -83,11 +83,11 @@ async function getCurrentSprintValue() {
     }
   `, { projectId: PROJECT_ID });
   const fields = projectRes.node.fields.nodes;
-  // Find the Sprint field (case-insensitive, exact match preferred)
-  let sprintField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'sprint' && f.options);
+  // Find the Sprint field (single-select or iteration)
+  let sprintField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'sprint' && (f.options || f.configuration));
   if (!sprintField) {
     // Fallback: allow partial match if exact not found
-    sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.options);
+    sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && (f.options || f.configuration));
   }
   if (!sprintField) {
     console.error('Could not find a Sprint field. Available fields:');
@@ -96,10 +96,23 @@ async function getCurrentSprintValue() {
     }
     throw new Error('Could not find a Sprint field');
   }
-  // Find the latest sprint whose date is not in the future
+  // If iteration field, find the latest sprint whose startDate is not in the future
+  if (sprintField.configuration && sprintField.configuration.iterations) {
+    const today = new Date();
+    let currentSprint = null;
+    for (const iter of sprintField.configuration.iterations) {
+      const sprintDate = new Date(iter.startDate);
+      if (sprintDate <= today && (!currentSprint || sprintDate > new Date(currentSprint.date))) {
+        currentSprint = { id: iter.id, name: iter.title, date: iter.startDate };
+      }
+    }
+    if (!currentSprint) throw new Error('Could not determine current sprint from Sprint iteration field');
+    return { fieldId: sprintField.id, value: currentSprint.id };
+  }
+  // If single-select, use previous logic
   const today = new Date();
   let currentSprint = null;
-  for (const opt of sprintField.options) {
+  for (const opt of sprintField.options || []) {
     const match = opt.name.match(/(\d{4}-\d{2}-\d{2})/);
     if (match) {
       const sprintDate = new Date(match[1]);
