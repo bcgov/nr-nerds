@@ -208,7 +208,10 @@ async function processRepo(repo) {
     query($owner:String!, $name:String!) {
       repository(owner: $owner, name: $name) {
         pullRequests(states: CLOSED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id, number, title, closedAt, merged, mergedAt, author { login } }
+          nodes {
+            id, number, title, closedAt, merged, mergedAt, author { login }
+            closingIssuesReferences(first: 10) { nodes { id, number, title } }
+          }
         }
       }
     }
@@ -232,6 +235,25 @@ async function processRepo(repo) {
         }
       `, { projectId: PROJECT_ID, itemId, assignee: pr.author.login });
       console.log(`  Assigned merged PR #${pr.number} to author (${pr.author.login})`);
+    }
+    // Assign linked issues to PR author
+    if (pr.closingIssuesReferences && pr.closingIssuesReferences.nodes.length > 0 && pr.author && pr.author.login) {
+      for (const linkedIssue of pr.closingIssuesReferences.nodes) {
+        const linkedItemId = await addToProject(linkedIssue.id);
+        await setSprint(linkedItemId);
+        await moveToDone(linkedItemId, doneFieldId, doneOptionId);
+        await graphqlWithAuth(`
+          mutation($itemId:ID!, $assignee:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: "assignees",
+              value: { users: [$assignee] }
+            }) { projectV2Item { id } }
+          }
+        `, { projectId: PROJECT_ID, itemId: linkedItemId, assignee: pr.author.login });
+        console.log(`  Assigned linked issue #${linkedIssue.number} to PR author (${pr.author.login}) and moved to Done`);
+      }
     }
     console.log(`  Added merged PR #${pr.number} to project and moved to Done`);
     prCount++;
