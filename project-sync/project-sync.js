@@ -213,13 +213,13 @@ async function processRepo(repo) {
     console.log(`  Added issue #${issue.number} to project and moved to Done`);
   }
 
-  // PRs
+  // PRs (open and closed)
   let prsRes = await graphqlWithAuth(`
     query($owner:String!, $name:String!) {
       repository(owner: $owner, name: $name) {
-        pullRequests(states: CLOSED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        pullRequests(states: [OPEN, CLOSED], first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
-            id, number, title, closedAt, merged, mergedAt, author { login }
+            id, number, title, closedAt, merged, mergedAt, state, author { login }
             closingIssuesReferences(first: 10) { nodes { id, number, title } }
           }
         }
@@ -228,12 +228,14 @@ async function processRepo(repo) {
   `, { owner, name });
   let prCount = 0;
   for (const pr of prsRes.repository.pullRequests.nodes) {
-    if (!pr.merged) continue; // Only process merged PRs
     const itemId = await addToProject(pr.id);
     await setSprint(itemId);
-    await moveToDone(itemId, doneFieldId, doneOptionId);
-    // Assign PR to author if author is the current user
-    if (pr.author && pr.author.login && pr.author.login.toLowerCase() === process.env.GITHUB_ACTOR?.toLowerCase()) {
+    // Only move to Done if PR is closed/merged
+    if (pr.state === 'CLOSED' && pr.merged) {
+      await moveToDone(itemId, doneFieldId, doneOptionId);
+    }
+    // Only assign PR to author if author is DerekRoberts
+    if (pr.author && pr.author.login && pr.author.login === 'DerekRoberts') {
       await graphqlWithAuth(`
         mutation($itemId:ID!, $assignee:String!) {
           updateProjectV2ItemFieldValue(input: {
@@ -244,10 +246,10 @@ async function processRepo(repo) {
           }) { projectV2Item { id } }
         }
       `, { projectId: PROJECT_ID, itemId, assignee: pr.author.login });
-      console.log(`  Assigned merged PR #${pr.number} to author (${pr.author.login})`);
+      console.log(`  Assigned PR #${pr.number} to author (${pr.author.login})`);
     }
-    // Assign linked issues to PR author
-    if (pr.closingIssuesReferences && pr.closingIssuesReferences.nodes.length > 0 && pr.author && pr.author.login) {
+    // Assign linked issues to PR author (if PR is closed/merged)
+    if (pr.state === 'CLOSED' && pr.merged && pr.closingIssuesReferences && pr.closingIssuesReferences.nodes.length > 0 && pr.author && pr.author.login) {
       for (const linkedIssue of pr.closingIssuesReferences.nodes) {
         const linkedItemId = await addToProject(linkedIssue.id);
         await setSprint(linkedItemId);
@@ -265,11 +267,11 @@ async function processRepo(repo) {
         console.log(`  Assigned linked issue #${linkedIssue.number} to PR author (${pr.author.login}) and moved to Done`);
       }
     }
-    console.log(`  Added merged PR #${pr.number} to project and moved to Done`);
+    console.log(`  Added PR #${pr.number} to project${pr.state === 'CLOSED' && pr.merged ? ' and moved to Done' : ''}`);
     prCount++;
   }
   if (prCount === 0) {
-    console.log("  No recently merged PRs found.");
+    console.log("  No recent PRs found.");
   }
 }
 
