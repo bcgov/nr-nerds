@@ -23,9 +23,5 @@ jobs:
       - name: Run sync script
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PROJECT_ID: ${{ secrets.PROJECT_ID }}
-          SPRINT_FIELD_ID: ${{ secrets.SPRINT_FIELD_ID }}
-          SPRINT_VALUE: ${{ secrets.SPRINT_VALUE }}
-          DONE_FIELD_ID: ${{ secrets.DONE_FIELD_ID }}
-          DONE_VALUE: ${{ secrets.DONE_VALUE }}
-        run: node watcher/scripts/project-sync.js
+          PROJECT_NUMBER: 16  # Set your project number here
+        run: node project-sync/project-sync.js

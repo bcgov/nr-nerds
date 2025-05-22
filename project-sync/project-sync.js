@@ -3,9 +3,8 @@ const fs = require("fs");
 const yaml = require("js-yaml");
 
 const GH_TOKEN = process.env.GH_TOKEN;
-const PROJECT_ID = process.env.PROJECT_ID; // GitHub Project (beta) node ID
-const SPRINT_FIELD_ID = process.env.SPRINT_FIELD_ID; // Custom field node ID
-const SPRINT_VALUE = process.env.SPRINT_VALUE; // e.g. "Sprint-2025-05-21"
+const ORG = process.env.ORG || "bcgov";
+const PROJECT_NUMBER = process.env.PROJECT_NUMBER; // e.g. 16
 
 const graphqlWithAuth = graphql.defaults({
   headers: { authorization: `token ${GH_TOKEN}` },
@@ -13,10 +12,31 @@ const graphqlWithAuth = graphql.defaults({
 
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
-const DONE_FIELD_ID = process.env.DONE_FIELD_ID; // Project field node ID for status/column
-const DONE_VALUE = process.env.DONE_VALUE; // Value for Done column (e.g. 'Done')
+async function getProjectAndFields() {
+  // Get project node ID and fields dynamically
+  const projectRes = await graphqlWithAuth(`
+    query($org: String!, $number: Int!) {
+      organization(login: $org) {
+        projectV2(number: $number) {
+          id
+          fields(first: 30) {
+            nodes {
+              id
+              name
+              ... on ProjectV2SingleSelectField {
+                options { id name }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { org: ORG, number: Number(PROJECT_NUMBER) });
+  const project = projectRes.organization.projectV2;
+  return project;
+}
 
-async function addToProject(contentId) {
+async function addToProject(contentId, projectId) {
   // Add item to project
   const addRes = await graphqlWithAuth(`
     mutation($projectId:ID!, $contentId:ID!) {
@@ -24,11 +44,11 @@ async function addToProject(contentId) {
         item { id }
       }
     }
-  `, { projectId: PROJECT_ID, contentId });
+  `, { projectId, contentId });
   return addRes.addProjectV2ItemById.item.id;
 }
 
-async function setSprint(itemId) {
+async function setSprint(itemId, projectId, fieldId, value) {
   // Set sprint field value
   await graphqlWithAuth(`
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:String!) {
@@ -39,10 +59,10 @@ async function setSprint(itemId) {
         value: { text: $value }
       }) { projectV2Item { id } }
     }
-  `, { projectId: PROJECT_ID, itemId, fieldId: SPRINT_FIELD_ID, value: SPRINT_VALUE });
+  `, { projectId, itemId, fieldId, value });
 }
 
-async function moveToDone(itemId) {
+async function moveToDone(itemId, projectId, fieldId, value) {
   // Set status/column field to Done
   await graphqlWithAuth(`
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:String!) {
@@ -53,10 +73,10 @@ async function moveToDone(itemId) {
         value: { text: $value }
       }) { projectV2Item { id } }
     }
-  `, { projectId: PROJECT_ID, itemId, fieldId: DONE_FIELD_ID, value: DONE_VALUE });
+  `, { projectId, itemId, fieldId, value });
 }
 
-async function processRepo(repo) {
+async function processRepo(repo, projectId, sprintFieldId, sprintValue, doneFieldId, doneValue) {
   // Get closed issues and PRs in the last 2 days
   const [owner, name] = repo.split("/");
   const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
@@ -72,9 +92,9 @@ async function processRepo(repo) {
     }
   `, { owner, name, since });
   for (const issue of issuesRes.repository.issues.nodes) {
-    const itemId = await addToProject(issue.id);
-    await setSprint(itemId);
-    await moveToDone(itemId);
+    const itemId = await addToProject(issue.id, projectId);
+    await setSprint(itemId, projectId, sprintFieldId, sprintValue);
+    await moveToDone(itemId, projectId, doneFieldId, doneValue);
     console.log(`Added issue #${issue.number} to project and moved to Done`);
   }
 
@@ -90,17 +110,28 @@ async function processRepo(repo) {
   `, { owner, name, since });
   for (const pr of prsRes.repository.pullRequests.nodes) {
     if (!pr.merged) continue; // Only process merged PRs
-    const itemId = await addToProject(pr.id);
-    await setSprint(itemId);
-    await moveToDone(itemId);
+    const itemId = await addToProject(pr.id, projectId);
+    await setSprint(itemId, projectId, sprintFieldId, sprintValue);
+    await moveToDone(itemId, projectId, doneFieldId, doneValue);
     console.log(`Added merged PR #${pr.number} to project and moved to Done`);
   }
 }
 
 (async () => {
+  const project = await getProjectAndFields();
+  const PROJECT_ID = project.id;
+  // Find field IDs by name
+  const SPRINT_FIELD = project.fields.nodes.find(f => f.name.toLowerCase().includes("sprint"));
+  const DONE_FIELD = project.fields.nodes.find(f => f.name.toLowerCase().includes("status") || f.name.toLowerCase().includes("column"));
+  const DONE_OPTION = DONE_FIELD && DONE_FIELD.options.find(o => o.name.toLowerCase() === "done");
+  // Set env vars for rest of script
+  const SPRINT_FIELD_ID = SPRINT_FIELD && SPRINT_FIELD.id;
+  const DONE_FIELD_ID = DONE_FIELD && DONE_FIELD.id;
+  const DONE_VALUE = DONE_OPTION && DONE_OPTION.name;
+
   for (const repo of repos) {
     try {
-      await processRepo(repo);
+      await processRepo(repo, PROJECT_ID, SPRINT_FIELD_ID, SPRINT_VALUE, DONE_FIELD_ID, DONE_VALUE);
     } catch (e) {
       console.error(`Error processing ${repo}:`, e.message);
     }
