@@ -25,4 +25,6 @@ jobs:
           PROJECT_ID: ${{ secrets.PROJECT_ID }}
           SPRINT_FIELD_ID: ${{ secrets.SPRINT_FIELD_ID }}
           SPRINT_VALUE: ${{ secrets.SPRINT_VALUE }}
-        run: node transfer/scripts/sync-to-project.js
+          DONE_FIELD_ID: ${{ secrets.DONE_FIELD_ID }}
+          DONE_VALUE: ${{ secrets.DONE_VALUE }}
+        run: node watcher/scripts/project-sync.js
