@@ -230,12 +230,18 @@ async function processRepo(repo) {
   }
   const PROJECT_ID = project.id;
   console.log(`\n---\nSyncing to GitHub Project: '${project.title}' (ID: ${PROJECT_ID}) in org: '${ORG}'\n---`);
+  let hadError = false;
   for (const repo of repos) {
     try {
       const fullRepo = withOrg(repo, ORG);
       await processRepo(fullRepo, PROJECT_ID, SPRINT_FIELD_ID, SPRINT_VALUE, DONE_FIELD_ID, DONE_VALUE);
     } catch (e) {
       console.error(`Error processing ${repo}:`, e.message);
+      hadError = true;
     }
+  }
+  if (hadError) {
+    console.error("\nOne or more repositories failed to sync. Exiting with error status.");
+    process.exit(1);
   }
 })();
