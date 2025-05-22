@@ -3,8 +3,9 @@ const fs = require("fs");
 const yaml = require("js-yaml");
 
 const GH_TOKEN = process.env.GH_TOKEN;
-const PROJECT_ID = process.env.PROJECT_ID; // GitHub Project (beta) node ID
-const SPRINT_FIELD_ID = process.env.SPRINT_FIELD_ID; // Custom field node ID
+// TODO: In the future, look up PROJECT_ID dynamically using org and project number.
+// For now, PROJECT_ID is hardcoded as: PVT_kwDOAA37OM4AFuzg
+const PROJECT_ID = "PVT_kwDOAA37OM4AFuzg"; // GitHub Project (beta) node ID
 
 const graphqlWithAuth = graphql.defaults({
   headers: { authorization: `token ${GH_TOKEN}` },
