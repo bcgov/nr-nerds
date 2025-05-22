@@ -1,6 +1,7 @@
 name: Sync Closed Items to Project
 
 on:
+  pull_request:
   schedule:
     - cron: '*/30 * * * *'  # every 30 minutes
   workflow_dispatch:
