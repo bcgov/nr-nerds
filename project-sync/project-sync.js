@@ -160,6 +160,8 @@ async function setStatus(itemId, statusName) {
   if (!statusOption) throw new Error(`Could not find a Status option named '${statusName}'`);
   // Debug: print the status option id and its type
   console.log(`Setting Status field: option '${statusName}' with id:`, statusOption.id, 'type:', typeof statusOption.id);
+  // Debug: print the full status option object
+  console.log('Status option object:', JSON.stringify(statusOption, null, 2));
   await graphqlWithAuth(`
     mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $singleSelectOptionId:ID!) {
       updateProjectV2ItemFieldValue(input: {
