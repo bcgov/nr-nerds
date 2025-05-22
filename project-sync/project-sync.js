@@ -83,8 +83,12 @@ async function getCurrentSprintValue() {
     }
   `, { projectId: PROJECT_ID });
   const fields = projectRes.node.fields.nodes;
-  // Find the Sprint field
-  const sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.options);
+  // Find the Sprint field (case-insensitive, exact match preferred)
+  let sprintField = fields.find(f => f.name && f.name.trim().toLowerCase() === 'sprint' && f.options);
+  if (!sprintField) {
+    // Fallback: allow partial match if exact not found
+    sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.options);
+  }
   if (!sprintField) {
     console.error('Could not find a Sprint field. Available fields:');
     for (const f of fields) {
@@ -189,48 +193,34 @@ async function processRepo(repo) {
   console.log(`\nProcessing repository: ${repo}`);
   console.log(`  Checking for issues/PRs closed or merged in the last ${RECENT_DAYS} days (since ${sinceDate.toISOString().slice(0,10)})...`);
 
-  // Issues (open and closed)
+  // Issues
   let issuesRes = await graphqlWithAuth(`
     query($owner:String!, $name:String!, $since:DateTime!) {
       repository(owner: $owner, name: $name) {
-        issues(states: [OPEN, CLOSED], filterBy: {since: $since}, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
-          nodes { id, number, title, closedAt, state, author { login } }
+        issues(states: CLOSED, filterBy: {since: $since}, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+          nodes { id, number, title, closedAt }
         }
       }
     }
   `, { owner, name, since });
   if (!issuesRes.repository.issues.nodes.length) {
-    console.log("  No recent issues found.");
+    console.log("  No recently closed issues found.");
   }
   for (const issue of issuesRes.repository.issues.nodes) {
     const itemId = await addToProject(issue.id);
     await setSprint(itemId);
     await moveToDone(itemId, doneFieldId, doneOptionId);
-    // Assign issue to author if present
-    if (issue.author && issue.author.login) {
-      await graphqlWithAuth(`
-        mutation($itemId:ID!, $assignee:String!) {
-          updateProjectV2ItemFieldValue(input: {
-            projectId: $projectId,
-            itemId: $itemId,
-            fieldId: "assignees",
-            value: { users: [$assignee] }
-          }) { projectV2Item { id } }
-        }
-      `, { projectId: PROJECT_ID, itemId, assignee: issue.author.login });
-      console.log(`  Assigned issue #${issue.number} to author (${issue.author.login})`);
-    }
     console.log(`  Added issue #${issue.number} to project and moved to Done`);
   }
 
-  // PRs (open and closed)
+  // PRs
   let prsRes = await graphqlWithAuth(`
     query($owner:String!, $name:String!) {
       repository(owner: $owner, name: $name) {
-        pullRequests(states: [OPEN, CLOSED], first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
+        pullRequests(states: CLOSED, first: 20, orderBy: {field: UPDATED_AT, direction: DESC}) {
           nodes {
-            id, number, title, closedAt, merged, mergedAt, state, author { login }
-            closingIssuesReferences(first: 10) { nodes { id, number, title, author { login } } }
+            id, number, title, closedAt, merged, mergedAt, author { login }
+            closingIssuesReferences(first: 10) { nodes { id, number, title } }
           }
         }
       }
@@ -238,11 +228,12 @@ async function processRepo(repo) {
   `, { owner, name });
   let prCount = 0;
   for (const pr of prsRes.repository.pullRequests.nodes) {
+    if (!pr.merged) continue; // Only process merged PRs
     const itemId = await addToProject(pr.id);
     await setSprint(itemId);
     await moveToDone(itemId, doneFieldId, doneOptionId);
-    // Assign PR to author if present
-    if (pr.author && pr.author.login) {
+    // Assign PR to author if author is the current user
+    if (pr.author && pr.author.login && pr.author.login.toLowerCase() === process.env.GITHUB_ACTOR?.toLowerCase()) {
       await graphqlWithAuth(`
         mutation($itemId:ID!, $assignee:String!) {
           updateProjectV2ItemFieldValue(input: {
@@ -253,7 +244,7 @@ async function processRepo(repo) {
           }) { projectV2Item { id } }
         }
       `, { projectId: PROJECT_ID, itemId, assignee: pr.author.login });
-      console.log(`  Assigned PR #${pr.number} to author (${pr.author.login})`);
+      console.log(`  Assigned merged PR #${pr.number} to author (${pr.author.login})`);
     }
     // Assign linked issues to PR author
     if (pr.closingIssuesReferences && pr.closingIssuesReferences.nodes.length > 0 && pr.author && pr.author.login) {
@@ -274,11 +265,11 @@ async function processRepo(repo) {
         console.log(`  Assigned linked issue #${linkedIssue.number} to PR author (${pr.author.login}) and moved to Done`);
       }
     }
-    console.log(`  Added PR #${pr.number} to project and moved to Done`);
+    console.log(`  Added merged PR #${pr.number} to project and moved to Done`);
     prCount++;
   }
   if (prCount === 0) {
-    console.log("  No recent PRs found.");
+    console.log("  No recently merged PRs found.");
   }
 }
 
