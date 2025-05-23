@@ -9,6 +9,45 @@ const octokit = new Octokit({ auth: GH_TOKEN });
 
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
+// Helper to add an item (PR or issue) to project and set status
+async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = '') {
+  try {
+    const addResult = await octokit.graphql(`
+      mutation($projectId:ID!, $contentId:ID!) {
+        addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+          item { id }
+        }
+      }
+    `, {
+      projectId: 'PVT_kwDOAA37OM4AFuzg',
+      contentId: nodeId
+    });
+    const projectItemId = addResult.addProjectV2ItemById.item.id;
+    await octokit.graphql(`
+      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { singleSelectOptionId: $optionId }
+        }) { projectV2Item { id } }
+      }
+    `, {
+      projectId: 'PVT_kwDOAA37OM4AFuzg',
+      itemId: projectItemId,
+      fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
+      optionId: 'c66ba2dd'
+    });
+    console.log(`${logPrefix}Added ${type} #${number} to project and set status to Active`);
+  } catch (err) {
+    if (err.message && err.message.includes('A project item already exists for this content')) {
+      // Already in project, skip
+    } else {
+      console.error(`${logPrefix}Error adding ${type} #${number} to project:`, err.message);
+    }
+  }
+}
+
 async function assignPRsInRepo(repo) {
   const [owner, name] = repo.split("/");
   let page = 1;
@@ -29,9 +68,9 @@ async function assignPRsInRepo(repo) {
         (
           pr.state === "open" ||
           (pr.state === "closed" && pr.merged_at && new Date(pr.merged_at) >= sinceDate)
-        ) &&
-        (!pr.assignees || pr.assignees.length === 0)
+        )
       ) {
+        // Always (re)assign to GITHUB_AUTHOR for consistency
         await octokit.issues.addAssignees({
           owner,
           repo: name,
@@ -40,6 +79,14 @@ async function assignPRsInRepo(repo) {
         });
         console.log(`Assigned PR #${pr.number} to ${GITHUB_AUTHOR}`);
         found++;
+        // Add PR to GitHub Projects v2 and set Status to Active
+        try {
+          const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
+          const prNodeId = prDetails.data.node_id;
+          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, '  ');
+        } catch (err) {
+          console.error(`  Error preparing PR #${pr.number} for project:`, err.message);
+        }
         // Fetch linked issues for this PR (only those in the same repository and in the development box)
         const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
           owner,
@@ -59,15 +106,20 @@ async function assignPRsInRepo(repo) {
         );
         for (const event of linkedIssues) {
           const issueNum = event.source.issue.number;
-          // Only assign if not already assigned
-          if (!event.source.issue.assignees || event.source.issue.assignees.length === 0) {
-            await octokit.issues.addAssignees({
-              owner,
-              repo: name,
-              issue_number: issueNum,
-              assignees: [GITHUB_AUTHOR]
-            });
-            console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
+          await octokit.issues.addAssignees({
+            owner,
+            repo: name,
+            issue_number: issueNum,
+            assignees: [GITHUB_AUTHOR]
+          });
+          console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
+          // Add linked issue to GitHub Projects v2 and set Status to Active
+          try {
+            const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
+            const issueNodeId = issueDetails.data.node_id;
+            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, '    ');
+          } catch (err) {
+            console.error(`    Error preparing issue #${issueNum} for project:`, err.message);
           }
         }
       }
