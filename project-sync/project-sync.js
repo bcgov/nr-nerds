@@ -40,6 +40,46 @@ async function assignPRsInRepo(repo) {
         });
         console.log(`Assigned PR #${pr.number} to ${GITHUB_AUTHOR}`);
         found++;
+        // Add PR to GitHub Projects v2 and set Status to Active
+        try {
+          // Get the node_id for the PR
+          const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
+          const prNodeId = prDetails.data.node_id;
+          // Add PR to project
+          await octokit.graphql(`
+            mutation($projectId:ID!, $contentId:ID!) {
+              addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                item { id }
+              }
+            }
+          `, {
+            projectId: 'PVT_kwDOAA37OM4AFuzg',
+            contentId: prNodeId
+          });
+          // Set Status to Active
+          await octokit.graphql(`
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: { singleSelectOptionId: $optionId }
+              }) { projectV2Item { id } }
+            }
+          `, {
+            projectId: 'PVT_kwDOAA37OM4AFuzg',
+            itemId: prNodeId,
+            fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
+            optionId: 'c66ba2dd'
+          });
+          console.log(`  Added PR #${pr.number} to project and set status to Active`);
+        } catch (err) {
+          if (err.message && err.message.includes('A project item already exists for this content')) {
+            // Already in project, skip
+          } else {
+            console.error(`  Error adding PR #${pr.number} to project:`, err.message);
+          }
+        }
         // Fetch linked issues for this PR (only those in the same repository and in the development box)
         const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
           owner,
@@ -68,6 +108,46 @@ async function assignPRsInRepo(repo) {
               assignees: [GITHUB_AUTHOR]
             });
             console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
+          }
+          // Add linked issue to GitHub Projects v2 and set Status to Active
+          try {
+            // Get the node_id for the issue
+            const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
+            const issueNodeId = issueDetails.data.node_id;
+            // Add issue to project
+            await octokit.graphql(`
+              mutation($projectId:ID!, $contentId:ID!) {
+                addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                  item { id }
+                }
+              }
+            `, {
+              projectId: 'PVT_kwDOAA37OM4AFuzg',
+              contentId: issueNodeId
+            });
+            // Set Status to Active
+            await octokit.graphql(`
+              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId,
+                  itemId: $itemId,
+                  fieldId: $fieldId,
+                  value: { singleSelectOptionId: $optionId }
+                }) { projectV2Item { id } }
+              }
+            `, {
+              projectId: 'PVT_kwDOAA37OM4AFuzg',
+              itemId: issueNodeId,
+              fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
+              optionId: 'c66ba2dd'
+            });
+            console.log(`    Added issue #${issueNum} to project and set status to Active`);
+          } catch (err) {
+            if (err.message && err.message.includes('A project item already exists for this content')) {
+              // Already in project, skip
+            } else {
+              console.error(`    Error adding issue #${issueNum} to project:`, err.message);
+            }
           }
         }
       }
