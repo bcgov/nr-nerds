@@ -386,7 +386,7 @@ async function processRepo(repo) {
         addAssigneesToAssignable(input: {
           assignableId: $assignableId,
           assigneeIds: $assigneeIds
-        }) { assignable { id } }
+        }) { clientMutationId }
       }
     `, { assignableId: pr.id, assigneeIds: [assigneeId] });
     // Assign to current sprint (iteration field)
