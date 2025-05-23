@@ -40,6 +40,36 @@ async function assignPRsInRepo(repo) {
         });
         console.log(`Assigned PR #${pr.number} to ${GITHUB_AUTHOR}`);
         found++;
+        // Fetch linked issues for this PR (only those in the same repository and in the development box)
+        const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
+          owner,
+          repo: name,
+          issue_number: pr.number,
+          mediaType: { previews: ['mockingbird'] }
+        });
+        // Only consider cross-referenced events where the linked issue is in the same repo, is not a PR, and is referenced from the PR body (not a comment)
+        const linkedIssues = timeline.filter(event =>
+          event.event === 'cross-referenced' &&
+          event.source &&
+          event.source.issue &&
+          event.source.issue.pull_request === undefined &&
+          !event.source.comment &&
+          event.source.issue.repository &&
+          event.source.issue.repository.full_name === `${owner}/${name}`
+        );
+        for (const event of linkedIssues) {
+          const issueNum = event.source.issue.number;
+          // Only assign if not already assigned
+          if (!event.source.issue.assignees || event.source.issue.assignees.length === 0) {
+            await octokit.issues.addAssignees({
+              owner,
+              repo: name,
+              issue_number: issueNum,
+              assignees: [GITHUB_AUTHOR]
+            });
+            console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
+          }
+        }
       }
     }
     page++;
