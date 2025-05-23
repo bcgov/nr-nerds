@@ -29,9 +29,10 @@ async function assignPRsInRepo(repo) {
         (
           pr.state === "open" ||
           (pr.state === "closed" && pr.merged_at && new Date(pr.merged_at) >= sinceDate)
-        ) &&
-        (!pr.assignees || pr.assignees.length === 0)
+        )
+        // Removed assignee check to allow processing all PRs by GITHUB_AUTHOR
       ) {
+        // Always (re)assign to GITHUB_AUTHOR for consistency
         await octokit.issues.addAssignees({
           owner,
           repo: name,
@@ -100,16 +101,14 @@ async function assignPRsInRepo(repo) {
         );
         for (const event of linkedIssues) {
           const issueNum = event.source.issue.number;
-          // Only assign if not already assigned
-          if (!event.source.issue.assignees || event.source.issue.assignees.length === 0) {
-            await octokit.issues.addAssignees({
-              owner,
-              repo: name,
-              issue_number: issueNum,
-              assignees: [GITHUB_AUTHOR]
-            });
-            console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
-          }
+          // Always (re)assign to GITHUB_AUTHOR for consistency
+          await octokit.issues.addAssignees({
+            owner,
+            repo: name,
+            issue_number: issueNum,
+            assignees: [GITHUB_AUTHOR]
+          });
+          console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
           // Add linked issue to GitHub Projects v2 and set Status to Active
           try {
             // Get the node_id for the issue
