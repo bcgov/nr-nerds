@@ -45,8 +45,8 @@ async function assignPRsInRepo(repo) {
           // Get the node_id for the PR
           const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
           const prNodeId = prDetails.data.node_id;
-          // Add PR to project
-          await octokit.graphql(`
+          // Add PR to project and get the project item id
+          const addPrResult = await octokit.graphql(`
             mutation($projectId:ID!, $contentId:ID!) {
               addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
                 item { id }
@@ -56,7 +56,8 @@ async function assignPRsInRepo(repo) {
             projectId: 'PVT_kwDOAA37OM4AFuzg',
             contentId: prNodeId
           });
-          // Set Status to Active
+          const prProjectItemId = addPrResult.addProjectV2ItemById.item.id;
+          // Set Status to Active using the project item id
           await octokit.graphql(`
             mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
               updateProjectV2ItemFieldValue(input: {
@@ -68,7 +69,7 @@ async function assignPRsInRepo(repo) {
             }
           `, {
             projectId: 'PVT_kwDOAA37OM4AFuzg',
-            itemId: prNodeId,
+            itemId: prProjectItemId,
             fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
             optionId: 'c66ba2dd'
           });
@@ -114,8 +115,8 @@ async function assignPRsInRepo(repo) {
             // Get the node_id for the issue
             const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
             const issueNodeId = issueDetails.data.node_id;
-            // Add issue to project
-            await octokit.graphql(`
+            // Add issue to project and get the project item id
+            const addIssueResult = await octokit.graphql(`
               mutation($projectId:ID!, $contentId:ID!) {
                 addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
                   item { id }
@@ -125,7 +126,8 @@ async function assignPRsInRepo(repo) {
               projectId: 'PVT_kwDOAA37OM4AFuzg',
               contentId: issueNodeId
             });
-            // Set Status to Active
+            const issueProjectItemId = addIssueResult.addProjectV2ItemById.item.id;
+            // Set Status to Active using the project item id
             await octokit.graphql(`
               mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
                 updateProjectV2ItemFieldValue(input: {
@@ -137,7 +139,7 @@ async function assignPRsInRepo(repo) {
               }
             `, {
               projectId: 'PVT_kwDOAA37OM4AFuzg',
-              itemId: issueNodeId,
+              itemId: issueProjectItemId,
               fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
               optionId: 'c66ba2dd'
             });
