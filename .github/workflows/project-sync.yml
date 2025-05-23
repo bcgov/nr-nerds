@@ -18,7 +18,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install @octokit/graphql js-yaml
+        run: npm install @octokit/graphql @octokit/rest js-yaml
 
       - name: Run sync script
         env:
