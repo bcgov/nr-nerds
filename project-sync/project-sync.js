@@ -29,7 +29,8 @@ async function assignPRsInRepo(repo) {
         (
           pr.state === "open" ||
           (pr.state === "closed" && pr.merged_at && new Date(pr.merged_at) >= sinceDate)
-        )
+        ) &&
+        (!pr.assignees || pr.assignees.length === 0)
       ) {
         await octokit.issues.addAssignees({
           owner,
