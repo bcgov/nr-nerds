@@ -11,9 +11,9 @@ const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
 async function assignPRsInRepo(repo) {
   const [owner, name] = repo.split("/");
-  // Get open and closed PRs
   let page = 1;
   let found = 0;
+  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const { data: prs } = await octokit.pulls.list({
       owner,
@@ -24,7 +24,13 @@ async function assignPRsInRepo(repo) {
     });
     if (prs.length === 0) break;
     for (const pr of prs) {
-      if (pr.user && pr.user.login === GITHUB_AUTHOR) {
+      if (
+        pr.user && pr.user.login === GITHUB_AUTHOR &&
+        (
+          pr.state === "open" ||
+          (pr.state === "closed" && pr.merged_at && new Date(pr.merged_at) >= sinceDate)
+        )
+      ) {
         await octokit.issues.addAssignees({
           owner,
           repo: name,
@@ -37,7 +43,7 @@ async function assignPRsInRepo(repo) {
     }
     page++;
   }
-  if (found === 0) console.log(`No PRs by ${GITHUB_AUTHOR} found in ${repo}`);
+  if (found === 0) console.log(`No matching PRs by ${GITHUB_AUTHOR} found in ${repo}`);
 }
 
 (async () => {
