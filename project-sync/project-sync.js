@@ -367,14 +367,14 @@ async function processRepo(repo) {
   for (const pr of prsRes.repository.pullRequests.nodes.filter(pr => pr.author && pr.author.login === GITHUB_AUTHOR)) {
     // Add PR to project
     const itemId = await addToProject(pr.id);
-    // Assign PR to author in project
+    // Assign PR to author in project (use correct assignee mutation)
     await graphqlWithAuth(`
-      mutation($itemId:ID!, $assignee:String!) {
+      mutation($projectId:ID!, $itemId:ID!, $assignee:String!) {
         updateProjectV2ItemFieldValue(input: {
           projectId: $projectId,
           itemId: $itemId,
           fieldId: "assignees",
-          value: { users: [$assignee] }
+          value: { assigneeIds: [$assignee] }
         }) { projectV2Item { id } }
       }
     `, { projectId: PROJECT_ID, itemId, assignee: GITHUB_AUTHOR });
