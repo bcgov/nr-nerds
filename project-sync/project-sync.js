@@ -345,6 +345,17 @@ async function setSprintIterationField(itemId) {
   console.log(`  Assigned to current sprint: ${title}`);
 }
 
+// Helper: get user node ID by login
+async function getUserNodeId(login) {
+  const res = await graphqlWithAuth(`
+    query($login: String!) {
+      user(login: $login) { id }
+    }
+  `, { login });
+  if (!res.user || !res.user.id) throw new Error(`Could not find user node ID for ${login}`);
+  return res.user.id;
+}
+
 // Helper: assign PR to author and add to project, assign to current sprint
 async function processRepo(repo) {
   const [owner, name] = repo.split('/');
@@ -364,20 +375,20 @@ async function processRepo(repo) {
       }
     }
   `, { owner, name });
+  // Get user node ID for GITHUB_AUTHOR
+  const assigneeId = await getUserNodeId(GITHUB_AUTHOR);
   for (const pr of prsRes.repository.pullRequests.nodes.filter(pr => pr.author && pr.author.login === GITHUB_AUTHOR)) {
     // Add PR to project
     const itemId = await addToProject(pr.id);
-    // Assign PR to author in project (use login, not id)
+    // Assign PR to author (assignable)
     await graphqlWithAuth(`
-      mutation($projectId:ID!, $itemId:ID!, $assignee:String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId,
-          itemId: $itemId,
-          fieldId: "assignees",
-          value: { users: [$assignee] }
-        }) { projectV2Item { id } }
+      mutation($assignableId:ID!, $assigneeIds:[ID!]!) {
+        addAssigneesToAssignable(input: {
+          assignableId: $assignableId,
+          assigneeIds: $assigneeIds
+        }) { assignable { id } }
       }
-    `, { projectId: PROJECT_ID, itemId, assignee: GITHUB_AUTHOR });
+    `, { assignableId: pr.id, assigneeIds: [assigneeId] });
     // Assign to current sprint (iteration field)
     await setSprintIterationField(itemId);
     console.log(`  PR #${pr.number} assigned to ${GITHUB_AUTHOR} and current sprint.`);
