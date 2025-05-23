@@ -30,7 +30,6 @@ async function assignPRsInRepo(repo) {
           pr.state === "open" ||
           (pr.state === "closed" && pr.merged_at && new Date(pr.merged_at) >= sinceDate)
         )
-        // Removed assignee check to allow processing all PRs by GITHUB_AUTHOR
       ) {
         // Always (re)assign to GITHUB_AUTHOR for consistency
         await octokit.issues.addAssignees({
@@ -101,7 +100,7 @@ async function assignPRsInRepo(repo) {
         );
         for (const event of linkedIssues) {
           const issueNum = event.source.issue.number;
-          // Always (re)assign to GITHUB_AUTHOR for consistency
+          // Remove author check: assign and add to project regardless of issue author
           await octokit.issues.addAssignees({
             owner,
             repo: name,
