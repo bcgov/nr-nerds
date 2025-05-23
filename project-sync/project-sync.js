@@ -358,7 +358,7 @@ async function processRepo(repo) {
             number
             title
             state
-            author { login id }
+            author { login }
           }
         }
       }
@@ -367,15 +367,17 @@ async function processRepo(repo) {
   for (const pr of prsRes.repository.pullRequests.nodes.filter(pr => pr.author && pr.author.login === GITHUB_AUTHOR)) {
     // Add PR to project
     const itemId = await addToProject(pr.id);
-    // Assign PR to author in project (use correct assignees mutation for ProjectV2)
+    // Assign PR to author in project (use login, not id)
     await graphqlWithAuth(`
-      mutation($projectId:ID!, $itemId:ID!, $assigneeId:ID!) {
-        addAssigneesToAssignable(input: {
-          assignableId: $itemId,
-          assigneeIds: [$assigneeId]
-        }) { assignable { id } }
+      mutation($projectId:ID!, $itemId:ID!, $assignee:String!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: "assignees",
+          value: { users: [$assignee] }
+        }) { projectV2Item { id } }
       }
-    `, { projectId: PROJECT_ID, itemId, assigneeId: pr.author?.id });
+    `, { projectId: PROJECT_ID, itemId, assignee: GITHUB_AUTHOR });
     // Assign to current sprint (iteration field)
     await setSprintIterationField(itemId);
     console.log(`  PR #${pr.number} assigned to ${GITHUB_AUTHOR} and current sprint.`);
