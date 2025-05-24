@@ -25,7 +25,17 @@ function getCurrentSprintIterationId(iterations) {
   return current;
 }
 
-// Helper to get the current and next sprint windows (two-week cadence)
+// Helper to get the most recent Monday (including today if today is Monday)
+function getMostRecentMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = (day + 6) % 7; // 0 if Monday, 1 if Tuesday, ...
+  d.setDate(d.getDate() - diff);
+  d.setHours(0,0,0,0);
+  return d;
+}
+
+// Helper to get the current and next sprint windows (two-week cadence, always starting on Monday)
 function getSprintWindows(iterations) {
   // Find the earliest start date
   let earliest = null;
@@ -33,26 +43,19 @@ function getSprintWindows(iterations) {
     const start = new Date(iter.startDate);
     if (!earliest || start < earliest) earliest = start;
   }
-  if (!earliest) earliest = new Date();
+  if (!earliest) earliest = getMostRecentMonday(new Date());
   // Calculate the current and next sprint windows
   const today = new Date();
-  const msInDay = 24 * 60 * 60 * 1000;
   const duration = 14; // two weeks
-  let currentStart = new Date(earliest);
-  let found = false;
-  while (currentStart <= today) {
-    const end = new Date(currentStart);
-    end.setDate(currentStart.getDate() + duration);
-    if (currentStart <= today && today < end) {
-      found = true;
-      break;
-    }
-    currentStart.setDate(currentStart.getDate() + duration);
+  let currentStart = getMostRecentMonday(today);
+  // Find the most recent sprint start (Monday) that is <= today
+  while (currentStart > today) {
+    currentStart.setDate(currentStart.getDate() - 7);
   }
-  if (!found) currentStart = today;
   const currentEnd = new Date(currentStart);
   currentEnd.setDate(currentStart.getDate() + duration);
-  const nextStart = new Date(currentEnd);
+  const nextStart = new Date(currentStart);
+  nextStart.setDate(currentStart.getDate() + duration);
   const nextEnd = new Date(nextStart);
   nextEnd.setDate(nextStart.getDate() + duration);
   return [
