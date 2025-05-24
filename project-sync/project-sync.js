@@ -9,6 +9,22 @@ const octokit = new Octokit({ auth: GH_TOKEN });
 
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
+// Helper to get the current sprint iteration ID (the one whose startDate is closest to today but not in the future)
+function getCurrentSprintIterationId(iterations) {
+  const today = new Date();
+  let current = null;
+  for (const iter of iterations) {
+    const start = new Date(iter.startDate);
+    const end = new Date(start);
+    end.setDate(start.getDate() + iter.duration);
+    if (start <= today && today < end) {
+      current = iter.id;
+      break;
+    }
+  }
+  return current;
+}
+
 // Helper to add an item (PR or issue) to project and set status and sprint
 async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = '') {
   try {
@@ -39,23 +55,49 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = ''
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
       optionId: 'c66ba2dd'
     });
-    // Set Sprint to Sprint 68 (iteration field)
-    await octokit.graphql(`
-      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId,
-          itemId: $itemId,
-          fieldId: $fieldId,
-          value: { iterationId: $iterationId }
-        }) { projectV2Item { id } }
+    // Get Sprint field iterations
+    const fieldsResp = await octokit.graphql(`
+      query($org: String!, $proj: Int!) {
+        organization(login: $org) {
+          projectV2(number: $proj) {
+            fields(first: 30) {
+              nodes {
+                ... on ProjectV2IterationField {
+                  id
+                  name
+                  configuration {
+                    iterations { id title startDate duration }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
-    `, {
-      projectId: 'PVT_kwDOAA37OM4AFuzg',
-      itemId: projectItemId,
-      fieldId: 'PVTIF_lADOAA37OM4AFuzgzgDTbhE', // Sprint field
-      iterationId: '0de43d8a' // Sprint 68
-    });
-    console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, and set Sprint to Sprint 68`);
+    `, { org: 'bcgov', proj: 16 });
+    const sprintField = fieldsResp.organization.projectV2.fields.nodes.find(f => f.name === 'Sprint');
+    const iterations = sprintField.configuration.iterations;
+    const currentSprintId = getCurrentSprintIterationId(iterations);
+    if (currentSprintId) {
+      await octokit.graphql(`
+        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+          updateProjectV2ItemFieldValue(input: {
+            projectId: $projectId,
+            itemId: $itemId,
+            fieldId: $fieldId,
+            value: { iterationId: $iterationId }
+          }) { projectV2Item { id } }
+        }
+      `, {
+        projectId: 'PVT_kwDOAA37OM4AFuzg',
+        itemId: projectItemId,
+        fieldId: sprintField.id,
+        iterationId: currentSprintId
+      });
+      console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, and set Sprint to current sprint`);
+    } else {
+      console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, but could not find current sprint`);
+    }
   } catch (err) {
     if (err.message && err.message.includes('A project item already exists for this content')) {
       // Already in project, skip
