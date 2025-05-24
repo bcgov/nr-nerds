@@ -38,7 +38,7 @@ async function ensureCurrentSprintExists(sprintField) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '') {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null) {
   try {
     // Paginate through project items to check if this nodeId is already present
     let projectItemId = null;
@@ -85,22 +85,28 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       projectItemId = addResult.addProjectV2ItemById.item.id;
       added = true;
     }
-    // Set Status to Active
-    await octokit.graphql(`
-      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId,
-          itemId: $itemId,
-          fieldId: $fieldId,
-          value: { singleSelectOptionId: $optionId }
-        }) { projectV2Item { id } }
-      }
-    `, {
-      projectId: PROJECT_ID,
-      itemId: projectItemId,
-      fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
-      optionId: 'c66ba2dd'
-    });
+    // Only set Status to Active for open PRs/issues (not merged PRs)
+    let statusMsg = '';
+    if (type === 'PR' && prState === 'closed') {
+      statusMsg = ', status=UNCHANGED (merged PR)';
+    } else {
+      await octokit.graphql(`
+        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+          updateProjectV2ItemFieldValue(input: {
+            projectId: $projectId,
+            itemId: $itemId,
+            fieldId: $fieldId,
+            value: { singleSelectOptionId: $optionId }
+          }) { projectV2Item { id } }
+        }
+      `, {
+        projectId: PROJECT_ID,
+        itemId: projectItemId,
+        fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
+        optionId: 'c66ba2dd'
+      });
+      statusMsg = ', status=Active';
+    }
     // Get Sprint field iterations
     let sprintMsg = '';
     if (sprintField && sprintField.configuration) {
@@ -153,7 +159,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       sprintMsg = ', sprint=NOT FOUND';
     }
     const action = added ? 'added to' : 'updated in';
-    console.log(`[${repoName}] ${type} #${number}: ${action} project, status=Active${sprintMsg}`);
+    console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
   } catch (err) {
     console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
   }
@@ -194,7 +200,7 @@ async function assignPRsInRepo(repo, sprintField) {
         try {
           const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
           const prNodeId = prDetails.data.node_id;
-          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`);
+          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state);
           summary.project++;
         } catch (err) {
           console.error(`  [${owner}/${name}] Error preparing PR #${pr.number} for project:`, err.message);
