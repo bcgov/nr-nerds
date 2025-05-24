@@ -52,29 +52,39 @@ async function ensureCurrentSprintExists(sprintField) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '') {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '') {
   try {
-    // Fetch project items and check if this nodeId is already present
-    const existingItemQuery = await octokit.graphql(`
-      query($projectId:ID!) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            items(first: 100) {
-              nodes { id content { ... on PullRequest { id } ... on Issue { id } } }
+    // Paginate through project items to check if this nodeId is already present
+    let projectItemId = null;
+    let endCursor = null;
+    let found = false;
+    do {
+      const existingItemQuery = await octokit.graphql(`
+        query($projectId:ID!, $after:String) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: 100, after: $after) {
+                nodes { id content { ... on PullRequest { id } ... on Issue { id } } }
+                pageInfo { hasNextPage endCursor }
+              }
             }
           }
         }
+      `, {
+        projectId: 'PVT_kwDOAA37OM4AFuzg',
+        after: endCursor
+      });
+      const items = existingItemQuery.node.items.nodes;
+      const match = items.find(item => item.content && item.content.id === nodeId);
+      if (match) {
+        projectItemId = match.id;
+        found = true;
+        break;
       }
-    `, {
-      projectId: 'PVT_kwDOAA37OM4AFuzg'
-    });
-    let projectItemId = null;
-    const items = existingItemQuery.node.items.nodes;
-    if (items && items.some(item => item.content && item.content.id === nodeId)) {
-      projectItemId = items.find(item => item.content && item.content.id === nodeId).id;
-      // Already in project, skip add
-      // But still update status/sprint below
-    } else {
+      endCursor = existingItemQuery.node.items.pageInfo.endCursor;
+    } while (endCursor);
+    let added = false;
+    if (!found) {
       // Not in project, add it
       const addResult = await octokit.graphql(`
         mutation($projectId:ID!, $contentId:ID!) {
@@ -87,6 +97,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
         contentId: nodeId
       });
       projectItemId = addResult.addProjectV2ItemById.item.id;
+      added = true;
     }
     // Set Status to Active
     await octokit.graphql(`
@@ -105,6 +116,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       optionId: 'c66ba2dd'
     });
     // Get Sprint field iterations
+    let sprintMsg = '';
     if (sprintField && sprintField.configuration) {
       await ensureCurrentSprintExists(sprintField);
       const refreshed = await octokit.graphql(`
@@ -130,7 +142,8 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       const refreshedSprintField = refreshed.node.fields.nodes.find(f => f.id === sprintField.id);
       const iterations = refreshedSprintField.configuration.iterations;
       const currentSprintId = getCurrentSprintIterationId(iterations);
-      if (currentSprintId) {
+      const currentSprint = iterations.find(i => i.id === currentSprintId);
+      if (currentSprintId && currentSprint) {
         await octokit.graphql(`
           mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
             updateProjectV2ItemFieldValue(input: {
@@ -146,15 +159,17 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           fieldId: sprintField.id,
           iterationId: currentSprintId
         });
-        console.log(`${logPrefix}Added/updated ${type} #${number} in project, set status to Active, and set Sprint to current sprint`);
+        sprintMsg = `, sprint='${currentSprint.title}'`;
       } else {
-        console.log(`${logPrefix}Added/updated ${type} #${number} in project, set status to Active, but could not find current sprint`);
+        sprintMsg = ', sprint=NOT FOUND';
       }
     } else {
-      console.log(`${logPrefix}Added/updated ${type} #${number} in project, set status to Active, but could not find Sprint field or configuration`);
+      sprintMsg = ', sprint=NOT FOUND';
     }
+    const action = added ? 'added to' : 'updated in';
+    console.log(`[${repoName}] ${type} #${number}: ${action} project, status=Active${sprintMsg}`);
   } catch (err) {
-    console.error(`${logPrefix}Error adding/updating ${type} #${number} in project:`, err.message);
+    console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
   }
 }
 
@@ -162,6 +177,7 @@ async function assignPRsInRepo(repo, sprintField) {
   const [owner, name] = repo.split("/");
   let page = 1;
   let found = 0;
+  let summary = { assigned: 0, project: 0, issues: 0 };
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const { data: prs } = await octokit.pulls.list({
@@ -187,15 +203,15 @@ async function assignPRsInRepo(repo, sprintField) {
           issue_number: pr.number,
           assignees: [GITHUB_AUTHOR]
         });
-        console.log(`Assigned PR #${pr.number} to ${GITHUB_AUTHOR}`);
-        found++;
+        summary.assigned++;
         // Add PR to GitHub Projects v2 and set Status to Active
         try {
           const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
           const prNodeId = prDetails.data.node_id;
-          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ');
+          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`);
+          summary.project++;
         } catch (err) {
-          console.error(`  Error preparing PR #${pr.number} for project:`, err.message);
+          console.error(`  [${owner}/${name}] Error preparing PR #${pr.number} for project:`, err.message);
         }
         // Fetch linked issues for this PR (only those in the same repository and in the development box)
         const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
@@ -222,21 +238,25 @@ async function assignPRsInRepo(repo, sprintField) {
             issue_number: issueNum,
             assignees: [GITHUB_AUTHOR]
           });
-          console.log(`  Assigned linked issue #${issueNum} to ${GITHUB_AUTHOR}`);
+          summary.issues++;
           // Add linked issue to GitHub Projects v2 and set Status to Active
           try {
             const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
             const issueNodeId = issueDetails.data.node_id;
-            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ');
+            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`);
           } catch (err) {
-            console.error(`    Error preparing issue #${issueNum} for project:`, err.message);
+            console.error(`    [${owner}/${name}] Error preparing issue #${issueNum} for project:`, err.message);
           }
         }
       }
     }
     page++;
   }
-  if (found === 0) console.log(`No matching PRs by ${GITHUB_AUTHOR} found in ${repo}`);
+  if (summary.assigned === 0) {
+    console.log(`[${owner}/${name}] No matching PRs by ${GITHUB_AUTHOR} found.`);
+  } else {
+    console.log(`[${owner}/${name}] Summary: PRs assigned: ${summary.assigned}, PRs added/updated in project: ${summary.project}, linked issues assigned: ${summary.issues}`);
+  }
 }
 
 (async () => {
