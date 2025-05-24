@@ -65,62 +65,13 @@ function formatDate(date) {
   return date.toISOString().slice(0, 10);
 }
 
-// Helper to ensure sprints exist in the project (creates if missing)
-async function ensureSprintsExist(octokit, projectId, sprintField) {
+// Helper to ensure a current sprint exists (today is within a sprint window)
+async function ensureCurrentSprintExists(sprintField) {
   if (!sprintField || !sprintField.configuration) return;
   const iterations = sprintField.configuration.iterations;
-  const [current, next] = getSprintWindows(iterations);
-  const existing = iterations.map(i => ({
-    start: formatDate(new Date(i.startDate)),
-    duration: i.duration,
-    title: i.title
-  }));
-  const needed = [current, next].filter(win => {
-    return !existing.some(e =>
-      e.start === formatDate(win.start) && e.duration === 14
-    );
-  });
-  if (needed.length > 0) {
-    console.error('\nERROR: The following sprints are missing and must be created manually in the GitHub UI:');
-    needed.forEach(win => console.error(`  Sprint starting ${formatDate(win.start)}`));
-    process.exit(1);
-  }
-}
-
-// Helper to get the current and next sprint start dates (2-week cadence)
-function getSprintStartDates(iterations) {
-  // Find the latest sprint end date
-  let latestEnd = null;
-  for (const iter of iterations) {
-    const start = new Date(iter.startDate);
-    const end = new Date(start);
-    end.setDate(start.getDate() + iter.duration);
-    if (!latestEnd || end > latestEnd) latestEnd = end;
-  }
-  // If no sprints, start today
-  const today = new Date();
-  let nextStart = latestEnd && latestEnd > today ? latestEnd : today;
-  // Align to next Monday
-  nextStart.setDate(nextStart.getDate() + ((1 + 7 - nextStart.getDay()) % 7));
-  nextStart.setHours(0,0,0,0);
-  const nextNextStart = new Date(nextStart);
-  nextNextStart.setDate(nextStart.getDate() + 14);
-  return [nextStart, nextNextStart];
-}
-
-// Helper to ensure current and next sprint exist, creating if needed
-async function ensureCurrentAndNextSprint(octokit, projectId, sprintField) {
-  if (!sprintField || !sprintField.configuration) return;
-  const iterations = sprintField.configuration.iterations;
-  const [nextStart, nextNextStart] = getSprintStartDates(iterations);
-  // Use formatted dates for consistency in comparison
-  const existingStarts = new Set(iterations.map(i => formatDate(new Date(i.startDate))));
-  const toCreate = [];
-  if (!existingStarts.has(nextStart.toISOString().slice(0,10))) toCreate.push(nextStart);
-  if (!existingStarts.has(nextNextStart.toISOString().slice(0,10))) toCreate.push(nextNextStart);
-  if (toCreate.length > 0) {
-    console.error('\nERROR: The following sprints are missing and must be created manually in the GitHub UI:');
-    toCreate.forEach(d => console.error(`  Sprint starting ${formatDate(d)}`));
+  const currentSprintId = getCurrentSprintIterationId(iterations);
+  if (!currentSprintId) {
+    console.error('\nERROR: No current sprint is available. Please create a sprint in the GitHub UI that includes today.');
     process.exit(1);
   }
 }
@@ -158,7 +109,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     // Get Sprint field iterations
     if (sprintField && sprintField.configuration) {
       // Ensure current/next sprints exist
-      await ensureSprintsExist(octokit, 'PVT_kwDOAA37OM4AFuzg', sprintField);
+      await ensureCurrentSprintExists(sprintField);
       // Refetch iterations after possible creation
       const refreshed = await octokit.graphql(`
         query($projectId:ID!) {
@@ -334,7 +285,7 @@ async function assignPRsInRepo(repo, sprintField) {
     } else if (sprintField && typeof sprintField.configuration === 'string') {
       sprintField.configuration = JSON.parse(sprintField.configuration);
     }
-    await ensureCurrentAndNextSprint(octokit, 'PVT_kwDOAA37OM4AFuzg', sprintField);
+    await ensureCurrentSprintExists(sprintField);
   } catch (e) {
     console.error('Error fetching/ensuring sprints:', e.message);
     if (e.errors) {
