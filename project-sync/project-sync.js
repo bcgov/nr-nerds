@@ -7,6 +7,7 @@ const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const octokit = new Octokit({ auth: GH_TOKEN });
 
+const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
 // Helper to get the current sprint iteration ID (the one whose startDate is closest to today but not in the future)
@@ -71,7 +72,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           }
         }
       `, {
-        projectId: 'PVT_kwDOAA37OM4AFuzg',
+        projectId: PROJECT_ID,
         after: endCursor
       });
       const items = existingItemQuery.node.items.nodes;
@@ -93,7 +94,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           }
         }
       `, {
-        projectId: 'PVT_kwDOAA37OM4AFuzg',
+        projectId: PROJECT_ID,
         contentId: nodeId
       });
       projectItemId = addResult.addProjectV2ItemById.item.id;
@@ -110,7 +111,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
         }) { projectV2Item { id } }
       }
     `, {
-      projectId: 'PVT_kwDOAA37OM4AFuzg',
+      projectId: PROJECT_ID,
       itemId: projectItemId,
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
       optionId: 'c66ba2dd'
@@ -138,7 +139,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
             }
           }
         }
-      `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
+      `, { projectId: PROJECT_ID });
       const refreshedSprintField = refreshed.node.fields.nodes.find(f => f.id === sprintField.id);
       const iterations = refreshedSprintField.configuration.iterations;
       const currentSprintId = getCurrentSprintIterationId(iterations);
@@ -154,7 +155,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
             }) { projectV2Item { id } }
           }
         `, {
-          projectId: 'PVT_kwDOAA37OM4AFuzg',
+          projectId: PROJECT_ID,
           itemId: projectItemId,
           fieldId: sprintField.id,
           iterationId: currentSprintId
@@ -287,7 +288,7 @@ async function assignPRsInRepo(repo, sprintField) {
           }
         }
       }
-    `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
+    `, { projectId: PROJECT_ID });
     // Clean output: only print summary of fields
     const fields = projectFields.node.fields.nodes;
     console.log('Project fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType })));
