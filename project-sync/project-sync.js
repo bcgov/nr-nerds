@@ -135,7 +135,8 @@ async function ensureCurrentAndNextSprint(octokit, projectId, sprintField) {
   if (!sprintField || !sprintField.configuration) return;
   const iterations = sprintField.configuration.iterations;
   const [nextStart, nextNextStart] = getSprintStartDates(iterations);
-  const existingStarts = new Set(iterations.map(i => i.startDate));
+  // Use formatted dates for consistency in comparison
+  const existingStarts = new Set(iterations.map(i => formatDate(new Date(i.startDate))));
   const toCreate = [];
   if (!existingStarts.has(nextStart.toISOString().slice(0,10))) toCreate.push(nextStart);
   if (!existingStarts.has(nextNextStart.toISOString().slice(0,10))) toCreate.push(nextNextStart);
