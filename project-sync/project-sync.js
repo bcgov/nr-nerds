@@ -118,31 +118,10 @@ async function ensureCurrentAndNextSprint(octokit, projectId, sprintField) {
   const toCreate = [];
   if (!existingStarts.has(nextStart.toISOString().slice(0,10))) toCreate.push(nextStart);
   if (!existingStarts.has(nextNextStart.toISOString().slice(0,10))) toCreate.push(nextNextStart);
-  for (const startDate of toCreate) {
-    const title = `Sprint ${startDate.toISOString().slice(0,10)}`;
-    try {
-      await octokit.graphql(`
-        mutation($projectId:ID!, $fieldId:ID!, $title:String!, $startDate:Date!, $duration:Int!) {
-          createProjectV2IterationFieldOption(input: {
-            projectId: $projectId,
-            fieldId: $fieldId,
-            title: $title,
-            startDate: $startDate,
-            duration: $duration
-          }) { projectV2IterationFieldOption { id } }
-        }
-      `, {
-        projectId,
-        fieldId: sprintField.id,
-        title,
-        startDate: startDate.toISOString().slice(0,10),
-        duration: 14
-      });
-      console.log(`Created sprint: ${title}`);
-    } catch (err) {
-      if (!err.message.includes('already exists'))
-        console.error(`Error creating sprint ${title}:`, err.message);
-    }
+  if (toCreate.length > 0) {
+    console.error('\nERROR: The following sprints are missing and must be created manually in the GitHub UI:');
+    toCreate.forEach(d => console.error(`  Sprint starting ${formatDate(d)}`));
+    process.exit(1);
   }
 }
 
