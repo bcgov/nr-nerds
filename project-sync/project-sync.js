@@ -80,32 +80,10 @@ async function ensureSprintsExist(octokit, projectId, sprintField) {
       e.start === formatDate(win.start) && e.duration === 14
     );
   });
-  for (const win of needed) {
-    const title = `Sprint ${formatDate(win.start)}`;
-    try {
-      await octokit.graphql(`
-        mutation($projectId:ID!, $fieldId:ID!, $title:String!, $startDate:Date!, $duration:Int!) {
-          createProjectV2IterationFieldOption(input: {
-            projectId: $projectId,
-            fieldId: $fieldId,
-            title: $title,
-            startDate: $startDate,
-            duration: $duration
-          }) { projectV2IterationFieldOption { id } }
-        }
-      `, {
-        projectId,
-        fieldId: sprintField.id,
-        title,
-        startDate: formatDate(win.start),
-        duration: 14
-      });
-      console.log(`Created missing sprint: ${title}`);
-    } catch (err) {
-      if (!err.message.includes('already exists')) {
-        console.error(`Error creating sprint ${title}:`, err.message);
-      }
-    }
+  if (needed.length > 0) {
+    console.error('\nERROR: The following sprints are missing and must be created manually in the GitHub UI:');
+    needed.forEach(win => console.error(`  Sprint starting ${formatDate(win.start)}`));
+    process.exit(1);
   }
 }
 
