@@ -172,7 +172,7 @@ async function ensureCurrentAndNextSprint(octokit, projectId, sprintField) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = '') {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '') {
   try {
     const addResult = await octokit.graphql(`
       mutation($projectId:ID!, $contentId:ID!) {
@@ -209,7 +209,20 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = ''
       const refreshed = await octokit.graphql(`
         query($projectId:ID!) {
           node(id: $projectId) {
-            ... on ProjectV2 { fields(first: 20) { nodes { ... on ProjectV2IterationField { id configuration { iterations { id title startDate duration } } } } } }
+            ... on ProjectV2 {
+              fields(first: 20) {
+                nodes {
+                  ... on ProjectV2IterationField {
+                    id
+                    configuration {
+                      ... on ProjectV2IterationFieldConfiguration {
+                        iterations { id title startDate duration }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
@@ -248,7 +261,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = ''
   }
 }
 
-async function assignPRsInRepo(repo) {
+async function assignPRsInRepo(repo, sprintField) {
   const [owner, name] = repo.split("/");
   let page = 1;
   let found = 0;
@@ -283,7 +296,7 @@ async function assignPRsInRepo(repo) {
         try {
           const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
           const prNodeId = prDetails.data.node_id;
-          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, '  ');
+          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ');
         } catch (err) {
           console.error(`  Error preparing PR #${pr.number} for project:`, err.message);
         }
@@ -317,7 +330,7 @@ async function assignPRsInRepo(repo) {
           try {
             const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
             const issueNodeId = issueDetails.data.node_id;
-            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, '    ');
+            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ');
           } catch (err) {
             console.error(`    Error preparing issue #${issueNum} for project:`, err.message);
           }
@@ -338,7 +351,13 @@ async function assignPRsInRepo(repo) {
         node(id:$projectId){
           ... on ProjectV2 {
             fields(first:20){
-              nodes { id name dataType configuration }
+              nodes { 
+                id name dataType configuration {
+                  ... on ProjectV2IterationFieldConfiguration {
+                    iterations { id title startDate duration }
+                  }
+                }
+              }
             }
           }
         }
@@ -356,7 +375,7 @@ async function assignPRsInRepo(repo) {
   for (const repo of repos) {
     try {
       const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
-      await assignPRsInRepo(fullRepo);
+      await assignPRsInRepo(fullRepo, sprintField);
     } catch (e) {
       console.error(`Error processing ${repo}:`, e.message);
     }
