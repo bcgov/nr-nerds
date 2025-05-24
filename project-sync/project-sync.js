@@ -48,10 +48,6 @@ function getSprintWindows(iterations) {
   const today = new Date();
   const duration = 14; // two weeks
   let currentStart = getMostRecentMonday(today);
-  // Find the most recent sprint start (Monday) that is <= today
-  while (currentStart > today) {
-    currentStart.setDate(currentStart.getDate() - 7);
-  }
   const currentEnd = new Date(currentStart);
   currentEnd.setDate(currentStart.getDate() + duration);
   const nextStart = new Date(currentStart);
