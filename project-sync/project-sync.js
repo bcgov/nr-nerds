@@ -352,6 +352,9 @@ async function assignPRsInRepo(repo, sprintField) {
                 id
                 name
                 dataType
+                configuration {
+                  __typename
+                }
                 ... on ProjectV2IterationField {
                   configuration {
                     ... on ProjectV2IterationFieldConfiguration {
