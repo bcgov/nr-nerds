@@ -343,6 +343,7 @@ async function assignPRsInRepo(repo, sprintField) {
   // Fetch project fields to get sprintField
   let sprintField = null;
   try {
+    console.log('Fetching project fields for sprintField...');
     const projectFields = await octokit.graphql(`
       query($projectId:ID!){
         node(id:$projectId){
@@ -366,14 +367,26 @@ async function assignPRsInRepo(repo, sprintField) {
         }
       }
     `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
+    console.log('Raw projectFields result:', JSON.stringify(projectFields, null, 2));
     const fields = projectFields.node.fields.nodes;
-    sprintField = fields.find(f => f.name.toLowerCase().includes('sprint') && f.dataType === 'ITERATION');
-    if (sprintField && typeof sprintField.configuration === 'string') {
+    console.log('Fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType, configType: f.configuration && f.configuration.__typename })));
+    sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.dataType === 'ITERATION');
+    if (!sprintField) {
+      console.error('No sprint field found in project fields!');
+    } else if (sprintField && typeof sprintField.configuration === 'string') {
       sprintField.configuration = JSON.parse(sprintField.configuration);
     }
     await ensureCurrentAndNextSprint(octokit, 'PVT_kwDOAA37OM4AFuzg', sprintField);
   } catch (e) {
     console.error('Error fetching/ensuring sprints:', e.message);
+    if (e.errors) {
+      for (const err of e.errors) {
+        console.error('GraphQL error:', err);
+      }
+    }
+    if (e.response) {
+      console.error('GraphQL response:', JSON.stringify(e.response, null, 2));
+    }
   }
   for (const repo of repos) {
     try {
