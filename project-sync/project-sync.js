@@ -26,21 +26,6 @@ function getCurrentSprintIterationId(iterations) {
   return current;
 }
 
-// Helper to get the most recent Monday (including today if today is Monday)
-function getMostRecentMonday(date) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = (day + 6) % 7; // 0 if Monday, 1 if Tuesday, ...
-  d.setDate(d.getDate() - diff);
-  d.setHours(0,0,0,0);
-  return d;
-}
-
-// Helper to format date as YYYY-MM-DD
-function formatDate(date) {
-  return date.toISOString().slice(0, 10);
-}
-
 // Helper to ensure a current sprint exists (today is within a sprint window)
 async function ensureCurrentSprintExists(sprintField) {
   if (!sprintField || !sprintField.configuration) return;
