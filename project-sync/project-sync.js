@@ -35,31 +35,6 @@ function getMostRecentMonday(date) {
   return d;
 }
 
-// Helper to get the current and next sprint windows (two-week cadence, always starting on Monday)
-function getSprintWindows(iterations) {
-  // Find the earliest start date
-  let earliest = null;
-  for (const iter of iterations) {
-    const start = new Date(iter.startDate);
-    if (!earliest || start < earliest) earliest = start;
-  }
-  if (!earliest) earliest = getMostRecentMonday(new Date());
-  // Calculate the current and next sprint windows
-  const today = new Date();
-  const duration = 14; // two weeks
-  let currentStart = getMostRecentMonday(today);
-  const currentEnd = new Date(currentStart);
-  currentEnd.setDate(currentStart.getDate() + duration);
-  const nextStart = new Date(currentStart);
-  nextStart.setDate(currentStart.getDate() + duration);
-  const nextEnd = new Date(nextStart);
-  nextEnd.setDate(nextStart.getDate() + duration);
-  return [
-    { start: currentStart, end: currentEnd },
-    { start: nextStart, end: nextEnd }
-  ];
-}
-
 // Helper to format date as YYYY-MM-DD
 function formatDate(date) {
   return date.toISOString().slice(0, 10);
@@ -276,9 +251,9 @@ async function assignPRsInRepo(repo, sprintField) {
         }
       }
     `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
-    console.log('Raw projectFields result:', JSON.stringify(projectFields, null, 2));
+    // Clean output: only print summary of fields
     const fields = projectFields.node.fields.nodes;
-    console.log('Fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType, configType: f.configuration && f.configuration.__typename })));
+    console.log('Project fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType })));
     sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.dataType === 'ITERATION');
     if (!sprintField) {
       console.error('No sprint field found in project fields!');
