@@ -25,6 +25,149 @@ function getCurrentSprintIterationId(iterations) {
   return current;
 }
 
+// Helper to get the current and next sprint windows (two-week cadence)
+function getSprintWindows(iterations) {
+  // Find the earliest start date
+  let earliest = null;
+  for (const iter of iterations) {
+    const start = new Date(iter.startDate);
+    if (!earliest || start < earliest) earliest = start;
+  }
+  if (!earliest) earliest = new Date();
+  // Calculate the current and next sprint windows
+  const today = new Date();
+  const msInDay = 24 * 60 * 60 * 1000;
+  const duration = 14; // two weeks
+  let currentStart = new Date(earliest);
+  let found = false;
+  while (currentStart <= today) {
+    const end = new Date(currentStart);
+    end.setDate(currentStart.getDate() + duration);
+    if (currentStart <= today && today < end) {
+      found = true;
+      break;
+    }
+    currentStart.setDate(currentStart.getDate() + duration);
+  }
+  if (!found) currentStart = today;
+  const currentEnd = new Date(currentStart);
+  currentEnd.setDate(currentStart.getDate() + duration);
+  const nextStart = new Date(currentEnd);
+  const nextEnd = new Date(nextStart);
+  nextEnd.setDate(nextStart.getDate() + duration);
+  return [
+    { start: currentStart, end: currentEnd },
+    { start: nextStart, end: nextEnd }
+  ];
+}
+
+// Helper to format date as YYYY-MM-DD
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// Helper to ensure sprints exist in the project (creates if missing)
+async function ensureSprintsExist(octokit, projectId, sprintField) {
+  if (!sprintField || !sprintField.configuration) return;
+  const iterations = sprintField.configuration.iterations;
+  const [current, next] = getSprintWindows(iterations);
+  const existing = iterations.map(i => ({
+    start: formatDate(new Date(i.startDate)),
+    duration: i.duration,
+    title: i.title
+  }));
+  const needed = [current, next].filter(win => {
+    return !existing.some(e =>
+      e.start === formatDate(win.start) && e.duration === 14
+    );
+  });
+  for (const win of needed) {
+    const title = `Sprint ${formatDate(win.start)}`;
+    try {
+      await octokit.graphql(`
+        mutation($projectId:ID!, $fieldId:ID!, $title:String!, $startDate:Date!, $duration:Int!) {
+          createProjectV2IterationFieldOption(input: {
+            projectId: $projectId,
+            fieldId: $fieldId,
+            title: $title,
+            startDate: $startDate,
+            duration: $duration
+          }) { projectV2IterationFieldOption { id } }
+        }
+      `, {
+        projectId,
+        fieldId: sprintField.id,
+        title,
+        startDate: formatDate(win.start),
+        duration: 14
+      });
+      console.log(`Created missing sprint: ${title}`);
+    } catch (err) {
+      if (!err.message.includes('already exists')) {
+        console.error(`Error creating sprint ${title}:`, err.message);
+      }
+    }
+  }
+}
+
+// Helper to get the current and next sprint start dates (2-week cadence)
+function getSprintStartDates(iterations) {
+  // Find the latest sprint end date
+  let latestEnd = null;
+  for (const iter of iterations) {
+    const start = new Date(iter.startDate);
+    const end = new Date(start);
+    end.setDate(start.getDate() + iter.duration);
+    if (!latestEnd || end > latestEnd) latestEnd = end;
+  }
+  // If no sprints, start today
+  const today = new Date();
+  let nextStart = latestEnd && latestEnd > today ? latestEnd : today;
+  // Align to next Monday
+  nextStart.setDate(nextStart.getDate() + ((1 + 7 - nextStart.getDay()) % 7));
+  nextStart.setHours(0,0,0,0);
+  const nextNextStart = new Date(nextStart);
+  nextNextStart.setDate(nextStart.getDate() + 14);
+  return [nextStart, nextNextStart];
+}
+
+// Helper to ensure current and next sprint exist, creating if needed
+async function ensureCurrentAndNextSprint(octokit, projectId, sprintField) {
+  if (!sprintField || !sprintField.configuration) return;
+  const iterations = sprintField.configuration.iterations;
+  const [nextStart, nextNextStart] = getSprintStartDates(iterations);
+  const existingStarts = new Set(iterations.map(i => i.startDate));
+  const toCreate = [];
+  if (!existingStarts.has(nextStart.toISOString().slice(0,10))) toCreate.push(nextStart);
+  if (!existingStarts.has(nextNextStart.toISOString().slice(0,10))) toCreate.push(nextNextStart);
+  for (const startDate of toCreate) {
+    const title = `Sprint ${startDate.toISOString().slice(0,10)}`;
+    try {
+      await octokit.graphql(`
+        mutation($projectId:ID!, $fieldId:ID!, $title:String!, $startDate:Date!, $duration:Int!) {
+          createProjectV2IterationFieldOption(input: {
+            projectId: $projectId,
+            fieldId: $fieldId,
+            title: $title,
+            startDate: $startDate,
+            duration: $duration
+          }) { projectV2IterationFieldOption { id } }
+        }
+      `, {
+        projectId,
+        fieldId: sprintField.id,
+        title,
+        startDate: startDate.toISOString().slice(0,10),
+        duration: 14
+      });
+      console.log(`Created sprint: ${title}`);
+    } catch (err) {
+      if (!err.message.includes('already exists'))
+        console.error(`Error creating sprint ${title}:`, err.message);
+    }
+  }
+}
+
 // Helper to add an item (PR or issue) to project and set status and sprint
 async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = '') {
   try {
@@ -56,47 +199,42 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = ''
       optionId: 'c66ba2dd'
     });
     // Get Sprint field iterations
-    const fieldsResp = await octokit.graphql(`
-      query($org: String!, $proj: Int!) {
-        organization(login: $org) {
-          projectV2(number: $proj) {
-            fields(first: 30) {
-              nodes {
-                ... on ProjectV2IterationField {
-                  id
-                  name
-                  configuration {
-                    iterations { id title startDate duration }
-                  }
-                }
-              }
-            }
+    if (sprintField && sprintField.configuration) {
+      // Ensure current/next sprints exist
+      await ensureSprintsExist(octokit, 'PVT_kwDOAA37OM4AFuzg', sprintField);
+      // Refetch iterations after possible creation
+      const refreshed = await octokit.graphql(`
+        query($projectId:ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 { fields(first: 20) { nodes { ... on ProjectV2IterationField { id configuration { iterations { id title startDate duration } } } } } }
           }
         }
+      `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
+      const refreshedSprintField = refreshed.node.fields.nodes.find(f => f.id === sprintField.id);
+      const iterations = refreshedSprintField.configuration.iterations;
+      const currentSprintId = getCurrentSprintIterationId(iterations);
+      if (currentSprintId) {
+        await octokit.graphql(`
+          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
+              value: { iterationId: $iterationId }
+            }) { projectV2Item { id } }
+          }
+        `, {
+          projectId: 'PVT_kwDOAA37OM4AFuzg',
+          itemId: projectItemId,
+          fieldId: sprintField.id,
+          iterationId: currentSprintId
+        });
+        console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, and set Sprint to current sprint`);
+      } else {
+        console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, but could not find current sprint`);
       }
-    `, { org: 'bcgov', proj: 16 });
-    const sprintField = fieldsResp.organization.projectV2.fields.nodes.find(f => f.name === 'Sprint');
-    const iterations = sprintField.configuration.iterations;
-    const currentSprintId = getCurrentSprintIterationId(iterations);
-    if (currentSprintId) {
-      await octokit.graphql(`
-        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-          updateProjectV2ItemFieldValue(input: {
-            projectId: $projectId,
-            itemId: $itemId,
-            fieldId: $fieldId,
-            value: { iterationId: $iterationId }
-          }) { projectV2Item { id } }
-        }
-      `, {
-        projectId: 'PVT_kwDOAA37OM4AFuzg',
-        itemId: projectItemId,
-        fieldId: sprintField.id,
-        iterationId: currentSprintId
-      });
-      console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, and set Sprint to current sprint`);
     } else {
-      console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, but could not find current sprint`);
+      console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, but could not find Sprint field or configuration`);
     }
   } catch (err) {
     if (err.message && err.message.includes('A project item already exists for this content')) {
@@ -189,6 +327,29 @@ async function assignPRsInRepo(repo) {
 }
 
 (async () => {
+  // Fetch project fields to get sprintField
+  let sprintField = null;
+  try {
+    const projectFields = await octokit.graphql(`
+      query($projectId:ID!){
+        node(id:$projectId){
+          ... on ProjectV2 {
+            fields(first:20){
+              nodes { id name dataType configuration }
+            }
+          }
+        }
+      }
+    `, { projectId: 'PVT_kwDOAA37OM4AFuzg' });
+    const fields = projectFields.node.fields.nodes;
+    sprintField = fields.find(f => f.name.toLowerCase().includes('sprint') && f.dataType === 'ITERATION');
+    if (sprintField && typeof sprintField.configuration === 'string') {
+      sprintField.configuration = JSON.parse(sprintField.configuration);
+    }
+    await ensureCurrentAndNextSprint(octokit, 'PVT_kwDOAA37OM4AFuzg', sprintField);
+  } catch (e) {
+    console.error('Error fetching/ensuring sprints:', e.message);
+  }
   for (const repo of repos) {
     try {
       const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
