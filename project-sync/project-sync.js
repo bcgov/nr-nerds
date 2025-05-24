@@ -9,7 +9,7 @@ const octokit = new Octokit({ auth: GH_TOKEN });
 
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
-// Helper to add an item (PR or issue) to project and set status
+// Helper to add an item (PR or issue) to project and set status and sprint
 async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = '') {
   try {
     const addResult = await octokit.graphql(`
@@ -23,6 +23,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = ''
       contentId: nodeId
     });
     const projectItemId = addResult.addProjectV2ItemById.item.id;
+    // Set Status to Active
     await octokit.graphql(`
       mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
         updateProjectV2ItemFieldValue(input: {
@@ -38,7 +39,23 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, logPrefix = ''
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
       optionId: 'c66ba2dd'
     });
-    console.log(`${logPrefix}Added ${type} #${number} to project and set status to Active`);
+    // Set Sprint to Sprint 68 (iteration field)
+    await octokit.graphql(`
+      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { iterationId: $iterationId }
+        }) { projectV2Item { id } }
+      }
+    `, {
+      projectId: 'PVT_kwDOAA37OM4AFuzg',
+      itemId: projectItemId,
+      fieldId: 'PVTIF_lADOAA37OM4AFuzgzgDTbhE', // Sprint field
+      iterationId: '0de43d8a' // Sprint 68
+    });
+    console.log(`${logPrefix}Added ${type} #${number} to project, set status to Active, and set Sprint to Sprint 68`);
   } catch (err) {
     if (err.message && err.message.includes('A project item already exists for this content')) {
       // Already in project, skip
