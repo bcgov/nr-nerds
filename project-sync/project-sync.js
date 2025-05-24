@@ -54,25 +54,24 @@ async function ensureCurrentSprintExists(sprintField) {
 // Helper to add an item (PR or issue) to project and set status and sprint
 async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '') {
   try {
-    // Check if item is already in the project
+    // Fetch project items and check if this nodeId is already present
     const existingItemQuery = await octokit.graphql(`
-      query($projectId:ID!, $contentId:ID!) {
+      query($projectId:ID!) {
         node(id: $projectId) {
           ... on ProjectV2 {
-            items(first: 100, filters: {contentId: $contentId}) {
+            items(first: 100) {
               nodes { id content { ... on PullRequest { id } ... on Issue { id } } }
             }
           }
         }
       }
     `, {
-      projectId: 'PVT_kwDOAA37OM4AFuzg',
-      contentId: nodeId
+      projectId: 'PVT_kwDOAA37OM4AFuzg'
     });
     let projectItemId = null;
     const items = existingItemQuery.node.items.nodes;
-    if (items && items.length > 0) {
-      projectItemId = items[0].id;
+    if (items && items.some(item => item.content && item.content.id === nodeId)) {
+      projectItemId = items.find(item => item.content && item.content.id === nodeId).id;
       // Already in project, skip add
       // But still update status/sprint below
     } else {
