@@ -451,7 +451,7 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
             optionId: statusFieldOptions.new
           });
           if (VERBOSE) {
-            console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New (from global assigned)`);
+            console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
           }
         } else if (!statusAlreadySet) {
           // In project but no status set, set to 'New'
@@ -471,17 +471,17 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
             optionId: statusFieldOptions.new
           });
           if (VERBOSE) {
-            console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New (from global assigned)`);
+            console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
           }
         } else {
           if (VERBOSE) {
-            console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping (from global assigned)`);
+            console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping`);
           }
         }
       } catch (err) {
-        diagnostics.errors.push(`[${issue.repository.full_name}] Error processing globally assigned issue #${issue.number}: ${err.message}`);
+        diagnostics.errors.push(`[${owner}/${name}] Error processing assigned issue #${issue.number}: ${err.message}`);
         if (VERBOSE) {
-          console.error(`[${issue.repository.full_name}] Error processing globally assigned issue #${issue.number}:`, err);
+          console.error(`[${owner}/${name}] Error processing assigned issue #${issue.number}:`, err);
         }
       }
     }
@@ -529,6 +529,7 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
 async function addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions) {
   // We'll search all open PRs in repos we care about (from reposConfig),
   // and for each, check if GITHUB_AUTHOR is a commit author.
+  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   for (const repoEntry of reposConfig) {
     const repoFull = repoEntry.name.includes("/") ? repoEntry.name : `bcgov/${repoEntry.name}`;
     const [owner, name] = repoFull.split("/");
@@ -543,6 +544,9 @@ async function addAllCommitterPRsToProject(sprintField, diagnostics, statusField
       });
       if (prs.length === 0) break;
       for (const pr of prs) {
+        // Only consider PRs updated in the last 2 days
+        const prUpdatedAt = new Date(pr.updated_at);
+        if (prUpdatedAt < sinceDate) continue;
         // Skip if already handled as author or assignee
         const isAuthor = pr.user && pr.user.login === GITHUB_AUTHOR;
         const isAssignee = (pr.assignees || []).some(a => a.login === GITHUB_AUTHOR);
