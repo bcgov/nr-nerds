@@ -305,11 +305,12 @@ function logDiagnostics() {
 }
 
 (async () => {
-  // Remove unused isPRContext variable and related comments
   // Fetch project fields to get sprintField
   let sprintField = null;
   try {
-    console.log('Fetching project fields for sprintField...');
+    if (VERBOSE) {
+      console.log('Fetching project fields for sprintField...');
+    }
     const projectFields = await octokit.graphql(`
       query($projectId:ID!){
         node(id:$projectId){
