@@ -446,9 +446,9 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
               }
             }
           } catch (err) {
-            diagnostics.errors.push(`[${owner}/${name}] Error processing assigned issue #${issue.number}: ${err.message}`);
+            diagnostics.errors.push(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
             if (VERBOSE) {
-              console.error(`[${owner}/${name}] Error processing assigned issue #${issue.number}:`, err);
+              console.error(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}:`, err);
             }
           }
         }
@@ -553,9 +553,9 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
           }
         }
       } catch (err) {
-        diagnostics.errors.push(`[${owner}/${name}] Error processing assigned issue #${issue.number}: ${err.message}`);
+        diagnostics.errors.push(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
         if (VERBOSE) {
-          console.error(`[${owner}/${name}] Error processing assigned issue #${issue.number}:`, err);
+          console.error(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}:`, err);
         }
       }
     }
