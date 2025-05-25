@@ -276,6 +276,15 @@ async function assignPRsInRepo(repo, sprintField) {
 }
 
 // Function to process and log globalErrors and globalSummary
+/**
+ * Logs diagnostic information about errors and summary details.
+ *
+ * `globalErrors` is an array of strings, where each string represents an error message.
+ * Example: ["Error fetching PRs from repo1", "Failed to assign PR in repo2"]
+ *
+ * `globalSummary` is an array of strings, where each string summarizes actions taken for a repository.
+ * Example: ["[repo1] Summary: PRs assigned: 2, PRs added/updated in project: 1, linked issues assigned: 0"]
+ */
 function logDiagnostics() {
   if (globalErrors.length > 0) {
     console.error("\n=== Errors ===");
