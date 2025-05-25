@@ -221,7 +221,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     // Get Sprint field iterations
     // Use cachedCurrentSprintId for sprint assignment
     let sprintMsg = '';
-    let sprintChanged = false;
+    let sprintChanged = false; // <-- Ensure sprintChanged is always defined
     if (sprintField && sprintField.configuration) {
       await ensureCurrentSprintExists(sprintField);
       const iterations = sprintField.configuration.iterations;
@@ -282,7 +282,8 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
     if (VERBOSE) {
       console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
-    } else if (statusMsg.includes('Active') || statusMsg.includes('Done')) {
+    } else if (action !== 'already up to date in') {
+      // Only print if something was actually changed or added
       console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
     }
   } catch (err) {
