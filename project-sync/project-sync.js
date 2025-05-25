@@ -273,7 +273,17 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       action = 'added to';
     } else if (statusMsg.includes('(already set)') && sprintMsg.includes('(already set)')) {
       action = 'already up to date in';
+    } else if ((statusMsg.includes('(already set)') && sprintChanged) || (sprintMsg.includes('(already set)') && statusMsg.includes('Active')) || (sprintMsg.includes('(already set)') && statusMsg.includes('Done'))) {
+      // Only one field was changed, so it's an update
+      action = 'updated in';
+    } else if (statusMsg.includes('(already set)') && sprintMsg.includes("sprint='")) {
+      // Sprint was changed, status was already set
+      action = 'updated in';
+    } else if (sprintMsg.includes('(already set)') && statusMsg.includes('status=')) {
+      // Status was changed, sprint was already set
+      action = 'updated in';
     } else {
+      // Default fallback
       action = 'updated in';
     }
     if (VERBOSE) {
