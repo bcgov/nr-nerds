@@ -12,9 +12,9 @@ const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
 // --- CONFIGURATION ---
 const STATUS_OPTIONS = {
-  new: '...',      // Fill with your 'New' column optionId
-  active: 'c66ba2dd',
-  done: 'b6e2e2b2'
+  new: 'f8e1e5a4',      // optionId for 'New' column
+  active: 'c66ba2dd',   // optionId for 'Active' column
+  done: '46321e20'      // optionId for 'Done' column
 };
 
 // --- Helper: Get managed repos from repos.yml ---
