@@ -18,8 +18,12 @@ const STATUS_OPTIONS = {
 const VERBOSE = process.argv.includes('--verbose');
 // REMINDER: Consider TypeScript and more unit tests in future for maintainability and safety.
 
-let globalErrors = [];
-let globalSummary = [];
+class DiagnosticsContext {
+  constructor() {
+    this.errors = [];
+    this.summary = [];
+  }
+}
 
 // Helper to get the current sprint iteration ID (the one whose startDate is closest to today but not in the future)
 function getCurrentSprintIterationId(iterations) {
@@ -52,7 +56,7 @@ async function ensureCurrentSprintExists(sprintField) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false) {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics) {
   try {
     // Paginate through project items to check if this nodeId is already present
     let projectItemId = null;
@@ -179,11 +183,11 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
   } catch (err) {
     console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
-    globalErrors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
+    diagnostics.errors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
   }
 }
 
-async function assignPRsInRepo(repo, sprintField) {
+async function assignPRsInRepo(repo, sprintField, diagnostics) {
   const [owner, name] = repo.split("/");
   let page = 1;
   let found = 0;
@@ -218,11 +222,11 @@ async function assignPRsInRepo(repo, sprintField) {
         try {
           const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
           const prNodeId = prDetails.data.node_id;
-          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null);
+          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null, diagnostics);
           summary.project++;
         } catch (err) {
           console.error(`  [${owner}/${name}] Error preparing PR #${pr.number} for project:`, err.message);
-          globalErrors.push(`Error preparing PR #${pr.number} for project: ${err.message}`);
+          diagnostics.errors.push(`Error preparing PR #${pr.number} for project: ${err.message}`);
         }
         // Fetch linked issues for this PR (only those in the same repository and in the development box)
         const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
@@ -254,10 +258,10 @@ async function assignPRsInRepo(repo, sprintField) {
           try {
             const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
             const issueNodeId = issueDetails.data.node_id;
-            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`);
+            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics);
           } catch (err) {
             console.error(`    [${owner}/${name}] Error preparing issue #${issueNum} for project:`, err.message);
-            globalErrors.push(`Error preparing issue #${issueNum} for project: ${err.message}`);
+            diagnostics.errors.push(`Error preparing issue #${issueNum} for project: ${err.message}`);
           }
         }
       }
@@ -267,36 +271,37 @@ async function assignPRsInRepo(repo, sprintField) {
   if (summary.assigned === 0) {
     const msg = `[${owner}/${name}] No matching PRs by ${GITHUB_AUTHOR} found.`;
     console.log(msg);
-    globalSummary.push(msg);
+    diagnostics.summary.push(msg);
   } else {
     const msg = `[${owner}/${name}] Summary: PRs assigned: ${summary.assigned}, PRs added/updated in project: ${summary.project}, linked issues assigned: ${summary.issues}`;
     console.log(msg);
-    globalSummary.push(msg);
+    diagnostics.summary.push(msg);
   }
 }
 
-// Function to process and log globalErrors and globalSummary
 /**
  * Logs diagnostic information about errors and summary details.
  *
- * `globalErrors` is an array of strings, where each string represents an error message.
+ * @param {DiagnosticsContext} diagnostics - The diagnostics context containing errors and summary arrays.
+ *
+ * `diagnostics.errors` is an array of strings, where each string represents an error message.
  * Example: ["Error fetching PRs from repo1", "Failed to assign PR in repo2"]
  *
- * `globalSummary` is an array of strings, where each string summarizes actions taken for a repository.
+ * `diagnostics.summary` is an array of strings, where each string summarizes actions taken for a repository.
  * Example: ["[repo1] Summary: PRs assigned: 2, PRs added/updated in project: 1, linked issues assigned: 0"]
  */
-function logDiagnostics() {
-  if (globalErrors.length > 0) {
+function logDiagnostics(diagnostics) {
+  if (diagnostics.errors.length > 0) {
     console.error("\n=== Errors ===");
-    globalErrors.forEach((error, index) => {
+    diagnostics.errors.forEach((error, index) => {
       console.error(`${index + 1}. ${error}`);
     });
   } else {
     console.log("\nNo errors encountered.");
   }
-  if (globalSummary.length > 0) {
+  if (diagnostics.summary.length > 0) {
     console.log("\n=== Summary ===");
-    globalSummary.forEach((summary, index) => {
+    diagnostics.summary.forEach((summary, index) => {
       console.log(`${index + 1}. ${summary}`);
     });
   } else {
@@ -307,6 +312,7 @@ function logDiagnostics() {
 (async () => {
   // Fetch project fields to get sprintField
   let sprintField = null;
+  const diagnostics = new DiagnosticsContext();
   try {
     if (VERBOSE) {
       console.log('Fetching project fields for sprintField...');
@@ -349,29 +355,29 @@ function logDiagnostics() {
     await ensureCurrentSprintExists(sprintField);
   } catch (e) {
     const errMsg = 'Error fetching/ensuring sprints: ' + e.message;
-    globalErrors.push(errMsg);
+    diagnostics.errors.push(errMsg);
     console.error(errMsg);
     if (e.errors) {
       for (const err of e.errors) {
-        globalErrors.push('GraphQL error: ' + JSON.stringify(err));
+        diagnostics.errors.push('GraphQL error: ' + JSON.stringify(err));
         console.error('GraphQL error:', err);
       }
     }
     if (e.response) {
-      globalErrors.push('GraphQL response: ' + JSON.stringify(e.response, null, 2));
+      diagnostics.errors.push('GraphQL response: ' + JSON.stringify(e.response, null, 2));
       console.error('GraphQL response:', JSON.stringify(e.response, null, 2));
     }
   }
   for (const repo of repos) {
     try {
       const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
-      await assignPRsInRepo(fullRepo, sprintField);
+      await assignPRsInRepo(fullRepo, sprintField, diagnostics);
     } catch (e) {
       const errMsg = `Error processing ${repo}: ${e.message}`;
-      globalErrors.push(errMsg);
+      diagnostics.errors.push(errMsg);
       console.error(errMsg);
     }
   }
   // Log diagnostics at the end
-  logDiagnostics();
+  logDiagnostics(diagnostics);
 })();
