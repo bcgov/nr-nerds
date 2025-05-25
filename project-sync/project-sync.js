@@ -280,6 +280,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     } else {
       action = 'updated in';
     }
+    // Only print if something was actually changed or added, or if VERBOSE
     if (VERBOSE) {
       console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
     } else if (action !== 'already up to date in') {
