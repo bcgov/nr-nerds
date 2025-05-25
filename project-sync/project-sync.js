@@ -217,14 +217,24 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     // Get Sprint field iterations
     // Use cachedCurrentSprintId for sprint assignment
     let sprintMsg = '';
+    let sprintChanged = false;
     if (sprintField && sprintField.configuration) {
       await ensureCurrentSprintExists(sprintField);
       const iterations = sprintField.configuration.iterations;
       const currentSprintId = cachedCurrentSprintId;
       const currentSprint = iterations.find(i => i.id === currentSprintId);
       if (currentSprintId && currentSprint) {
-        if (currentSprintId !== currentSprintId || !currentSprintId) {
-          // Defensive: always set if not present
+        // Check if sprint is already set
+        let sprintAlreadySet = false;
+        if (cacheEntry && cacheEntry.fieldValues) {
+          for (const fv of cacheEntry.fieldValues) {
+            if (fv.field && fv.field.name && fv.field.name.toLowerCase().includes('sprint') && fv.iterationId === currentSprintId) {
+              sprintAlreadySet = true;
+              break;
+            }
+          }
+        }
+        if (!sprintAlreadySet) {
           await octokit.graphql(`
             mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
               updateProjectV2ItemFieldValue(input: {
@@ -241,6 +251,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
             iterationId: currentSprintId
           });
           sprintMsg = `, sprint='${currentSprint.title}'`;
+          sprintChanged = true;
         } else {
           sprintMsg = `, sprint='${currentSprint.title}' (already set)`;
         }
@@ -250,7 +261,15 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     } else {
       sprintMsg = ', sprint=NOT FOUND (no sprint field)';
     }
-    const action = added ? 'added to' : 'updated in';
+    // Determine action message
+    let action;
+    if (added) {
+      action = 'added to';
+    } else if (statusMsg.includes('(already set)') && sprintMsg.includes('(already set)')) {
+      action = 'already up to date in';
+    } else {
+      action = 'updated in';
+    }
     if (VERBOSE) {
       console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
     } else if (statusMsg.includes('Active') || statusMsg.includes('Done')) {
