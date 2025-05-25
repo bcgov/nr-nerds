@@ -27,7 +27,7 @@ jobs:
         run: node project-sync/project-sync.js
 
       - name: Notify Microsoft Teams on failure
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
