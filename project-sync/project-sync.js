@@ -311,6 +311,29 @@ function logDiagnostics(diagnostics) {
   }
 }
 
+// Utility to sanitize GraphQL error responses before logging
+function sanitizeGraphQLResponse(response) {
+  // Deep clone to avoid mutating the original
+  const clone = JSON.parse(JSON.stringify(response));
+  // Redact common sensitive fields
+  const redactKeys = ['token', 'access_token', 'authorization', 'email', 'login', 'node_id'];
+  function redact(obj) {
+    if (Array.isArray(obj)) {
+      obj.forEach(redact);
+    } else if (obj && typeof obj === 'object') {
+      for (const key of Object.keys(obj)) {
+        if (redactKeys.includes(key.toLowerCase())) {
+          obj[key] = '[REDACTED]';
+        } else {
+          redact(obj[key]);
+        }
+      }
+    }
+  }
+  redact(clone);
+  return clone;
+}
+
 (async () => {
   // Fetch project fields to get sprintField
   let sprintField = null;
@@ -366,8 +389,9 @@ function logDiagnostics(diagnostics) {
       }
     }
     if (e.response) {
-      diagnostics.errors.push('GraphQL response: ' + JSON.stringify(e.response, null, 2));
-      console.error('GraphQL response:', JSON.stringify(e.response, null, 2));
+      const sanitizedResponse = sanitizeGraphQLResponse(e.response);
+      diagnostics.errors.push('GraphQL response: ' + JSON.stringify(sanitizedResponse, null, 2));
+      console.error('GraphQL response:', JSON.stringify(sanitizedResponse, null, 2));
     }
   }
   for (const repo of repos) {
