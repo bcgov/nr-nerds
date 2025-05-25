@@ -57,7 +57,7 @@ async function ensureCurrentSprintExists(sprintField) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics) {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics, isLinkedIssue = false) {
   try {
     // Paginate through project items to check if this nodeId is already present
     let projectItemId = null;
@@ -396,11 +396,32 @@ async function assignPRsInRepo(repo, sprintField, diagnostics) {
             assignees: [GITHUB_AUTHOR]
           });
           summary.issues++;
-          // Add linked issue to GitHub Projects v2 and set Status to Active
+          // Add linked issue to GitHub Projects v2 and set Status to Active or Done as appropriate
           try {
             const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
             const issueNodeId = issueDetails.data.node_id;
-            await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics);
+            // If PR is merged, move linked issue to Done and close if open
+            if (pr.state === 'closed' && pr.merged_at) {
+              // Move to Done in project
+              await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, 'closed', false, diagnostics, true);
+              // Close the issue if open
+              if (issueDetails.data.state === 'open') {
+                try {
+                  await octokit.issues.update({ owner, repo: name, issue_number: issueNum, state: 'closed' });
+                  if (VERBOSE) {
+                    console.log(`    [${owner}/${name}] Issue #${issueNum}: auto-closed (linked to merged PR)`);
+                  }
+                } catch (closeErr) {
+                  diagnostics.errors.push(`Error auto-closing linked issue #${issueNum}: ${closeErr.message}`);
+                  if (VERBOSE) {
+                    console.error(`    [${owner}/${name}] Error auto-closing issue #${issueNum}:`, closeErr);
+                  }
+                }
+              }
+            } else {
+              // Not a merged PR, set to Active as before
+              await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics);
+            }
           } catch (err) {
             console.error(`    [${owner}/${name}] Error preparing issue #${issueNum} for project:`, err.message);
             diagnostics.errors.push(`Error preparing issue #${issueNum} for project: ${err.message}`);
