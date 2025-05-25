@@ -34,3 +34,20 @@ jobs:
           MESSAGE=":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
           PAYLOAD="{\"@type\": \"MessageCard\", \"@context\": \"http://schema.org/extensions\", \"summary\": \"GH Project Assigner failed\", \"themeColor\": \"FF0000\", \"title\": \"GH Project Assigner failed\", \"text\": \"$MESSAGE\"}"
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
+
+      - name: Create GitHub Issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const assignee = 'DerekRoberts';
+            const title = `[GH Project Assigner] Workflow failed on ${{ github.workflow }} (Run ${{ github.run_id }})`;
+            const body = `The GH Project Assigner workflow failed.\n\n- **Repository:** ${{ github.repository }}\n- **Workflow:** ${{ github.workflow }}\n- **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\nSee logs for details.`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              assignees: [assignee]
+            });
