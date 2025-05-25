@@ -165,6 +165,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
             optionId: desiredStatus
           });
           statusMsg = ', status=Done (closed unmerged PR)';
+          statusChanged = true;
         } else {
           statusMsg = ', status=Done (already set)';
         }
@@ -188,6 +189,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           optionId: desiredStatus
         });
         statusMsg = ', status=Done (closed/linked issue)';
+        statusChanged = true;
       } else {
         statusMsg = ', status=Done (already set)';
       }
@@ -210,6 +212,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           optionId: desiredStatus
         });
         statusMsg = ', status=Active';
+        statusChanged = true;
       } else {
         statusMsg = ', status=Active (already set)';
       }
@@ -271,19 +274,9 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     let action;
     if (added) {
       action = 'added to';
-    } else if (statusMsg.includes('(already set)') && sprintMsg.includes('(already set)')) {
+    } else if (!statusChanged && !sprintChanged) {
       action = 'already up to date in';
-    } else if ((statusMsg.includes('(already set)') && sprintChanged) || (sprintMsg.includes('(already set)') && statusMsg.includes('Active')) || (sprintMsg.includes('(already set)') && statusMsg.includes('Done'))) {
-      // Only one field was changed, so it's an update
-      action = 'updated in';
-    } else if (statusMsg.includes('(already set)') && sprintMsg.includes("sprint='")) {
-      // Sprint was changed, status was already set
-      action = 'updated in';
-    } else if (sprintMsg.includes('(already set)') && statusMsg.includes('status=')) {
-      // Status was changed, sprint was already set
-      action = 'updated in';
     } else {
-      // Default fallback
       action = 'updated in';
     }
     if (VERBOSE) {
