@@ -99,7 +99,7 @@ function getProjectItemFromCache(nodeId) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics, isLinkedIssue = false, statusFieldOptions = null) {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics, isRepoYml = false, isAssignedToUser = false, isLinkedToPR = false, statusFieldOptions = null) {
   // Only process if repoName starts with 'bcgov/'
   if (!repoName.startsWith('bcgov/')) {
     if (VERBOSE) {
@@ -123,6 +123,15 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       console.error(`[${repoName}] Error checking if repo is archived:`, err);
     }
     // Fail open: continue processing if we can't check
+  }
+  // === NEW LOGIC FOR ISSUES ===
+  if (type === 'issue') {
+    if (!isRepoYml && !isAssignedToUser && !isLinkedToPR) {
+      if (VERBOSE) {
+        console.log(`[${repoName}] issue #${number}: skipped (not in repo.yml, not assigned to user, not linked to PR)`);
+      }
+      return { added: false, updated: false, skipped: true };
+    }
   }
   try {
     let projectItemId = null;
@@ -165,6 +174,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     let statusMsg = '';
     if (!statusFieldOptions) throw new Error('Status field options not provided');
     let desiredStatus = null;
+    // === LOGIC FOR PRs ===
     if (type === 'PR' && prState === 'closed') {
       if (prMerged) {
         statusMsg = ', status=UNCHANGED (merged PR)';
@@ -205,6 +215,48 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
         } else {
           statusMsg = ', status=Done (already set)';
         }
+      }
+    } else if (type === 'issue') {
+      // === LOGIC FOR ISSUES ===
+      if (isLinkedToPR) {
+        desiredStatus = statusFieldOptions.active;
+      } else if (isRepoYml || isAssignedToUser) {
+        desiredStatus = statusFieldOptions.new;
+      }
+      if (desiredStatus && currentStatusOptionId !== desiredStatus) {
+        await octokit.graphql(`
+          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
+              value: { singleSelectOptionId: $optionId }
+            }) { projectV2Item { id } }
+          }
+        `, {
+          projectId: PROJECT_ID,
+          itemId: projectItemId,
+          fieldId: statusFieldOptions.fieldId,
+          optionId: desiredStatus
+        });
+        statusMsg = `, status=${isLinkedToPR ? 'Active (linked to PR)' : 'New'}`;
+        statusChanged = true;
+        if (projectItemCache[nodeId]) {
+          let fv = projectItemCache[nodeId].fieldValues;
+          let found = false;
+          for (const v of fv) {
+            if (v.field && v.field.name && v.field.name.toLowerCase() === 'status') {
+              v.optionId = desiredStatus;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            fv.push({ field: { name: 'Status' }, optionId: desiredStatus });
+          }
+        }
+      } else if (desiredStatus) {
+        statusMsg = `, status=${isLinkedToPR ? 'Active (already set)' : 'New (already set)'}`;
       }
     } else if (type === 'issue' && prState === 'closed') {
       desiredStatus = statusFieldOptions.done;
@@ -389,7 +441,14 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
           const updatedAt = new Date(issue.updated_at || issue.created_at);
           if (updatedAt < sinceDate) { skipped++; continue; }
           try {
-            const result = await addItemToProjectAndSetStatus(issue.node_id, 'issue', issue.number, sprintField, '', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+            // Issues from repo.yml: isRepoYml=true, isAssignedToUser if assigned, isLinkedToPR=false
+            const isRepoYml = true;
+            const isAssignedToUser = (issue.assignees || []).some(a => a.login === GITHUB_AUTHOR);
+            const isLinkedToPR = false;
+            const result = await addItemToProjectAndSetStatus(
+              issue.node_id, 'issue', issue.number, sprintField, '', `${owner}/${name}`, undefined, undefined, diagnostics,
+              isRepoYml, isAssignedToUser, isLinkedToPR, statusFieldOptions
+            );
             if (result.added) added++;
             else if (result.updated) updated++;
             else skipped++;
@@ -403,578 +462,203 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
         page++;
       }
     }
-    diagnostics.summary.push(`[addAssignedIssuesToProject] Processed: ${processed}, Added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
-  } catch (e) {
-    diagnostics.errors.push(`Error in addAssignedIssuesToProject: ${e.message}`);
-    if (VERBOSE) {
-      console.error('Error in addAssignedIssuesToProject:', e);
-    }
+  } catch (err) {
+    console.error('Error in addAssignedIssuesToProject:', err);
+    diagnostics.errors.push('Error in addAssignedIssuesToProject: ' + err.message);
   }
+  return { processed, added, updated, skipped };
 }
 
-// Add all issues assigned to the authenticated user, from any repo, to the project board
-async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
-  let page = 1;
-  let processed = 0, added = 0, updated = 0, skipped = 0;
-  // Use current date for sinceDate
-  const now = new Date();
-  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
-  while (true) {
-    const { data: issues } = await octokit.issues.listForAuthenticatedUser({
-      filter: 'assigned',
-      state: 'open',
-      per_page: 50,
-      page
-    });
-    if (issues.length === 0) break;
-    for (const issue of issues) {
-      if (issue.pull_request) continue;
-      processed++;
-      const updatedAt = new Date(issue.updated_at || issue.created_at);
-      if (updatedAt < sinceDate) { skipped++; continue; }
-      try {
-        const owner = issue.repository.owner.login;
-        const name = issue.repository.name;
-        const result = await addItemToProjectAndSetStatus(issue.node_id, 'issue', issue.number, sprintField, '', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
-        if (result.added) added++;
-        else if (result.updated) updated++;
-        else skipped++;
-      } catch (err) {
-        diagnostics.errors.push(`[${String(issue.repository.owner.login)}/${String(issue.repository.name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
-        if (VERBOSE) {
-          console.error('[%s/%s] Error processing assigned issue #%s:', String(issue.repository.owner.login), String(issue.repository.name), String(issue.number), err);
-        }
-      }
-    }
-    page++;
-  }
-  diagnostics.summary.push(`[addAllAssignedIssuesToProject] Processed: ${processed}, Added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
-}
-
-// Add all PRs created by the authenticated user, from any repo, to the project board
-async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions) {
-  let after = null;
-  let processed = 0, added = 0, updated = 0, skipped = 0;
-  // Use current date for sinceDate
-  const now = new Date();
-  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
-  while (true) {
-    const prsResult = await octokit.graphql(`
-      query($q: String!, $first: Int!, $after: String) {
-        search(query: $q, type: ISSUE, first: $first, after: $after) {
-          nodes {
-            ... on PullRequest {
-              number
-              title
-              updatedAt
-              createdAt
-              url
-              state
-              merged
-              author { login }
-              assignees(first: 10) { nodes { login } }
-              repository { name owner { login } }
-              id
-            }
-          }
-          pageInfo { hasNextPage endCursor }
-        }
-      }
-    `, { q: `is:pr author:${GITHUB_AUTHOR} is:open`, first: 50, after });
-    const prs = prsResult.search.nodes;
-    if (prs.length === 0) break;
-    for (const pr of prs) {
-      if (!pr) continue;
-      processed++;
-      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
-      if (updatedAt < sinceDate) { skipped++; continue; }
-      try {
-        const owner = pr.repository.owner.login;
-        const name = pr.repository.name;
-        const prNodeId = pr.id;
-        const prState = pr.state.toLowerCase();
-        const prMerged = pr.merged;
-        const result = await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '', `${owner}/${name}`, prState, prMerged, diagnostics, false, statusFieldOptions);
-        if (result.added) added++;
-        else if (result.updated) updated++;
-        else skipped++;
-      } catch (err) {
-        diagnostics.errors.push(`[${pr.url}] Error processing globally authored PR #${pr.number}: ${err.message}`);
-        if (VERBOSE) {
-          console.error(`[${pr.url}] Error processing globally authored PR #${pr.number}:`, err);
-        }
-      }
-    }
-    if (!prsResult.search.pageInfo.hasNextPage) break;
-    after = prsResult.search.pageInfo.endCursor;
-  }
-  diagnostics.summary.push(`[addAllAuthoredPRsToProject] Processed: ${processed}, Added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
-}
-
-// Add all open PRs where the user is a commit author (not just PR author/assignee) to the project board.
-async function addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions) {
-  // Use current date for sinceDate
-  const now = new Date();
-  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
-  for (const repoEntry of reposConfig) {
-    const repoFull = repoEntry.name.includes("/") ? repoEntry.name : `bcgov/${repoEntry.name}`;
-    const [owner, name] = repoFull.split("/");
-    let page = 1;
-    while (true) {
-      const { data: prs } = await octokit.pulls.list({
-        owner,
-        repo: name,
-        state: "open",
-        per_page: 50,
-        page
-      });
-      if (prs.length === 0) break;
-      for (const pr of prs) {
-        processed++;
-        const prUpdatedAt = new Date(pr.updated_at);
-        if (prUpdatedAt < sinceDate) { skipped++; continue; }
-        const isAuthor = pr.user && pr.user.login === GITHUB_AUTHOR;
-        const isAssignee = (pr.assignees || []).some(a => a.login === GITHUB_AUTHOR);
-        if (isAuthor || isAssignee) { skipped++; continue; }
-        let commitPage = 1;
-        let found = false;
-        while (!found) {
-          const { data: commits } = await octokit.pulls.listCommits({
-            owner,
-            repo: name,
-            pull_number: pr.number,
-            per_page: 100,
-            page: commitPage
-          });
-          if (commits.length === 0) break;
-          for (const commit of commits) {
-            if (commit.author && commit.author.login === GITHUB_AUTHOR) {
-              found = true;
-              break;
-            }
-          }
-          if (commits.length < 100) break;
-          commitPage++;
-        }
-        if (found) {
-          try {
-            const prNodeId = pr.node_id;
-            await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null, diagnostics, false, statusFieldOptions);
-            added++;
-            if (VERBOSE) {
-              console.log(`[${owner}/${name}] PR #${pr.number}: added to project (commit author)`);
-            }
-          } catch (err) {
-            diagnostics.errors.push(`[${owner}/${name}] Error processing PR #${pr.number} (commit author): ${err.message}`);
-            if (VERBOSE) {
-              console.error(`[${owner}/${name}] Error processing PR #${pr.number} (commit author):`, err);
-            }
-          }
-        } else {
-          skipped++;
-        }
-      }
-      page++;
-    }
-  }
-  diagnostics.summary.push(`[addAllCommitterPRsToProject] Processed: ${processed}, Added: ${added}, Skipped: ${skipped}`);
-}
-
-// For all PRs assigned to the user, handle linked issues, but skip PRs where user is only a reviewer.
-async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
-  let after = null;
-  let processed = 0, added = 0, updated = 0, skipped = 0;
-  // Use current date for sinceDate
-  const now = new Date();
-  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
-  while (true) {
-    const prsResult = await octokit.graphql(`
-      query($q: String!, $first: Int!, $after: String) {
-        search(query: $q, type: ISSUE, first: $first, after: $after) {
-          nodes {
-            ... on PullRequest {
-              number
-              title
-              updatedAt
-              createdAt
-              url
-              state
-              merged
-              author { login }
-              assignees(first: 10) { nodes { login } }
-              repository { name owner { login } }
-              id
-            }
-          }
-          pageInfo { hasNextPage endCursor }
-        }
-      }
-    `, { q: `is:pr assignee:${GITHUB_AUTHOR} is:open`, first: 50, after });
-    const prs = prsResult.search.nodes;
-    if (prs.length === 0) break;
-    for (const pr of prs) {
-      if (!pr) continue;
-      processed++;
-      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
-      if (updatedAt < sinceDate) { skipped++; continue; }
-      const owner = pr.repository.owner.login;
-      const name = pr.repository.name;
-      let prDetails;
-      try {
-        prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
-      } catch (err) {
-        diagnostics.errors.push(`[${owner}/${name}] Error fetching PR #${pr.number} details: ${err.message}`);
-        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching PR #${pr.number} details:`, err);
-        continue;
-      }
-      // Skip if user is only a reviewer (not author or assignee)
-      const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
-      const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
-      if (!isAuthor && !isAssignee) { skipped++; continue; }
-      // Fetch timeline for linked issues
-      let timeline;
-      try {
-        const resp = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
-          owner,
-          repo: name,
-          issue_number: pr.number,
-          mediaType: { previews: ['mockingbird'] }
-        });
-        timeline = resp.data;
-      } catch (err) {
-        diagnostics.errors.push(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}: ${err.message}`);
-        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}:`, err);
-        continue;
-      }
-      const linkedIssues = timeline.filter(event =>
-        event.event === 'cross-referenced' &&
-        event.source &&
-        event.source.issue &&
-        event.source.issue.pull_request === undefined &&
-        !event.source.comment &&
-        event.source.issue.repository &&
-        event.source.issue.repository.full_name === `${owner}/${name}`
-      );
-      for (const event of linkedIssues) {
-        const issueNum = event.source.issue.number;
-        try {
-          await octokit.issues.addAssignees({
-            owner,
-            repo: name,
-            issue_number: issueNum,
-            assignees: [GITHUB_AUTHOR]
-          });
-          // Add linked issue to project and set status
-          const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
-          const issueNodeId = issueDetails.data.node_id;
-          const result = await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
-          if (result.added) added++;
-          else if (result.updated) updated++;
-          else skipped++;
-        } catch (err) {
-          diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
-          if (VERBOSE) console.error(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}:`, err);
-        }
-      }
-    }
-    if (!prsResult.search.pageInfo.hasNextPage) break;
-    after = prsResult.search.pageInfo.endCursor;
-  }
-  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
-}
-
-// Parse repos config to support per-repo auto_add mode
-function getReposConfig(rawRepos) {
-  return rawRepos.map(entry => {
-    if (typeof entry === 'string') {
-      return { name: entry, auto_add: 'all' };
-    }
-    // Only use object format for special cases (e.g., auto_add: assigned)
-    return { name: entry.name, auto_add: entry.auto_add || 'all' };
-  });
-}
-const reposConfig = getReposConfig(repos);
-
-// Helper to fetch Status field and its option IDs
-async function getStatusFieldOptions(projectId) {
-  const result = await octokit.graphql(`
-    query($projectId:ID!){
-      node(id:$projectId){
-        ... on ProjectV2 {
-          fields(first:50){
-            nodes {
-              ... on ProjectV2SingleSelectField {
-                id
-                name
-                options { id name }
-              }
-            }
-          }
-        }
-      }
-    }
-  `, { projectId });
-  const fields = result.node.fields.nodes;
-  const statusField = fields.find(f => f.name && f.name.toLowerCase() === 'status');
-  if (!statusField) throw new Error('No Status field found in project');
-  const options = {};
-  for (const opt of statusField.options) {
-    if (opt.name.toLowerCase() === 'active') options.active = opt.id;
-    if (opt.name.toLowerCase() === 'done') options.done = opt.id;
-    if (opt.name.toLowerCase() === 'new') options.new = opt.id;
-  }
-  if (!options.active || !options.done || !options.new) {
-    throw new Error('Could not find all required Status options (Active, Done, New)');
-  }
-  return { fieldId: statusField.id, ...options };
-}
-
-/**
- * Logs diagnostic information about errors and summary details.
- *
- * @param {DiagnosticsContext} diagnostics - The diagnostics context containing errors and summary arrays.
- *
- * `diagnostics.errors` is an array of strings, where each string represents an error message.
- * Example: ["Error fetching PRs from repo1", "Failed to assign PR in repo2"]
- *
- * `diagnostics.summary` is an array of strings, where each string summarizes actions taken for a repository.
- * Example: ["[repo1] Summary: PRs assigned: 2, PRs added/updated in project: 1, linked issues assigned: 0"]
- *
- * @returns {void} This function does not return a value.
- */
-function logDiagnostics(diagnostics) {
-  if (diagnostics.errors.length > 0) {
-    console.error("\n=== Errors ===");
-    diagnostics.errors.forEach((error, index) => {
-      console.error(`${index + 1}. ${error}`);
-    });
-  } else {
-    console.log("\nNo errors encountered.");
-  }
-  if (diagnostics.summary.length > 0) {
-    console.log("\n=== Summary ===");
-    diagnostics.summary.forEach((summary, index) => {
-      console.log(`${index + 1}. ${summary}`);
-    });
-  } else {
-    console.log("\nNo summary information available.");
-  }
-}
-
-// Utility to sanitize GraphQL error responses before logging
-function sanitizeGraphQLResponse(response) {
-  // Deep clone to avoid mutating the original
-  const clone = JSON.parse(JSON.stringify(response));
-  // Redact common sensitive fields
-  const redactKeys = ['token', 'access_token', 'authorization', 'email', 'login', 'node_id'];
-  function redact(obj) {
-    if (Array.isArray(obj)) {
-      obj.forEach(redact);
-    } else if (obj && typeof obj === 'object') {
-      for (const key of Object.keys(obj)) {
-        if (redactKeys.includes(key.toLowerCase())) {
-          obj[key] = '[REDACTED]';
-        } else {
-          redact(obj[key]);
-        }
-      }
-    }
-  }
-  redact(clone);
-  return clone;
-}
-
-(async () => {
-  // Fetch project fields to get sprintField and statusField
-  let sprintField = null;
-  let statusFieldOptions = null;
-  const diagnostics = new DiagnosticsContext();
-  try {
-    if (VERBOSE) {
-      console.log('Fetching project fields for sprintField and statusField...');
-    }
-    const projectFields = await octokit.graphql(`
-      query($projectId:ID!){
-        node(id:$projectId){
-          ... on ProjectV2 {
-            fields(first:20){
-              nodes {
-                ... on ProjectV2FieldCommon {
-                  id
-                  name
-                  dataType
-                }
-                ... on ProjectV2IterationField {
-                  configuration {
-                    ... on ProjectV2IterationFieldConfiguration {
-                      iterations { id title startDate duration }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    `, { projectId: PROJECT_ID });
-    // Clean output: only print summary of fields
-    const fields = projectFields.node.fields.nodes;
-    if (VERBOSE) {
-      console.log('Project fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType })));
-    }
-    sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.dataType === 'ITERATION');
-    if (!sprintField) {
-      console.error('No sprint field found in project fields!');
-    } else if (sprintField && typeof sprintField.configuration === 'string') {
-      sprintField.configuration = JSON.parse(sprintField.configuration);
-    }
-    await ensureCurrentSprintExists(sprintField);
-    // Fetch status field options
-    statusFieldOptions = await getStatusFieldOptions(PROJECT_ID);
-  } catch (e) {
-    const errMsg = 'Error fetching/ensuring sprints or status field: ' + e.message;
-    diagnostics.errors.push(errMsg);
-    console.error(errMsg);
-    if (e.errors) {
-      for (const err of e.errors) {
-        diagnostics.errors.push('GraphQL error: ' + JSON.stringify(err));
-        console.error('GraphQL error:', err);
-      }
-    }
-    if (e.response) {
-      const sanitizedResponse = sanitizeGraphQLResponse(e.response);
-      diagnostics.errors.push('GraphQL response: ' + JSON.stringify(sanitizedResponse, null, 2));
-      console.error('GraphQL response:', JSON.stringify(sanitizedResponse, null, 2));
-    }
-  }
-  // Build the project item cache
+// Main processing function
+async function processProjectBoard(diagnostics) {
+  // Build project item cache
   await buildProjectItemCache();
-  // Add assigned issues to project board in 'New' column if not already set (per-repo config)
-  await addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
-  // Add all globally assigned issues (from any repo) to the project board
-  await addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
-  // Add all globally authored PRs (from any repo) to the project board
-  await addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions);
-  // Add all open PRs where the user has committed code (commit author)
-  await addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions);
-  // Handle linked issues for all PRs assigned to the user (not just authored), but skip PRs where user is only a reviewer
-  await handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions);
-  // Remove assignPRsInRepo calls (no longer needed)
-  // for (const repo of repos) {
-  //   const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
-  //   try {
-  //     await assignPRsInRepo(fullRepo, sprintField, diagnostics, statusFieldOptions);
-  //   } catch (e) {
-  //     const errMsg = `Error processing ${fullRepo}: ${e.message}`;
-  //     diagnostics.errors.push(errMsg);
-  //     console.error(errMsg);
-  //   }
-  // }
-  // Log diagnostics at the end
-  logDiagnostics(diagnostics);
-})();
-
-/**
- * For all PRs assigned to the user, handle linked issues, but skip PRs where user is only a reviewer.
- */
-async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
-  let after = null;
-  let processed = 0, added = 0, updated = 0, skipped = 0;
-  // Use current date for sinceDate
-  const now = new Date();
-  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
-  while (true) {
-    const prsResult = await octokit.graphql(`
-      query($q: String!, $first: Int!, $after: String) {
-        search(query: $q, type: ISSUE, first: $first, after: $after) {
-          nodes {
-            ... on PullRequest {
-              number
-              title
-              updatedAt
-              createdAt
-              url
-              state
-              merged
-              author { login }
-              assignees(first: 10) { nodes { login } }
-              repository { name owner { login } }
-              id
-            }
-          }
-          pageInfo { hasNextPage endCursor }
-        }
+  // Process each repo in the config
+  for (const repoEntry of repos) {
+    const repoName = repoEntry.name;
+    const autoAdd = repoEntry.auto_add;
+    if (VERBOSE) {
+      console.log(`\n=== Processing repo: ${repoName} (auto_add=${autoAdd}) ===`);
+    } else {
+      process.stdout.write(`\nProcessing repo: ${repoName}... `);
+    }
+    // Skip repos not starting with 'bcgov/'
+    if (!repoName.startsWith('bcgov/')) {
+      if (VERBOSE) {
+        console.log(`Skipped (not in bcgov org)`);
       }
-    `, { q: `is:pr assignee:${GITHUB_AUTHOR} is:open`, first: 50, after });
-    const prs = prsResult.search.nodes;
-    if (prs.length === 0) break;
-    for (const pr of prs) {
-      if (!pr) continue;
-      processed++;
-      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
-      if (updatedAt < sinceDate) { skipped++; continue; }
-      const owner = pr.repository.owner.login;
-      const name = pr.repository.name;
-      let prDetails;
-      try {
-        prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
-      } catch (err) {
-        diagnostics.errors.push(`[${owner}/${name}] Error fetching PR #${pr.number} details: ${err.message}`);
-        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching PR #${pr.number} details:`, err);
+      continue;
+    }
+    // Check if repo is archived
+    const [owner, repo] = repoName.split('/');
+    try {
+      const repoInfo = await octokit.repos.get({ owner, repo });
+      if (repoInfo.data.archived) {
+        if (VERBOSE) {
+          console.log(`Skipped (archived repo)`);
+        }
         continue;
       }
-      // Skip if user is only a reviewer (not author or assignee)
-      const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
-      const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
-      if (!isAuthor && !isAssignee) { skipped++; continue; }
-      // Fetch timeline for linked issues
-      let timeline;
-      try {
-        const resp = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
-          owner,
-          repo: name,
-          issue_number: pr.number,
-          mediaType: { previews: ['mockingbird'] }
-        });
-        timeline = resp.data;
-      } catch (err) {
-        diagnostics.errors.push(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}: ${err.message}`);
-        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}:`, err);
-        continue;
+    } catch (err) {
+      diagnostics.errors.push(`[${repoName}] Error checking if repo is archived: ${err.message}`);
+      if (VERBOSE) {
+        console.error(`[${repoName}] Error checking if repo is archived:`, err);
       }
-      const linkedIssues = timeline.filter(event =>
-        event.event === 'cross-referenced' &&
-        event.source &&
-        event.source.issue &&
-        event.source.issue.pull_request === undefined &&
-        !event.source.comment &&
-        event.source.issue.repository &&
-        event.source.issue.repository.full_name === `${owner}/${name}`
-      );
-      for (const event of linkedIssues) {
-        const issueNum = event.source.issue.number;
-        try {
-          await octokit.issues.addAssignees({
-            owner,
-            repo: name,
-            issue_number: issueNum,
-            assignees: [GITHUB_AUTHOR]
-          });
-          // Add linked issue to project and set status
-          const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
-          const issueNodeId = issueDetails.data.node_id;
-          const result = await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
-          if (result.added) added++;
-          else if (result.updated) updated++;
-          else skipped++;
-        } catch (err) {
-          diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
-          if (VERBOSE) console.error(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}:`, err);
-        }
+      // Fail open: continue processing if we can't check
+    }
+    // Determine if repo has a project
+    let hasProject = false;
+    try {
+      const projects = await octokit.projects.listForRepo({ owner, repo });
+      hasProject = projects.data.length > 0;
+    } catch (err) {
+      diagnostics.errors.push(`[${repoName}] Error checking for project: ${err.message}`);
+      if (VERBOSE) {
+        console.error(`[${repoName}] Error checking for project:`, err);
       }
     }
-    if (!prsResult.search.pageInfo.hasNextPage) break;
-    after = prsResult.search.pageInfo.endCursor;
+    if (!hasProject) {
+      if (VERBOSE) {
+        console.log(`No project found in this repo.`);
+      }
+      continue;
+    }
+    // Process open PRs
+    let prState = 'open';
+    let prMerged = false;
+    let prProcessed = 0;
+    let prAdded = 0;
+    let prUpdated = 0;
+    let prSkipped = 0;
+    try {
+      const prs = await octokit.pulls.list({
+        owner,
+        repo,
+        state: prState,
+        per_page: 100
+      });
+      for (const pr of prs.data) {
+        prProcessed++;
+        const result = await addItemToProjectAndSetStatus(
+          pr.node_id, 'PR', pr.number, null, '', repoName, prState, pr.merged, diagnostics
+        );
+        if (result.added) prAdded++;
+        else if (result.updated) prUpdated++;
+        else prSkipped++;
+      }
+    } catch (err) {
+      diagnostics.errors.push(`[${repoName}] Error processing PRs: ${err.message}`);
+      if (VERBOSE) {
+        console.error(`[${repoName}] Error processing PRs:`, err);
+      }
+    }
+    // Process closed PRs (for linking issues)
+    prState = 'closed';
+    prProcessed = 0;
+    prAdded = 0;
+    prUpdated = 0;
+    prSkipped = 0;
+    try {
+      const prs = await octokit.pulls.list({
+        owner,
+        repo,
+        state: prState,
+        per_page: 100
+      });
+      for (const pr of prs.data) {
+        prProcessed++;
+        const result = await addItemToProjectAndSetStatus(
+          pr.node_id, 'PR', pr.number, null, '', repoName, prState, pr.merged, diagnostics
+        );
+        if (result.added) prAdded++;
+        else if (result.updated) prUpdated++;
+        else prSkipped++;
+      }
+    } catch (err) {
+      diagnostics.errors.push(`[${repoName}] Error processing closed PRs: ${err.message}`);
+      if (VERBOSE) {
+        console.error(`[${repoName}] Error processing closed PRs:`, err);
+      }
+    }
+    // Process issues assigned to GITHUB_AUTHOR
+    let processed = 0, added = 0, updated = 0, skipped = 0;
+    try {
+      // Use current date for sinceDate
+      const now = new Date();
+      const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+      let issuesQuery = {
+        owner,
+        repo,
+        state: "open",
+        per_page: 50
+      };
+      issuesQuery.assignee = GITHUB_AUTHOR;
+      let page = 1;
+      while (true) {
+        const { data: issues } = await octokit.issues.listForRepo({ ...issuesQuery, page });
+        if (issues.length === 0) break;
+        for (const issue of issues) {
+          if (issue.pull_request) continue;
+          processed++;
+          const updatedAt = new Date(issue.updated_at || issue.created_at);
+          if (updatedAt < sinceDate) { skipped++; continue; }
+          try {
+            // Issues from repo.yml: isRepoYml=true, isAssignedToUser if assigned, isLinkedToPR=false
+            const isRepoYml = true;
+            const isAssignedToUser = (issue.assignees || []).some(a => a.login === GITHUB_AUTHOR);
+            const isLinkedToPR = false;
+            const result = await addItemToProjectAndSetStatus(
+              issue.node_id, 'issue', issue.number, null, '', repoName, undefined, undefined, diagnostics,
+              isRepoYml, isAssignedToUser, isLinkedToPR, statusFieldOptions
+            );
+            if (result.added) added++;
+            else if (result.updated) updated++;
+            else skipped++;
+          } catch (err) {
+            diagnostics.errors.push(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
+            if (VERBOSE) {
+              console.error('[%s/%s] Error processing assigned issue #%s:', String(owner), String(name), String(issue.number), err);
+            }
+          }
+        }
+        page++;
+      }
+    } catch (err) {
+      console.error('Error in addAssignedIssuesToProject:', err);
+      diagnostics.errors.push('Error in addAssignedIssuesToProject: ' + err.message);
+    }
+    // Summary output for this repo
+    if (VERBOSE) {
+      console.log(`Processed ${prProcessed} PRs (added: ${prAdded}, updated: ${prUpdated}, skipped: ${prSkipped})`);
+      console.log(`Processed ${processed} issues (added: ${added}, updated: ${updated}, skipped: ${skipped})`);
+    } else {
+      process.stdout.write(`Processed ${prProcessed} PRs, ${processed} issues... `);
+    }
   }
-  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
 }
+
+// === MAIN EXECUTION ===
+async function run() {
+  const diagnostics = new DiagnosticsContext();
+  console.log('=== GitHub Project Automation Script ===');
+  console.log(`Started at: ${new Date().toISOString()}`);
+  try {
+    await processProjectBoard(diagnostics);
+  } catch (err) {
+    console.error('Unexpected error in run():', err);
+    diagnostics.errors.push('Unexpected error in run(): ' + err.message);
+  }
+  // Final diagnostics summary
+  console.log('\n=== Summary ===');
+  if (diagnostics.errors.length > 0) {
+    console.log(`Errors: ${diagnostics.errors.length}`);
+    for (const err of diagnostics.errors) {
+      console.log(`- ${err}`);
+    }
+  } else {
+    console.log('No errors encountered.');
+  }
+  console.log('Finished at: ' + new Date().toISOString());
+}
+
+run();
