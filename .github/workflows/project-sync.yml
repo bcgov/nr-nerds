@@ -31,8 +31,10 @@ jobs:
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
-          MESSAGE=":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
-          PAYLOAD="{\"@type\": \"MessageCard\", \"@context\": \"http://schema.org/extensions\", \"summary\": \"GH Project Assigner failed\", \"themeColor\": \"FF0000\", \"title\": \"GH Project Assigner failed\", \"text\": \"$MESSAGE\"}"
+          MESSAGE="\":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details.\""
+          # Escape double quotes and newlines for JSON
+          ESCAPED_MESSAGE=$(echo "$MESSAGE" | sed 's/\"/\\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+          PAYLOAD="{\"@type\": \"MessageCard\", \"@context\": \"http://schema.org/extensions\", \"summary\": \"GH Project Assigner failed\", \"themeColor\": \"FF0000\", \"title\": \"GH Project Assigner failed\", \"text\": $ESCAPED_MESSAGE}"
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
 
       - name: Create GitHub Issue on failure
