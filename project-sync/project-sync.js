@@ -805,7 +805,7 @@ function sanitizeGraphQLResponse(response) {
   await addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
   // Add all globally authored PRs (from any repo) to the project board
   await addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions);
-  // Handle linked issues for all PRs assigned to the user (not just authored)
+  // Handle linked issues for all PRs assigned to the user (not just authored), but skip PRs where user is only a reviewer
   await handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions);
   // Only use repos.yml for auto-adding all open issues (not for PRs or assigned issues)
   // (assignPRsInRepo and per-repo logic is now only for explicit auto-add-all-issues behavior)
@@ -822,3 +822,78 @@ function sanitizeGraphQLResponse(response) {
   // Log diagnostics at the end
   logDiagnostics(diagnostics);
 })();
+
+/**
+ * For all PRs assigned to the user, handle linked issues, but skip PRs where user is only a reviewer.
+ */
+async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
+  let page = 1;
+  while (true) {
+    // Get PRs assigned to the user
+    const { data: prs } = await octokit.search.issuesAndPullRequests({
+      q: `is:pr assignee:${GITHUB_AUTHOR} is:open`,
+      per_page: 50,
+      page
+    });
+    if (prs.items.length === 0) break;
+    for (const pr of prs.items) {
+      if (!pr.pull_request) continue;
+      // Get PR details for author and reviewers
+      const owner = pr.repository_url.split('/').slice(-2)[0];
+      const name = pr.repository_url.split('/').slice(-1)[0];
+      let prDetails;
+      try {
+        prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
+      } catch (err) {
+        diagnostics.errors.push(`[${owner}/${name}] Error fetching PR #${pr.number} details: ${err.message}`);
+        continue;
+      }
+      // Skip if user is only a reviewer (not author or assignee)
+      const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
+      const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
+      if (!isAuthor && !isAssignee) continue;
+      // ---
+      // Fetch timeline for linked issues
+      let timeline;
+      try {
+        const resp = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
+          owner,
+          repo: name,
+          issue_number: pr.number,
+          mediaType: { previews: ['mockingbird'] }
+        });
+        timeline = resp.data;
+      } catch (err) {
+        diagnostics.errors.push(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}: ${err.message}`);
+        continue;
+      }
+      const linkedIssues = timeline.filter(event =>
+        event.event === 'cross-referenced' &&
+        event.source &&
+        event.source.issue &&
+        event.source.issue.pull_request === undefined &&
+        !event.source.comment &&
+        event.source.issue.repository &&
+        event.source.issue.repository.full_name === `${owner}/${name}`
+      );
+      for (const event of linkedIssues) {
+        const issueNum = event.source.issue.number;
+        try {
+          await octokit.issues.addAssignees({
+            owner,
+            repo: name,
+            issue_number: issueNum,
+            assignees: [GITHUB_AUTHOR]
+          });
+          // Add linked issue to project and set status
+          const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
+          const issueNodeId = issueDetails.data.node_id;
+          await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+        } catch (err) {
+          diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
+        }
+      }
+    }
+    page++;
+  }
+}
