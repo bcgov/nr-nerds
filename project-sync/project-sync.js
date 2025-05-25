@@ -224,17 +224,23 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       const currentSprintId = cachedCurrentSprintId;
       const currentSprint = iterations.find(i => i.id === currentSprintId);
       if (currentSprintId && currentSprint) {
-        // Check if sprint is already set
-        let sprintAlreadySet = false;
+        // Check if sprint is already set to the current sprint
+        let sprintAlreadySetToCurrent = false;
         if (cacheEntry && cacheEntry.fieldValues) {
           for (const fv of cacheEntry.fieldValues) {
-            if (fv.field && fv.field.name && fv.field.name.toLowerCase().includes('sprint') && fv.iterationId === currentSprintId) {
-              sprintAlreadySet = true;
+            if (
+              fv.field &&
+              fv.field.name &&
+              fv.field.name.toLowerCase().includes('sprint') &&
+              fv.iterationId === currentSprintId
+            ) {
+              sprintAlreadySetToCurrent = true;
               break;
             }
           }
         }
-        if (!sprintAlreadySet) {
+        if (!sprintAlreadySetToCurrent) {
+          // If a sprint is set but not current, update to current sprint
           await octokit.graphql(`
             mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
               updateProjectV2ItemFieldValue(input: {
