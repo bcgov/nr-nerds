@@ -25,3 +25,12 @@ jobs:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: node project-sync/project-sync.js
+
+      - name: Notify Microsoft Teams on failure
+        if: failure()
+        env:
+          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+        run: |
+          MESSAGE=":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
+          PAYLOAD="{\"@type\": \"MessageCard\", \"@context\": \"http://schema.org/extensions\", \"summary\": \"GH Project Assigner failed\", \"themeColor\": \"FF0000\", \"title\": \"GH Project Assigner failed\", \"text\": \"$MESSAGE\"}"
+          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
