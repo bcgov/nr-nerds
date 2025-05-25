@@ -32,7 +32,12 @@ jobs:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
           MESSAGE=":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
-          # Escape double quotes and newlines for JSON
-          ESCAPED_MESSAGE=$(echo "$MESSAGE" | sed 's/\"/\\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
-          PAYLOAD="{\"@type\": \"MessageCard\", \"@context\": \"http://schema.org/extensions\", \"summary\": \"GH Project Assigner failed\", \"themeColor\": \"FF0000\", \"title\": \"GH Project Assigner failed\", \"text\": $ESCAPED_MESSAGE}"
+          PAYLOAD=$(jq -nc \
+            --arg type "MessageCard" \
+            --arg context "http://schema.org/extensions" \
+            --arg summary "GH Project Assigner failed" \
+            --arg themeColor "FF0000" \
+            --arg title "GH Project Assigner failed" \
+            --arg text "$MESSAGE" \
+            '{ "@type": $type, "@context": $context, summary: $summary, themeColor: $themeColor, title: $title, text: $text }')
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
