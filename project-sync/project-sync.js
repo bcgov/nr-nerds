@@ -339,6 +339,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
 
 // Helper to add assigned issues to project board in 'New' column if not already set
 async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
+  let processed = 0, added = 0, updated = 0, skipped = 0;
   try {
     const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
     for (const repoEntry of reposConfig) {
@@ -370,6 +371,7 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
         if (issues.length === 0) break;
         for (const issue of issues) {
           if (issue.pull_request) continue;
+          processed++;
           const sinceRelevant = new Date(issue.updated_at || issue.created_at) >= sinceDate;
           const isAssigned = (issue.assignees || []).length > 0;
           const cacheEntry = getProjectItemFromCache(issue.node_id);
@@ -379,7 +381,7 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
             const statusField = cacheEntry.fieldValues.find(fv => fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status');
             if (statusField && statusField.optionId) statusAlreadySet = true;
           }
-          if (!isAssigned && !inProject && !sinceRelevant) continue;
+          if (!isAssigned && !inProject && !sinceRelevant) { skipped++; continue; }
           try {
             const issueNodeId = issue.node_id;
             let projectItemId = null;
@@ -412,6 +414,7 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
                 fieldId: statusFieldOptions.fieldId,
                 optionId: statusFieldOptions.new
               });
+              added++;
               if (VERBOSE) {
                 console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
               }
@@ -432,10 +435,12 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
                 fieldId: statusFieldOptions.fieldId,
                 optionId: statusFieldOptions.new
               });
+              updated++;
               if (VERBOSE) {
                 console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
               }
             } else {
+              skipped++;
               if (VERBOSE) {
                 console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping`);
               }
@@ -450,6 +455,7 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
         page++;
       }
     }
+    diagnostics.summary.push(`[addAssignedIssuesToProject] Processed: ${processed}, Added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
   } catch (e) {
     diagnostics.errors.push(`Error in addAssignedIssuesToProject: ${e.message}`);
     if (VERBOSE) {
@@ -461,6 +467,7 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
 // Add all issues assigned to the authenticated user, from any repo, to the project board
 async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
   let page = 1;
+  let processed = 0, added = 0, updated = 0, skipped = 0;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const { data: issues } = await octokit.issues.listForAuthenticatedUser({
@@ -472,8 +479,9 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
     if (issues.length === 0) break;
     for (const issue of issues) {
       if (issue.pull_request) continue;
+      processed++;
       const updatedAt = new Date(issue.updated_at || issue.created_at);
-      if (updatedAt < sinceDate) continue;
+      if (updatedAt < sinceDate) { skipped++; continue; }
       try {
         const owner = issue.repository.owner.login;
         const name = issue.repository.name;
@@ -513,6 +521,7 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
             fieldId: statusFieldOptions.fieldId,
             optionId: statusFieldOptions.new
           });
+          added++;
           if (VERBOSE) {
             console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
           }
@@ -533,10 +542,12 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
             fieldId: statusFieldOptions.fieldId,
             optionId: statusFieldOptions.new
           });
+          updated++;
           if (VERBOSE) {
             console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
           }
         } else {
+          skipped++;
           if (VERBOSE) {
             console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping`);
           }
@@ -550,11 +561,13 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
     }
     page++;
   }
+  diagnostics.summary.push(`[addAllAssignedIssuesToProject] Processed: ${processed}, Added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
 }
 
 // Add all PRs created by the authenticated user, from any repo, to the project board
 async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions) {
   let after = null;
+  let processed = 0, added = 0, updated = 0, skipped = 0;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const prsResult = await octokit.graphql(`
@@ -583,15 +596,25 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
     if (prs.length === 0) break;
     for (const pr of prs) {
       if (!pr) continue;
+      processed++;
       const updatedAt = new Date(pr.updatedAt || pr.createdAt);
-      if (updatedAt < sinceDate) continue;
+      if (updatedAt < sinceDate) { skipped++; continue; }
       try {
         const owner = pr.repository.owner.login;
         const name = pr.repository.name;
         const prNodeId = pr.id;
         const prState = pr.state.toLowerCase();
         const prMerged = pr.merged;
+        // Use addItemToProjectAndSetStatus and track what it did
+        let before = diagnostics.summary.length;
         await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, prState, prMerged, diagnostics, false, statusFieldOptions);
+        let afterSummary = diagnostics.summary.length;
+        if (afterSummary > before) {
+          updated++;
+        } else {
+          skipped++;
+        }
+        added++; // For summary, count as added/updated
       } catch (err) {
         diagnostics.errors.push(`[${pr.url}] Error processing globally authored PR #${pr.number}: ${err.message}`);
         if (VERBOSE) {
@@ -602,11 +625,13 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
     if (!prsResult.search.pageInfo.hasNextPage) break;
     after = prsResult.search.pageInfo.endCursor;
   }
+  diagnostics.summary.push(`[addAllAuthoredPRsToProject] Processed: ${processed}, Added/Updated: ${added}, Skipped: ${skipped}`);
 }
 
 // Add all open PRs where the user is a commit author (not just PR author/assignee) to the project board.
 async function addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions) {
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+  let processed = 0, added = 0, updated = 0, skipped = 0;
   for (const repoEntry of reposConfig) {
     const repoFull = repoEntry.name.includes("/") ? repoEntry.name : `bcgov/${repoEntry.name}`;
     const [owner, name] = repoFull.split("/");
@@ -621,11 +646,12 @@ async function addAllCommitterPRsToProject(sprintField, diagnostics, statusField
       });
       if (prs.length === 0) break;
       for (const pr of prs) {
+        processed++;
         const prUpdatedAt = new Date(pr.updated_at);
-        if (prUpdatedAt < sinceDate) continue;
+        if (prUpdatedAt < sinceDate) { skipped++; continue; }
         const isAuthor = pr.user && pr.user.login === GITHUB_AUTHOR;
         const isAssignee = (pr.assignees || []).some(a => a.login === GITHUB_AUTHOR);
-        if (isAuthor || isAssignee) continue;
+        if (isAuthor || isAssignee) { skipped++; continue; }
         let commitPage = 1;
         let found = false;
         while (!found) {
@@ -650,6 +676,7 @@ async function addAllCommitterPRsToProject(sprintField, diagnostics, statusField
           try {
             const prNodeId = pr.node_id;
             await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null, diagnostics, false, statusFieldOptions);
+            added++;
             if (VERBOSE) {
               console.log(`[${owner}/${name}] PR #${pr.number}: added to project (commit author)`);
             }
@@ -659,16 +686,20 @@ async function addAllCommitterPRsToProject(sprintField, diagnostics, statusField
               console.error(`[${owner}/${name}] Error processing PR #${pr.number} (commit author):`, err);
             }
           }
+        } else {
+          skipped++;
         }
       }
       page++;
     }
   }
+  diagnostics.summary.push(`[addAllCommitterPRsToProject] Processed: ${processed}, Added: ${added}, Skipped: ${skipped}`);
 }
 
 // For all PRs assigned to the user, handle linked issues, but skip PRs where user is only a reviewer.
 async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
   let after = null;
+  let processed = 0, added = 0, updated = 0, skipped = 0;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const prsResult = await octokit.graphql(`
@@ -697,8 +728,9 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
     if (prs.length === 0) break;
     for (const pr of prs) {
       if (!pr) continue;
+      processed++;
       const updatedAt = new Date(pr.updatedAt || pr.createdAt);
-      if (updatedAt < sinceDate) continue;
+      if (updatedAt < sinceDate) { skipped++; continue; }
       const owner = pr.repository.owner.login;
       const name = pr.repository.name;
       let prDetails;
@@ -711,7 +743,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
       // Skip if user is only a reviewer (not author or assignee)
       const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
       const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
-      if (!isAuthor && !isAssignee) continue;
+      if (!isAuthor && !isAssignee) { skipped++; continue; }
       // ---
       // Fetch timeline for linked issues
       let timeline;
@@ -749,6 +781,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
           const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
           const issueNodeId = issueDetails.data.node_id;
           await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+          added++;
         } catch (err) {
           diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
         }
@@ -757,6 +790,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
     if (!prsResult.search.pageInfo.hasNextPage) break;
     after = prsResult.search.pageInfo.endCursor;
   }
+  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Skipped: ${skipped}`);
 }
 
 // Parse repos config to support per-repo auto_add mode
@@ -955,6 +989,7 @@ function sanitizeGraphQLResponse(response) {
  */
 async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
   let after = null;
+  let processed = 0, added = 0, updated = 0, skipped = 0;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const prsResult = await octokit.graphql(`
@@ -983,8 +1018,9 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
     if (prs.length === 0) break;
     for (const pr of prs) {
       if (!pr) continue;
+      processed++;
       const updatedAt = new Date(pr.updatedAt || pr.createdAt);
-      if (updatedAt < sinceDate) continue;
+      if (updatedAt < sinceDate) { skipped++; continue; }
       const owner = pr.repository.owner.login;
       const name = pr.repository.name;
       let prDetails;
@@ -997,7 +1033,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
       // Skip if user is only a reviewer (not author or assignee)
       const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
       const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
-      if (!isAuthor && !isAssignee) continue;
+      if (!isAuthor && !isAssignee) { skipped++; continue; }
       // ---
       // Fetch timeline for linked issues
       let timeline;
@@ -1035,6 +1071,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
           const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
           const issueNodeId = issueDetails.data.node_id;
           await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+          added++;
         } catch (err) {
           diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
         }
@@ -1043,4 +1080,5 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
     if (!prsResult.search.pageInfo.hasNextPage) break;
     after = prsResult.search.pageInfo.endCursor;
   }
+  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Skipped: ${skipped}`);
 }
