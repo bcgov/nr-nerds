@@ -2,7 +2,6 @@
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
 const yaml = require("js-yaml");
-const nodemailer = require("nodemailer");
 
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
@@ -18,40 +17,6 @@ const STATUS_OPTIONS = {
 };
 const VERBOSE = process.argv.includes('--verbose');
 // REMINDER: Consider TypeScript and more unit tests in future for maintainability and safety.
-
-// === EMAIL CONFIGURATION ===
-const EMAIL_ENABLED = process.env.EMAIL_ENABLED === 'true';
-const EMAIL_SMTP_HOST = process.env.EMAIL_SMTP_HOST;
-const EMAIL_SMTP_PORT = process.env.EMAIL_SMTP_PORT || 587;
-const EMAIL_SMTP_USER = process.env.EMAIL_SMTP_USER;
-const EMAIL_SMTP_PASS = process.env.EMAIL_SMTP_PASS;
-const EMAIL_FROM = process.env.EMAIL_FROM;
-const EMAIL_TO = process.env.EMAIL_TO;
-
-// Helper to send email notification
-async function sendEmail(subject, text) {
-  if (!EMAIL_ENABLED) return;
-  try {
-    const transporter = nodemailer.createTransport({
-      host: EMAIL_SMTP_HOST,
-      port: EMAIL_SMTP_PORT,
-      secure: EMAIL_SMTP_PORT == 465, // true for 465, false for other ports
-      auth: {
-        user: EMAIL_SMTP_USER,
-        pass: EMAIL_SMTP_PASS
-      }
-    });
-    await transporter.sendMail({
-      from: EMAIL_FROM,
-      to: EMAIL_TO,
-      subject,
-      text
-    });
-    if (VERBOSE) console.log('Email notification sent.');
-  } catch (err) {
-    console.error('Failed to send email notification:', err.message);
-  }
-}
 
 let globalErrors = [];
 let globalSummary = [];
@@ -375,13 +340,5 @@ async function assignPRsInRepo(repo, sprintField) {
       globalErrors.push(errMsg);
       console.error(errMsg);
     }
-  }
-  // Send email notification at the end
-  if (!isPRContext && globalErrors.length) {
-    let subject = `[project-sync] Run summary: ERRORS`;
-    let text = '';
-    if (globalSummary.length) text += globalSummary.join('\n') + '\n';
-    text += '\nErrors:\n' + globalErrors.join('\n');
-    await sendEmail(subject, text);
   }
 })();
