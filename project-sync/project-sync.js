@@ -275,6 +275,26 @@ async function assignPRsInRepo(repo, sprintField) {
   }
 }
 
+// Function to process and log globalErrors and globalSummary
+function logDiagnostics() {
+  if (globalErrors.length > 0) {
+    console.error("\n=== Errors ===");
+    globalErrors.forEach((error, index) => {
+      console.error(`${index + 1}. ${error}`);
+    });
+  } else {
+    console.log("\nNo errors encountered.");
+  }
+  if (globalSummary.length > 0) {
+    console.log("\n=== Summary ===");
+    globalSummary.forEach((summary, index) => {
+      console.log(`${index + 1}. ${summary}`);
+    });
+  } else {
+    console.log("\nNo summary information available.");
+  }
+}
+
 (async () => {
   // Only send email notifications for failures if not running in a PR context
   const isPRContext = process.env.GITHUB_EVENT_NAME === 'pull_request';
@@ -341,4 +361,6 @@ async function assignPRsInRepo(repo, sprintField) {
       console.error(errMsg);
     }
   }
+  // Log diagnostics at the end
+  logDiagnostics();
 })();
