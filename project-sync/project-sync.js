@@ -296,8 +296,7 @@ function logDiagnostics() {
 }
 
 (async () => {
-  // Only send email notifications for failures if not running in a PR context
-  const isPRContext = process.env.GITHUB_EVENT_NAME === 'pull_request';
+  // Remove unused isPRContext variable and related comments
   // Fetch project fields to get sprintField
   let sprintField = null;
   try {
