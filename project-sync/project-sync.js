@@ -522,6 +522,72 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
   }
 }
 
+/**
+ * Add all open PRs where the user is a commit author (not just PR author/assignee) to the project board.
+ * Avoid duplicating PRs already handled by authored/assigned logic.
+ */
+async function addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions) {
+  // We'll search all open PRs in repos we care about (from reposConfig),
+  // and for each, check if GITHUB_AUTHOR is a commit author.
+  for (const repoEntry of reposConfig) {
+    const repoFull = repoEntry.name.includes("/") ? repoEntry.name : `bcgov/${repoEntry.name}`;
+    const [owner, name] = repoFull.split("/");
+    let page = 1;
+    while (true) {
+      const { data: prs } = await octokit.pulls.list({
+        owner,
+        repo: name,
+        state: "open",
+        per_page: 50,
+        page
+      });
+      if (prs.length === 0) break;
+      for (const pr of prs) {
+        // Skip if already handled as author or assignee
+        const isAuthor = pr.user && pr.user.login === GITHUB_AUTHOR;
+        const isAssignee = (pr.assignees || []).some(a => a.login === GITHUB_AUTHOR);
+        if (isAuthor || isAssignee) continue;
+        // Check commits for this PR
+        let commitPage = 1;
+        let found = false;
+        while (!found) {
+          const { data: commits } = await octokit.pulls.listCommits({
+            owner,
+            repo: name,
+            pull_number: pr.number,
+            per_page: 100,
+            page: commitPage
+          });
+          if (commits.length === 0) break;
+          for (const commit of commits) {
+            if (commit.author && commit.author.login === GITHUB_AUTHOR) {
+              found = true;
+              break;
+            }
+          }
+          if (commits.length < 100) break;
+          commitPage++;
+        }
+        if (found) {
+          try {
+            const prNodeId = pr.node_id;
+            await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null, diagnostics, false, statusFieldOptions);
+            if (VERBOSE) {
+              console.log(`[${owner}/${name}] PR #${pr.number}: added to project (commit author)`);
+            }
+          } catch (err) {
+            diagnostics.errors.push(`[${owner}/${name}] Error processing PR #${pr.number} (commit author): ${err.message}`);
+            if (VERBOSE) {
+              console.error(`[${owner}/${name}] Error processing PR #${pr.number} (commit author):`, err);
+            }
+          }
+        }
+      }
+      page++;
+    }
+  }
+}
+
 async function assignPRsInRepo(repo, sprintField, diagnostics, statusFieldOptions) {
   const [owner, name] = repo.split("/");
   let page = 1;
@@ -805,6 +871,8 @@ function sanitizeGraphQLResponse(response) {
   await addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
   // Add all globally authored PRs (from any repo) to the project board
   await addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions);
+  // Add all open PRs where the user has committed code (commit author)
+  await addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions);
   // Handle linked issues for all PRs assigned to the user (not just authored), but skip PRs where user is only a reviewer
   await handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions);
   // Only use repos.yml for auto-adding all open issues (not for PRs or assigned issues)
