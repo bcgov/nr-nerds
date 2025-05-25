@@ -13,7 +13,8 @@ const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 // === CONFIGURATION ===
 const STATUS_OPTIONS = {
   active: 'c66ba2dd', // Project column optionId for 'Active'
-  done: 'b6e2e2b2'   // Project column optionId for 'Done' (update as needed)
+  done: 'b6e2e2b2',   // Project column optionId for 'Done' (update as needed)
+  new: 'b6e2e2b1'     // Project column optionId for 'New' (add/update as needed)
 };
 const VERBOSE = process.argv.includes('--verbose');
 // REMINDER: Consider TypeScript and more unit tests in future for maintainability and safety.
@@ -184,6 +185,147 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
   } catch (err) {
     console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
     diagnostics.errors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
+  }
+}
+
+// Helper to add assigned issues to project board in 'New' column if not already set
+async function addAssignedIssuesToProject(sprintField, diagnostics) {
+  try {
+    for (const repo of repos) {
+      const [owner, name] = repo.split("/");
+      let page = 1;
+      while (true) {
+        const { data: issues } = await octokit.issues.listForRepo({
+          owner,
+          repo: name,
+          state: "open",
+          assignee: GITHUB_AUTHOR,
+          per_page: 50,
+          page
+        });
+        if (issues.length === 0) break;
+        for (const issue of issues) {
+          // Skip PRs
+          if (issue.pull_request) continue;
+          try {
+            const issueNodeId = issue.node_id;
+            // Check if already in project and has a status set
+            let projectItemId = null;
+            let statusAlreadySet = false;
+            let endCursor = null;
+            do {
+              const existingItemQuery = await octokit.graphql(`
+                query($projectId:ID!, $after:String) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $after) {
+                        nodes {
+                          id
+                          content { ... on Issue { id } }
+                          fieldValues(first: 10) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue {
+                                field {
+                                  ... on ProjectV2FieldCommon { id name }
+                                }
+                                optionId
+                              }
+                            }
+                          }
+                        }
+                        pageInfo { hasNextPage endCursor }
+                      }
+                    }
+                  }
+                }
+              `, {
+                projectId: PROJECT_ID,
+                after: endCursor
+              });
+              const items = existingItemQuery.node.items.nodes;
+              const match = items.find(item => item.content && item.content.id === issueNodeId);
+              if (match) {
+                projectItemId = match.id;
+                // Check if status field is set
+                const statusField = match.fieldValues.nodes.find(fv => fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status');
+                if (statusField && statusField.optionId) {
+                  statusAlreadySet = true;
+                }
+                break;
+              }
+              endCursor = existingItemQuery.node.items.pageInfo.endCursor;
+            } while (endCursor);
+            if (!projectItemId) {
+              // Not in project, add it and set status to 'New'
+              const addResult = await octokit.graphql(`
+                mutation($projectId:ID!, $contentId:ID!) {
+                  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                    item { id }
+                  }
+                }
+              `, {
+                projectId: PROJECT_ID,
+                contentId: issueNodeId
+              });
+              projectItemId = addResult.addProjectV2ItemById.item.id;
+              await octokit.graphql(`
+                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { singleSelectOptionId: $optionId }
+                  }) { projectV2Item { id } }
+                }
+              `, {
+                projectId: PROJECT_ID,
+                itemId: projectItemId,
+                fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status field
+                optionId: STATUS_OPTIONS.new
+              });
+              if (VERBOSE) {
+                console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
+              }
+            } else if (!statusAlreadySet) {
+              // In project but no status set, set to 'New'
+              await octokit.graphql(`
+                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { singleSelectOptionId: $optionId }
+                  }) { projectV2Item { id } }
+                }
+              `, {
+                projectId: PROJECT_ID,
+                itemId: projectItemId,
+                fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status field
+                optionId: STATUS_OPTIONS.new
+              });
+              if (VERBOSE) {
+                console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
+              }
+            } else {
+              if (VERBOSE) {
+                console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping`);
+              }
+            }
+          } catch (err) {
+            diagnostics.errors.push(`[${owner}/${name}] Error processing assigned issue #${issue.number}: ${err.message}`);
+            if (VERBOSE) {
+              console.error(`[${owner}/${name}] Error processing assigned issue #${issue.number}:`, err);
+            }
+          }
+        }
+        page++;
+      }
+    }
+  } catch (e) {
+    diagnostics.errors.push(`Error in addAssignedIssuesToProject: ${e.message}`);
+    if (VERBOSE) {
+      console.error('Error in addAssignedIssuesToProject:', e);
+    }
   }
 }
 
@@ -394,6 +536,8 @@ function sanitizeGraphQLResponse(response) {
       console.error('GraphQL response:', JSON.stringify(sanitizedResponse, null, 2));
     }
   }
+  // Add assigned issues to project board in 'New' column if not already set
+  await addAssignedIssuesToProject(sprintField, diagnostics);
   for (const repo of repos) {
     try {
       const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
