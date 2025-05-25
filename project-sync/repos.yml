@@ -1,8 +1,3 @@
 repos:
-  - name: nr-nerds
-    auto_add: all
-  - name: quickstart-openshift
-    auto_add: all
-# Example for assigned-only mode:
-#  - name: some-private-repo
-#    auto_add: assigned
+  - nr-nerds
+  - quickstart-openshift

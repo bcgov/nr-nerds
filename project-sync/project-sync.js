@@ -608,7 +608,7 @@ function getReposConfig(rawRepos) {
     if (typeof entry === 'string') {
       return { name: entry, auto_add: 'all' };
     }
-    // Default to 'all' if not specified
+    // Only use object format for special cases (e.g., auto_add: assigned)
     return { name: entry.name, auto_add: entry.auto_add || 'all' };
   });
 }
