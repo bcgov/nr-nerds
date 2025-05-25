@@ -205,7 +205,9 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
 // Helper to add assigned issues to project board in 'New' column if not already set
 async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
   try {
-    for (const repo of repos) {
+    for (const repoEntry of reposConfig) {
+      let repo = repoEntry.name;
+      let autoAddMode = repoEntry.auto_add;
       let owner, name;
       let repoFull = repo.includes("/") ? repo : `bcgov/${repo}`;
       [owner, name] = repoFull.split("/");
@@ -218,13 +220,18 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
       }
       let page = 1;
       while (true) {
-        const { data: issues } = await octokit.issues.listForRepo({
+        // Use autoAddMode to determine which issues to fetch
+        let issuesQuery = {
           owner,
           repo: name,
           state: "open",
           per_page: 50,
           page
-        });
+        };
+        if (autoAddMode === 'assigned') {
+          issuesQuery.assignee = GITHUB_AUTHOR;
+        }
+        const { data: issues } = await octokit.issues.listForRepo(issuesQuery);
         if (issues.length === 0) break;
         for (const issue of issues) {
           // Skip PRs
@@ -351,6 +358,137 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
   }
 }
 
+// Add all issues assigned to the authenticated user, from any repo, to the project board
+async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
+  let page = 1;
+  while (true) {
+    const { data: issues } = await octokit.issues.listForAuthenticatedUser({
+      filter: 'assigned',
+      state: 'open',
+      per_page: 50,
+      page
+    });
+    if (issues.length === 0) break;
+    for (const issue of issues) {
+      // Skip PRs
+      if (issue.pull_request) continue;
+      try {
+        const owner = issue.repository.owner.login;
+        const name = issue.repository.name;
+        const issueNodeId = issue.node_id;
+        // Check if already in project and has a status set
+        let projectItemId = null;
+        let statusAlreadySet = false;
+        let endCursor = null;
+        do {
+          const existingItemQuery = await octokit.graphql(`
+            query($projectId:ID!, $after:String) {
+              node(id: $projectId) {
+                ... on ProjectV2 {
+                  items(first: 100, after: $after) {
+                    nodes {
+                      id
+                      content { ... on Issue { id } }
+                      fieldValues(first: 10) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue {
+                            field {
+                              ... on ProjectV2FieldCommon { id name }
+                            }
+                            optionId
+                          }
+                        }
+                      }
+                    }
+                    pageInfo { hasNextPage endCursor }
+                  }
+                }
+              }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            after: endCursor
+          });
+          const items = existingItemQuery.node.items.nodes;
+          const match = items.find(item => item.content && item.content.id === issueNodeId);
+          if (match) {
+            projectItemId = match.id;
+            // Check if status field is set
+            const statusField = match.fieldValues.nodes.find(fv => fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status');
+            if (statusField && statusField.optionId) {
+              statusAlreadySet = true;
+            }
+            break;
+          }
+          endCursor = existingItemQuery.node.items.pageInfo.endCursor;
+        } while (endCursor);
+        if (!projectItemId) {
+          // Not in project, add it and set status to 'New'
+          const addResult = await octokit.graphql(`
+            mutation($projectId:ID!, $contentId:ID!) {
+              addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                item { id }
+              }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            contentId: issueNodeId
+          });
+          projectItemId = addResult.addProjectV2ItemById.item.id;
+          await octokit.graphql(`
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: { singleSelectOptionId: $optionId }
+              }) { projectV2Item { id } }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            itemId: projectItemId,
+            fieldId: statusFieldOptions.fieldId,
+            optionId: statusFieldOptions.new
+          });
+          if (VERBOSE) {
+            console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New (from global assigned)`);
+          }
+        } else if (!statusAlreadySet) {
+          // In project but no status set, set to 'New'
+          await octokit.graphql(`
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: { singleSelectOptionId: $optionId }
+              }) { projectV2Item { id } }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            itemId: projectItemId,
+            fieldId: statusFieldOptions.fieldId,
+            optionId: statusFieldOptions.new
+          });
+          if (VERBOSE) {
+            console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New (from global assigned)`);
+          }
+        } else {
+          if (VERBOSE) {
+            console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping (from global assigned)`);
+          }
+        }
+      } catch (err) {
+        diagnostics.errors.push(`[${issue.repository.full_name}] Error processing globally assigned issue #${issue.number}: ${err.message}`);
+        if (VERBOSE) {
+          console.error(`[${issue.repository.full_name}] Error processing globally assigned issue #${issue.number}:`, err);
+        }
+      }
+    }
+    page++;
+  }
+}
+
 async function assignPRsInRepo(repo, sprintField, diagnostics, statusFieldOptions) {
   const [owner, name] = repo.split("/");
   let page = 1;
@@ -463,6 +601,18 @@ async function assignPRsInRepo(repo, sprintField, diagnostics, statusFieldOption
     diagnostics.summary.push(msg);
   }
 }
+
+// Parse repos config to support per-repo auto_add mode
+function getReposConfig(rawRepos) {
+  return rawRepos.map(entry => {
+    if (typeof entry === 'string') {
+      return { name: entry, auto_add: 'all' };
+    }
+    // Default to 'all' if not specified
+    return { name: entry.name, auto_add: entry.auto_add || 'all' };
+  });
+}
+const reposConfig = getReposConfig(repos);
 
 // Helper to fetch Status field and its option IDs
 async function getStatusFieldOptions(projectId) {
@@ -616,8 +766,10 @@ function sanitizeGraphQLResponse(response) {
       console.error('GraphQL response:', JSON.stringify(sanitizedResponse, null, 2));
     }
   }
-  // Add assigned issues to project board in 'New' column if not already set
+  // Add assigned issues to project board in 'New' column if not already set (per-repo config)
   await addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
+  // Add all globally assigned issues (from any repo) to the project board
+  await addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
   for (const repo of repos) {
     const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
     try {
