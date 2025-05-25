@@ -176,45 +176,41 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     let desiredStatus = null;
     // === LOGIC FOR PRs ===
     if (type === 'PR' && prState === 'closed') {
-      if (prMerged) {
-        statusMsg = ', status=UNCHANGED (merged PR)';
-      } else {
-        desiredStatus = statusFieldOptions.done;
-        if (currentStatusOptionId !== desiredStatus) {
-          await octokit.graphql(`
-            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-              updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId,
-                itemId: $itemId,
-                fieldId: $fieldId,
-                value: { singleSelectOptionId: $optionId }
-              }) { projectV2Item { id } }
-            }
-          `, {
-            projectId: PROJECT_ID,
-            itemId: projectItemId,
-            fieldId: statusFieldOptions.fieldId,
-            optionId: desiredStatus
-          });
-          statusMsg = ', status=Done (closed unmerged PR)';
-          statusChanged = true;
-          if (projectItemCache[nodeId]) {
-            let fv = projectItemCache[nodeId].fieldValues;
-            let found = false;
-            for (const v of fv) {
-              if (v.field && v.field.name && v.field.name.toLowerCase() === 'status') {
-                v.optionId = desiredStatus;
-                found = true;
-                break;
-              }
-            }
-            if (!found) {
-              fv.push({ field: { name: 'Status' }, optionId: desiredStatus });
+      desiredStatus = statusFieldOptions.done;
+      if (currentStatusOptionId !== desiredStatus) {
+        await octokit.graphql(`
+          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
+              value: { singleSelectOptionId: $optionId }
+            }) { projectV2Item { id } }
+          }
+        `, {
+          projectId: PROJECT_ID,
+          itemId: projectItemId,
+          fieldId: statusFieldOptions.fieldId,
+          optionId: desiredStatus
+        });
+        statusMsg = ', status=Done (closed PR)';
+        statusChanged = true;
+        if (projectItemCache[nodeId]) {
+          let fv = projectItemCache[nodeId].fieldValues;
+          let found = false;
+          for (const v of fv) {
+            if (v.field && v.field.name && v.field.name.toLowerCase() === 'status') {
+              v.optionId = desiredStatus;
+              found = true;
+              break;
             }
           }
-        } else {
-          statusMsg = ', status=Done (already set)';
+          if (!found) {
+            fv.push({ field: { name: 'Status' }, optionId: desiredStatus });
+          }
         }
+      } else {
+        statusMsg = ', status=Done (already set)';
       }
     } else if (type === 'issue') {
       // === LOGIC FOR ISSUES ===
