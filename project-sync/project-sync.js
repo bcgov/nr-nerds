@@ -236,6 +236,60 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
         for (const issue of issues) {
           // Skip PRs
           if (issue.pull_request) continue;
+          // Only consider issues created in the last 2 days if they are not assigned and not in the project
+          const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+          const isAssigned = (issue.assignees || []).length > 0;
+          let inProject = false;
+          let projectItemId = null;
+          let statusAlreadySet = false;
+          let endCursor = null;
+          do {
+            const existingItemQuery = await octokit.graphql(`
+              query($projectId:ID!, $after:String) {
+                node(id: $projectId) {
+                  ... on ProjectV2 {
+                    items(first: 100, after: $after) {
+                      nodes {
+                        id
+                        content { ... on Issue { id } }
+                        fieldValues(first: 10) {
+                          nodes {
+                            ... on ProjectV2ItemFieldSingleSelectValue {
+                              field {
+                                ... on ProjectV2FieldCommon { id name }
+                              }
+                              optionId
+                            }
+                          }
+                        }
+                      }
+                      pageInfo { hasNextPage endCursor }
+                    }
+                  }
+                }
+              }
+            `, {
+              projectId: PROJECT_ID,
+              after: endCursor
+            });
+            const items = existingItemQuery.node.items.nodes;
+            const match = items.find(item => item.content && item.content.id === issue.node_id);
+            if (match) {
+              inProject = true;
+              projectItemId = match.id;
+              // Check if status field is set
+              const statusField = match.fieldValues.nodes.find(fv => fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status');
+              if (statusField && statusField.optionId) {
+                statusAlreadySet = true;
+              }
+              break;
+            }
+            endCursor = existingItemQuery.node.items.pageInfo.endCursor;
+          } while (endCursor);
+          if (!isAssigned && !inProject) {
+            const createdAt = new Date(issue.created_at);
+            if (createdAt < sinceDate) continue;
+          }
           try {
             const issueNodeId = issue.node_id;
             // Check if already in project and has a status set
