@@ -106,6 +106,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     const cacheEntry = getProjectItemFromCache(nodeId);
     let currentStatusOptionId = null;
     let currentSprintId = null;
+    let statusChanged = false; // <-- Fix: ensure this is always defined
     if (cacheEntry) {
       projectItemId = cacheEntry.projectItemId;
       found = true;
