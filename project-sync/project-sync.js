@@ -106,11 +106,11 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     const cacheEntry = getProjectItemFromCache(nodeId);
     let currentStatusOptionId = null;
     let currentSprintId = null;
-    let statusChanged = false; // <-- Fix: ensure this is always defined
+    let statusChanged = false;
+    let sprintChanged = false;
     if (cacheEntry) {
       projectItemId = cacheEntry.projectItemId;
       found = true;
-      // Check current status and sprint
       if (cacheEntry.fieldValues) {
         for (const fv of cacheEntry.fieldValues) {
           if (fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status') {
@@ -124,7 +124,6 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
     let added = false;
     if (!found) {
-      // Not in project, add it
       const addResult = await octokit.graphql(`
         mutation($projectId:ID!, $contentId:ID!) {
           addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
@@ -137,10 +136,8 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       });
       projectItemId = addResult.addProjectV2ItemById.item.id;
       added = true;
-      // Update cache
       projectItemCache[nodeId] = { projectItemId, fieldValues: [] };
     }
-    // Only set Status to Active for open PRs/issues, and to Done for closed unmerged PRs
     let statusMsg = '';
     if (!statusFieldOptions) throw new Error('Status field options not provided');
     let desiredStatus = null;
@@ -167,7 +164,6 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           });
           statusMsg = ', status=Done (closed unmerged PR)';
           statusChanged = true;
-          // Update cache
           if (projectItemCache[nodeId]) {
             let fv = projectItemCache[nodeId].fieldValues;
             let found = false;
@@ -233,17 +229,13 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
         statusMsg = ', status=Active (already set)';
       }
     }
-    // Get Sprint field iterations
-    // Use cachedCurrentSprintId for sprint assignment
     let sprintMsg = '';
-    let sprintChanged = false; // <-- Ensure sprintChanged is always defined
     if (sprintField && sprintField.configuration) {
       await ensureCurrentSprintExists(sprintField);
       const iterations = sprintField.configuration.iterations;
       const currentSprintId = cachedCurrentSprintId;
       const currentSprint = iterations.find(i => i.id === currentSprintId);
       if (currentSprintId && currentSprint) {
-        // Check if sprint is already set to the current sprint
         let sprintAlreadySetToCurrent = false;
         if (cacheEntry && cacheEntry.fieldValues) {
           for (const fv of cacheEntry.fieldValues) {
@@ -259,7 +251,6 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           }
         }
         if (!sprintAlreadySetToCurrent) {
-          // If a sprint is set but not current, update to current sprint
           await octokit.graphql(`
             mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
               updateProjectV2ItemFieldValue(input: {
@@ -277,7 +268,6 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           });
           sprintMsg = `, sprint='${currentSprint.title}'`;
           sprintChanged = true;
-          // Update cache
           if (projectItemCache[nodeId]) {
             let fv = projectItemCache[nodeId].fieldValues;
             let found = false;
@@ -301,14 +291,12 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     } else {
       sprintMsg = ', sprint=NOT FOUND (no sprint field)';
     }
-    // Determine action message
     let action;
     let explanation = '';
     if (added) {
       action = 'added to';
     } else if (!statusChanged && !sprintChanged) {
       action = 'already up to date in';
-      // Explain why: both status and sprint were already set
       if (statusMsg.includes('(already set)') && sprintMsg.includes('(already set)')) {
         explanation = ' (status and sprint already set)';
       } else if (statusMsg.includes('(already set)')) {
@@ -318,22 +306,22 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       }
     } else {
       action = 'updated in';
-      // Explain what was updated
       let updates = [];
       if (statusChanged) updates.push('status');
       if (sprintChanged) updates.push('sprint');
       if (updates.length > 0) explanation = ` (updated: ${updates.join(', ')})`;
     }
-    // Only print if something was actually changed or added, or if VERBOSE
     if (VERBOSE) {
       console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}${explanation}`);
     } else if (action !== 'already up to date in') {
-      // Only print if something was actually changed or added
       console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}${explanation}`);
     }
+    // Return a result object for summary tracking
+    return { added, updated: statusChanged || sprintChanged, skipped: (!added && !statusChanged && !sprintChanged) };
   } catch (err) {
     console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
     diagnostics.errors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
+    return { added: false, updated: false, skipped: false, error: true };
   }
 }
 
@@ -374,81 +362,15 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
           processed++;
           const sinceRelevant = new Date(issue.updated_at || issue.created_at) >= sinceDate;
           const isAssigned = (issue.assignees || []).length > 0;
-          const cacheEntry = getProjectItemFromCache(issue.node_id);
-          const inProject = !!cacheEntry;
-          let statusAlreadySet = false;
-          if (cacheEntry && cacheEntry.fieldValues) {
-            const statusField = cacheEntry.fieldValues.find(fv => fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status');
-            if (statusField && statusField.optionId) statusAlreadySet = true;
-          }
-          if (!isAssigned && !inProject && !sinceRelevant) { skipped++; continue; }
+          if (!isAssigned && !sinceRelevant) { skipped++; continue; }
           try {
-            const issueNodeId = issue.node_id;
-            let projectItemId = null;
-            if (!inProject) {
-              // Not in project, add it and set status to 'New'
-              const addResult = await octokit.graphql(`
-                mutation($projectId:ID!, $contentId:ID!) {
-                  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-                    item { id }
-                  }
-                }
-              `, {
-                projectId: PROJECT_ID,
-                contentId: issueNodeId
-              });
-              projectItemId = addResult.addProjectV2ItemById.item.id;
-              projectItemCache[issueNodeId] = { projectItemId, fieldValues: [] };
-              await octokit.graphql(`
-                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-                  updateProjectV2ItemFieldValue(input: {
-                    projectId: $projectId,
-                    itemId: $itemId,
-                    fieldId: $fieldId,
-                    value: { singleSelectOptionId: $optionId }
-                  }) { projectV2Item { id } }
-                }
-              `, {
-                projectId: PROJECT_ID,
-                itemId: projectItemId,
-                fieldId: statusFieldOptions.fieldId,
-                optionId: statusFieldOptions.new
-              });
-              added++;
-              if (VERBOSE) {
-                console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
-              }
-            } else if (!statusAlreadySet) {
-              // In project but no status set, set to 'New'
-              await octokit.graphql(`
-                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-                  updateProjectV2ItemFieldValue(input: {
-                    projectId: $projectId,
-                    itemId: $itemId,
-                    fieldId: $fieldId,
-                    value: { singleSelectOptionId: $optionId }
-                  }) { projectV2Item { id } }
-                }
-              `, {
-                projectId: PROJECT_ID,
-                itemId: cacheEntry.projectItemId,
-                fieldId: statusFieldOptions.fieldId,
-                optionId: statusFieldOptions.new
-              });
-              updated++;
-              if (VERBOSE) {
-                console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
-              }
-            } else {
-              skipped++;
-              if (VERBOSE) {
-                console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping`);
-              }
-            }
+            const result = await addItemToProjectAndSetStatus(issue.node_id, 'issue', issue.number, sprintField, '', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+            if (result.added) added++;
+            else if (result.updated) updated++;
+            else skipped++;
           } catch (err) {
             diagnostics.errors.push(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
             if (VERBOSE) {
-              // Use %s format specifiers and pass variables as arguments
               console.error('[%s/%s] Error processing assigned issue #%s:', String(owner), String(name), String(issue.number), err);
             }
           }
@@ -486,78 +408,14 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
       try {
         const owner = issue.repository.owner.login;
         const name = issue.repository.name;
-        const issueNodeId = issue.node_id;
-        const cacheEntry = getProjectItemFromCache(issueNodeId);
-        let statusAlreadySet = false;
-        if (cacheEntry && cacheEntry.fieldValues) {
-          const statusField = cacheEntry.fieldValues.find(fv => fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status');
-          if (statusField && statusField.optionId) statusAlreadySet = true;
-        }
-        if (!cacheEntry) {
-          // Not in project, add it and set status to 'New'
-          const addResult = await octokit.graphql(`
-            mutation($projectId:ID!, $contentId:ID!) {
-              addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-                item { id }
-              }
-            }
-          `, {
-            projectId: PROJECT_ID,
-            contentId: issueNodeId
-          });
-          const projectItemId = addResult.addProjectV2ItemById.item.id;
-          projectItemCache[issueNodeId] = { projectItemId, fieldValues: [] };
-          await octokit.graphql(`
-            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-              updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId,
-                itemId: $itemId,
-                fieldId: $fieldId,
-                value: { singleSelectOptionId: $optionId }
-              }) { projectV2Item { id } }
-            }
-          `, {
-            projectId: PROJECT_ID,
-            itemId: projectItemId,
-            fieldId: statusFieldOptions.fieldId,
-            optionId: statusFieldOptions.new
-          });
-          added++;
-          if (VERBOSE) {
-            console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
-          }
-        } else if (!statusAlreadySet) {
-          // In project but no status set, set to 'New'
-          await octokit.graphql(`
-            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-              updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId,
-                itemId: $itemId,
-                fieldId: $fieldId,
-                value: { singleSelectOptionId: $optionId }
-              }) { projectV2Item { id } }
-            }
-          `, {
-            projectId: PROJECT_ID,
-            itemId: projectItemId,
-            fieldId: statusFieldOptions.fieldId,
-            optionId: statusFieldOptions.new
-          });
-          updated++;
-          if (VERBOSE) {
-            console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
-          }
-        } else {
-          skipped++;
-          if (VERBOSE) {
-            console.log(`[${owner}/${name}] Issue #${issue.number}: already has status set, skipping`);
-          }
-        }
+        const result = await addItemToProjectAndSetStatus(issue.node_id, 'issue', issue.number, sprintField, '', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+        if (result.added) added++;
+        else if (result.updated) updated++;
+        else skipped++;
       } catch (err) {
-        diagnostics.errors.push(`[${String(owner)}/${String(name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
+        diagnostics.errors.push(`[${String(issue.repository.owner.login)}/${String(issue.repository.name)}] Error processing assigned issue #${String(issue.number)}: ${err.message}`);
         if (VERBOSE) {
-          // Use %s format specifiers and pass variables as arguments
-          console.error('[%s/%s] Error processing assigned issue #%s:', String(owner), String(name), String(issue.number), err);
+          console.error('[%s/%s] Error processing assigned issue #%s:', String(issue.repository.owner.login), String(issue.repository.name), String(issue.number), err);
         }
       }
     }
@@ -607,16 +465,10 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
         const prNodeId = pr.id;
         const prState = pr.state.toLowerCase();
         const prMerged = pr.merged;
-        // Use addItemToProjectAndSetStatus and track what it did
-        let before = diagnostics.summary.length;
-        await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, prState, prMerged, diagnostics, false, statusFieldOptions);
-        let afterSummary = diagnostics.summary.length;
-        if (afterSummary > before) {
-          updated++;
-        } else {
-          skipped++;
-        }
-        added++; // For summary, count as added/updated
+        const result = await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '', `${owner}/${name}`, prState, prMerged, diagnostics, false, statusFieldOptions);
+        if (result.added) added++;
+        else if (result.updated) updated++;
+        else skipped++;
       } catch (err) {
         diagnostics.errors.push(`[${pr.url}] Error processing globally authored PR #${pr.number}: ${err.message}`);
         if (VERBOSE) {
@@ -627,7 +479,7 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
     if (!prsResult.search.pageInfo.hasNextPage) break;
     after = prsResult.search.pageInfo.endCursor;
   }
-  diagnostics.summary.push(`[addAllAuthoredPRsToProject] Processed: ${processed}, Added/Updated: ${added}, Skipped: ${skipped}`);
+  diagnostics.summary.push(`[addAllAuthoredPRsToProject] Processed: ${processed}, Added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
 }
 
 // Add all open PRs where the user is a commit author (not just PR author/assignee) to the project board.
@@ -740,13 +592,13 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
       } catch (err) {
         diagnostics.errors.push(`[${owner}/${name}] Error fetching PR #${pr.number} details: ${err.message}`);
+        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching PR #${pr.number} details:`, err);
         continue;
       }
       // Skip if user is only a reviewer (not author or assignee)
       const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
       const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
       if (!isAuthor && !isAssignee) { skipped++; continue; }
-      // ---
       // Fetch timeline for linked issues
       let timeline;
       try {
@@ -759,6 +611,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         timeline = resp.data;
       } catch (err) {
         diagnostics.errors.push(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}: ${err.message}`);
+        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}:`, err);
         continue;
       }
       const linkedIssues = timeline.filter(event =>
@@ -782,17 +635,20 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
           // Add linked issue to project and set status
           const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
           const issueNodeId = issueDetails.data.node_id;
-          await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
-          added++;
+          const result = await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+          if (result.added) added++;
+          else if (result.updated) updated++;
+          else skipped++;
         } catch (err) {
           diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
+          if (VERBOSE) console.error(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}:`, err);
         }
       }
     }
     if (!prsResult.search.pageInfo.hasNextPage) break;
     after = prsResult.search.pageInfo.endCursor;
   }
-  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Skipped: ${skipped}`);
+  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
 }
 
 // Parse repos config to support per-repo auto_add mode
@@ -1030,13 +886,13 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
       } catch (err) {
         diagnostics.errors.push(`[${owner}/${name}] Error fetching PR #${pr.number} details: ${err.message}`);
+        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching PR #${pr.number} details:`, err);
         continue;
       }
       // Skip if user is only a reviewer (not author or assignee)
       const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
       const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
       if (!isAuthor && !isAssignee) { skipped++; continue; }
-      // ---
       // Fetch timeline for linked issues
       let timeline;
       try {
@@ -1049,6 +905,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         timeline = resp.data;
       } catch (err) {
         diagnostics.errors.push(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}: ${err.message}`);
+        if (VERBOSE) console.error(`[${owner}/${name}] Error fetching timeline for PR #${pr.number}:`, err);
         continue;
       }
       const linkedIssues = timeline.filter(event =>
@@ -1072,15 +929,18 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
           // Add linked issue to project and set status
           const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
           const issueNodeId = issueDetails.data.node_id;
-          await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
-          added++;
+          const result = await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
+          if (result.added) added++;
+          else if (result.updated) updated++;
+          else skipped++;
         } catch (err) {
           diagnostics.errors.push(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}: ${err.message}`);
+          if (VERBOSE) console.error(`[${owner}/${name}] Error handling linked issue #${issueNum} for PR #${pr.number}:`, err);
         }
       }
     }
     if (!prsResult.search.pageInfo.hasNextPage) break;
     after = prsResult.search.pageInfo.endCursor;
   }
-  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Skipped: ${skipped}`);
+  diagnostics.summary.push(`[handleLinkedIssuesForAssignedPRs] PRs processed: ${processed}, Linked issues added: ${added}, Updated: ${updated}, Skipped: ${skipped}`);
 }
