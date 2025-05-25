@@ -23,6 +23,7 @@ jobs:
       - name: Run GH Project Assigner
         env:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+        timeout-minutes: 2
         run: node project-sync/project-sync.js
 
       - name: Notify Microsoft Teams on failure
