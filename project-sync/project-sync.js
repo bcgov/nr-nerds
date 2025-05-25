@@ -489,6 +489,39 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
   }
 }
 
+// Add all PRs created by the authenticated user, from any repo, to the project board
+async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions) {
+  let page = 1;
+  while (true) {
+    const { data: prs } = await octokit.search.issuesAndPullRequests({
+      q: `is:pr author:${GITHUB_AUTHOR} is:open`,
+      per_page: 50,
+      page
+    });
+    if (prs.items.length === 0) break;
+    for (const pr of prs.items) {
+      // Only process PRs
+      if (!pr.pull_request) continue;
+      try {
+        const owner = pr.repository_url.split('/').slice(-2)[0];
+        const name = pr.repository_url.split('/').slice(-1)[0];
+        // Get PR details for node_id and merged/closed state
+        const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
+        const prNodeId = prDetails.data.node_id;
+        const prState = prDetails.data.state;
+        const prMerged = prDetails.data.merged_at !== null;
+        await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, prState, prMerged, diagnostics, false, statusFieldOptions);
+      } catch (err) {
+        diagnostics.errors.push(`[${pr.repository_url}] Error processing globally authored PR #${pr.number}: ${err.message}`);
+        if (VERBOSE) {
+          console.error(`[${pr.repository_url}] Error processing globally authored PR #${pr.number}:`, err);
+        }
+      }
+    }
+    page++;
+  }
+}
+
 async function assignPRsInRepo(repo, sprintField, diagnostics, statusFieldOptions) {
   const [owner, name] = repo.split("/");
   let page = 1;
@@ -770,6 +803,8 @@ function sanitizeGraphQLResponse(response) {
   await addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
   // Add all globally assigned issues (from any repo) to the project board
   await addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
+  // Add all globally authored PRs (from any repo) to the project board
+  await addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions);
   for (const repo of repos) {
     const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
     try {
