@@ -104,9 +104,22 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     let projectItemId = null;
     let found = false;
     const cacheEntry = getProjectItemFromCache(nodeId);
+    let currentStatusOptionId = null;
+    let currentSprintId = null;
     if (cacheEntry) {
       projectItemId = cacheEntry.projectItemId;
       found = true;
+      // Check current status and sprint
+      if (cacheEntry.fieldValues) {
+        for (const fv of cacheEntry.fieldValues) {
+          if (fv.field && fv.field.name && fv.field.name.toLowerCase() === 'status') {
+            currentStatusOptionId = fv.optionId;
+          }
+          if (fv.field && fv.field.name && fv.field.name.toLowerCase().includes('sprint') && fv.iterationId) {
+            currentSprintId = fv.iterationId;
+          }
+        }
+      }
     }
     let added = false;
     if (!found) {
@@ -129,10 +142,36 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     // Only set Status to Active for open PRs/issues, and to Done for closed unmerged PRs
     let statusMsg = '';
     if (!statusFieldOptions) throw new Error('Status field options not provided');
+    let desiredStatus = null;
     if (type === 'PR' && prState === 'closed') {
       if (prMerged) {
         statusMsg = ', status=UNCHANGED (merged PR)';
       } else {
+        desiredStatus = statusFieldOptions.done;
+        if (currentStatusOptionId !== desiredStatus) {
+          await octokit.graphql(`
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: { singleSelectOptionId: $optionId }
+              }) { projectV2Item { id } }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            itemId: projectItemId,
+            fieldId: statusFieldOptions.fieldId,
+            optionId: desiredStatus
+          });
+          statusMsg = ', status=Done (closed unmerged PR)';
+        } else {
+          statusMsg = ', status=Done (already set)';
+        }
+      }
+    } else if (type === 'issue' && prState === 'closed') {
+      desiredStatus = statusFieldOptions.done;
+      if (currentStatusOptionId !== desiredStatus) {
         await octokit.graphql(`
           mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
             updateProjectV2ItemFieldValue(input: {
@@ -146,45 +185,34 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           projectId: PROJECT_ID,
           itemId: projectItemId,
           fieldId: statusFieldOptions.fieldId,
-          optionId: statusFieldOptions.done
+          optionId: desiredStatus
         });
-        statusMsg = ', status=Done (closed unmerged PR)';
+        statusMsg = ', status=Done (closed/linked issue)';
+      } else {
+        statusMsg = ', status=Done (already set)';
       }
-    } else if (type === 'issue' && prState === 'closed') {
-      // For closed issues (e.g., linked issues after PR merge), set to Done
-      await octokit.graphql(`
-        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-          updateProjectV2ItemFieldValue(input: {
-            projectId: $projectId,
-            itemId: $itemId,
-            fieldId: $fieldId,
-            value: { singleSelectOptionId: $optionId }
-          }) { projectV2Item { id } }
-        }
-      `, {
-        projectId: PROJECT_ID,
-        itemId: projectItemId,
-        fieldId: statusFieldOptions.fieldId,
-        optionId: statusFieldOptions.done
-      });
-      statusMsg = ', status=Done (closed/linked issue)';
     } else {
-      await octokit.graphql(`
-        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-          updateProjectV2ItemFieldValue(input: {
-            projectId: $projectId,
-            itemId: $itemId,
-            fieldId: $fieldId,
-            value: { singleSelectOptionId: $optionId }
-          }) { projectV2Item { id } }
-        }
-      `, {
-        projectId: PROJECT_ID,
-        itemId: projectItemId,
-        fieldId: statusFieldOptions.fieldId,
-        optionId: statusFieldOptions.active
-      });
-      statusMsg = ', status=Active';
+      desiredStatus = statusFieldOptions.active;
+      if (currentStatusOptionId !== desiredStatus) {
+        await octokit.graphql(`
+          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
+              value: { singleSelectOptionId: $optionId }
+            }) { projectV2Item { id } }
+          }
+        `, {
+          projectId: PROJECT_ID,
+          itemId: projectItemId,
+          fieldId: statusFieldOptions.fieldId,
+          optionId: desiredStatus
+        });
+        statusMsg = ', status=Active';
+      } else {
+        statusMsg = ', status=Active (already set)';
+      }
     }
     // Get Sprint field iterations
     // Use cachedCurrentSprintId for sprint assignment
@@ -195,22 +223,27 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       const currentSprintId = cachedCurrentSprintId;
       const currentSprint = iterations.find(i => i.id === currentSprintId);
       if (currentSprintId && currentSprint) {
-        await octokit.graphql(`
-          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-            updateProjectV2ItemFieldValue(input: {
-              projectId: $projectId,
-              itemId: $itemId,
-              fieldId: $fieldId,
-              value: { iterationId: $iterationId }
-            }) { projectV2Item { id } }
-          }
-        `, {
-          projectId: PROJECT_ID,
-          itemId: projectItemId,
-          fieldId: sprintField.id,
-          iterationId: currentSprintId
-        });
-        sprintMsg = `, sprint='${currentSprint.title}'`;
+        if (currentSprintId !== currentSprintId || !currentSprintId) {
+          // Defensive: always set if not present
+          await octokit.graphql(`
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: { iterationId: $iterationId }
+              }) { projectV2Item { id } }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            itemId: projectItemId,
+            fieldId: sprintField.id,
+            iterationId: currentSprintId
+          });
+          sprintMsg = `, sprint='${currentSprint.title}'`;
+        } else {
+          sprintMsg = `, sprint='${currentSprint.title}' (already set)`;
+        }
       } else {
         sprintMsg = ', sprint=NOT FOUND (check sprint setup in project!)';
       }
