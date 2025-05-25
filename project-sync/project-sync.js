@@ -107,6 +107,23 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
     return { added: false, updated: false, skipped: true };
   }
+  // Check if repo is archived
+  const [owner, repo] = repoName.split('/');
+  try {
+    const repoInfo = await octokit.repos.get({ owner, repo });
+    if (repoInfo.data.archived) {
+      if (VERBOSE) {
+        console.log(`[${repoName}] ${type} #${number}: skipped (archived repo)`);
+      }
+      return { added: false, updated: false, skipped: true };
+    }
+  } catch (err) {
+    diagnostics.errors.push(`[${repoName}] Error checking if repo is archived: ${err.message}`);
+    if (VERBOSE) {
+      console.error(`[${repoName}] Error checking if repo is archived:`, err);
+    }
+    // Fail open: continue processing if we can't check
+  }
   try {
     let projectItemId = null;
     let found = false;
