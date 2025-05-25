@@ -805,6 +805,8 @@ function sanitizeGraphQLResponse(response) {
   await addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
   // Add all globally authored PRs (from any repo) to the project board
   await addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions);
+  // Handle linked issues for all PRs assigned to the user (not just authored)
+  await handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions);
   // Only use repos.yml for auto-adding all open issues (not for PRs or assigned issues)
   // (assignPRsInRepo and per-repo logic is now only for explicit auto-add-all-issues behavior)
   for (const repo of repos) {
