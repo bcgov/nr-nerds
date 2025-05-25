@@ -31,21 +31,8 @@ jobs:
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
-          MESSAGE="\":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details.\""
+          MESSAGE=":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
           # Escape double quotes and newlines for JSON
           ESCAPED_MESSAGE=$(echo "$MESSAGE" | sed 's/\"/\\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
           PAYLOAD="{\"@type\": \"MessageCard\", \"@context\": \"http://schema.org/extensions\", \"summary\": \"GH Project Assigner failed\", \"themeColor\": \"FF0000\", \"title\": \"GH Project Assigner failed\", \"text\": $ESCAPED_MESSAGE}"
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
-
-      - name: Create GitHub Issue on failure
-        if: failure()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          API_URL="https://api.github.com/repos/${{ github.repository }}/issues"
-          TITLE="[GH Project Assigner] Workflow failed on ${{ github.workflow }} (Run ${{ github.run_id }})"
-          BODY="The GH Project Assigner workflow failed.\n\n- **Repository:** ${{ github.repository }}\n- **Workflow:** ${{ github.workflow }}\n- **Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\nSee logs for details."
-          ASSIGNEE="DerekRoberts"
-          curl -s -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "$API_URL" \
-            -d "$(jq -nc --arg title \"$TITLE\" --arg body \"$BODY\" --arg assignee \"$ASSIGNEE\" '{title: $title, body: $body, assignees: [$assignee]}')"
