@@ -446,35 +446,53 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
 
 // Add all PRs created by the authenticated user, from any repo, to the project board
 async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions) {
-  let page = 1;
+  let after = null;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
-    const { data: prs } = await octokit.rest.search.issues({
-      q: `is:pr author:${GITHUB_AUTHOR} is:open`,
-      per_page: 50,
-      page
-    });
-    if (prs.items.length === 0) break;
-    for (const pr of prs.items) {
-      if (!pr.pull_request) continue;
-      const updatedAt = new Date(pr.updated_at || pr.created_at);
+    const prsResult = await octokit.graphql(`
+      query($q: String!, $first: Int!, $after: String) {
+        search(query: $q, type: ISSUE, first: $first, after: $after) {
+          nodes {
+            ... on PullRequest {
+              number
+              title
+              updatedAt
+              createdAt
+              url
+              state
+              merged
+              author { login }
+              assignees(first: 10) { nodes { login } }
+              repository { name owner { login } }
+              id
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { q: `is:pr author:${GITHUB_AUTHOR} is:open`, first: 50, after });
+    const prs = prsResult.search.nodes;
+    if (prs.length === 0) break;
+    for (const pr of prs) {
+      if (!pr) continue;
+      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
       if (updatedAt < sinceDate) continue;
       try {
-        const owner = pr.repository_url.split('/').slice(-2)[0];
-        const name = pr.repository_url.split('/').slice(-1)[0];
-        const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
-        const prNodeId = prDetails.data.node_id;
-        const prState = prDetails.data.state;
-        const prMerged = prDetails.data.merged_at !== null;
+        const owner = pr.repository.owner.login;
+        const name = pr.repository.name;
+        const prNodeId = pr.id;
+        const prState = pr.state.toLowerCase();
+        const prMerged = pr.merged;
         await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, prState, prMerged, diagnostics, false, statusFieldOptions);
       } catch (err) {
-        diagnostics.errors.push(`[${pr.repository_url}] Error processing globally authored PR #${pr.number}: ${err.message}`);
+        diagnostics.errors.push(`[${pr.url}] Error processing globally authored PR #${pr.number}: ${err.message}`);
         if (VERBOSE) {
-          console.error(`[${pr.repository_url}] Error processing globally authored PR #${pr.number}:`, err);
+          console.error(`[${pr.url}] Error processing globally authored PR #${pr.number}:`, err);
         }
       }
     }
-    page++;
+    if (!prsResult.search.pageInfo.hasNextPage) break;
+    after = prsResult.search.pageInfo.endCursor;
   }
 }
 
@@ -542,21 +560,39 @@ async function addAllCommitterPRsToProject(sprintField, diagnostics, statusField
 
 // For all PRs assigned to the user, handle linked issues, but skip PRs where user is only a reviewer.
 async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
-  let page = 1;
+  let after = null;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
-    const { data: prs } = await octokit.rest.search.issues({
-      q: `is:pr assignee:${GITHUB_AUTHOR} is:open`,
-      per_page: 50,
-      page
-    });
-    if (prs.items.length === 0) break;
-    for (const pr of prs.items) {
-      if (!pr.pull_request) continue;
-      const updatedAt = new Date(pr.updated_at || pr.created_at);
+    const prsResult = await octokit.graphql(`
+      query($q: String!, $first: Int!, $after: String) {
+        search(query: $q, type: ISSUE, first: $first, after: $after) {
+          nodes {
+            ... on PullRequest {
+              number
+              title
+              updatedAt
+              createdAt
+              url
+              state
+              merged
+              author { login }
+              assignees(first: 10) { nodes { login } }
+              repository { name owner { login } }
+              id
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { q: `is:pr assignee:${GITHUB_AUTHOR} is:open`, first: 50, after });
+    const prs = prsResult.search.nodes;
+    if (prs.length === 0) break;
+    for (const pr of prs) {
+      if (!pr) continue;
+      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
       if (updatedAt < sinceDate) continue;
-      const owner = pr.repository_url.split('/').slice(-2)[0];
-      const name = pr.repository_url.split('/').slice(-1)[0];
+      const owner = pr.repository.owner.login;
+      const name = pr.repository.name;
       let prDetails;
       try {
         prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
@@ -564,9 +600,12 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         diagnostics.errors.push(`[${owner}/${name}] Error fetching PR #${pr.number} details: ${err.message}`);
         continue;
       }
+      // Skip if user is only a reviewer (not author or assignee)
       const isAuthor = prDetails.data.user && prDetails.data.user.login === GITHUB_AUTHOR;
       const isAssignee = (prDetails.data.assignees || []).some(a => a.login === GITHUB_AUTHOR);
       if (!isAuthor && !isAssignee) continue;
+      // ---
+      // Fetch timeline for linked issues
       let timeline;
       try {
         const resp = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
@@ -598,6 +637,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
             issue_number: issueNum,
             assignees: [GITHUB_AUTHOR]
           });
+          // Add linked issue to project and set status
           const issueDetails = await octokit.issues.get({ owner, repo: name, issue_number: issueNum });
           const issueNodeId = issueDetails.data.node_id;
           await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
@@ -606,7 +646,8 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         }
       }
     }
-    page++;
+    if (!prsResult.search.pageInfo.hasNextPage) break;
+    after = prsResult.search.pageInfo.endCursor;
   }
 }
 
@@ -805,21 +846,39 @@ function sanitizeGraphQLResponse(response) {
  * For all PRs assigned to the user, handle linked issues, but skip PRs where user is only a reviewer.
  */
 async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
-  let page = 1;
+  let after = null;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
-    // Get PRs assigned to the user
-    const { data: prs } = await octokit.rest.search.issues({
-      q: `is:pr assignee:${GITHUB_AUTHOR} is:open`,
-      per_page: 50,
-      page
-    });
-    if (prs.items.length === 0) break;
-    for (const pr of prs.items) {
-      if (!pr.pull_request) continue;
-      // Get PR details for author and reviewers
-      const owner = pr.repository_url.split('/').slice(-2)[0];
-      const name = pr.repository_url.split('/').slice(-1)[0];
+    const prsResult = await octokit.graphql(`
+      query($q: String!, $first: Int!, $after: String) {
+        search(query: $q, type: ISSUE, first: $first, after: $after) {
+          nodes {
+            ... on PullRequest {
+              number
+              title
+              updatedAt
+              createdAt
+              url
+              state
+              merged
+              author { login }
+              assignees(first: 10) { nodes { login } }
+              repository { name owner { login } }
+              id
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { q: `is:pr assignee:${GITHUB_AUTHOR} is:open`, first: 50, after });
+    const prs = prsResult.search.nodes;
+    if (prs.length === 0) break;
+    for (const pr of prs) {
+      if (!pr) continue;
+      const updatedAt = new Date(pr.updatedAt || pr.createdAt);
+      if (updatedAt < sinceDate) continue;
+      const owner = pr.repository.owner.login;
+      const name = pr.repository.name;
       let prDetails;
       try {
         prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
@@ -873,6 +932,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
         }
       }
     }
-    page++;
+    if (!prsResult.search.pageInfo.hasNextPage) break;
+    after = prsResult.search.pageInfo.endCursor;
   }
 }
