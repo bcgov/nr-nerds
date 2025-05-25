@@ -328,7 +328,9 @@ function logDiagnostics() {
     `, { projectId: PROJECT_ID });
     // Clean output: only print summary of fields
     const fields = projectFields.node.fields.nodes;
-    console.log('Project fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType })));
+    if (VERBOSE) {
+      console.log('Project fields:', fields.map(f => ({ id: f.id, name: f.name, dataType: f.dataType })));
+    }
     sprintField = fields.find(f => f.name && f.name.toLowerCase().includes('sprint') && f.dataType === 'ITERATION');
     if (!sprintField) {
       console.error('No sprint field found in project fields!');
