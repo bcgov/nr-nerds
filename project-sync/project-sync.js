@@ -100,6 +100,13 @@ function getProjectItemFromCache(nodeId) {
 
 // Helper to add an item (PR or issue) to project and set status and sprint
 async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics, isLinkedIssue = false, statusFieldOptions = null) {
+  // Only process if repoName starts with 'bcgov/'
+  if (!repoName.startsWith('bcgov/')) {
+    if (VERBOSE) {
+      console.log(`[${repoName}] ${type} #${number}: skipped (not in bcgov org)`);
+    }
+    return { added: false, updated: false, skipped: true };
+  }
   try {
     let projectItemId = null;
     let found = false;
