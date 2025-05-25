@@ -336,7 +336,9 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
 async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
   let processed = 0, added = 0, updated = 0, skipped = 0;
   try {
-    const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+    // Use current date for sinceDate
+    const now = new Date();
+    const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
     for (const repoEntry of reposConfig) {
       let repo = repoEntry.name;
       let autoAddMode = repoEntry.auto_add;
@@ -367,9 +369,8 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
         for (const issue of issues) {
           if (issue.pull_request) continue;
           processed++;
-          const sinceRelevant = new Date(issue.updated_at || issue.created_at) >= sinceDate;
-          const isAssigned = (issue.assignees || []).length > 0;
-          if (!isAssigned && !sinceRelevant) { skipped++; continue; }
+          const updatedAt = new Date(issue.updated_at || issue.created_at);
+          if (updatedAt < sinceDate) { skipped++; continue; }
           try {
             const result = await addItemToProjectAndSetStatus(issue.node_id, 'issue', issue.number, sprintField, '', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
             if (result.added) added++;
@@ -398,7 +399,9 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
 async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
   let page = 1;
   let processed = 0, added = 0, updated = 0, skipped = 0;
-  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+  // Use current date for sinceDate
+  const now = new Date();
+  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const { data: issues } = await octokit.issues.listForAuthenticatedUser({
       filter: 'assigned',
@@ -435,7 +438,9 @@ async function addAllAssignedIssuesToProject(sprintField, diagnostics, statusFie
 async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldOptions) {
   let after = null;
   let processed = 0, added = 0, updated = 0, skipped = 0;
-  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+  // Use current date for sinceDate
+  const now = new Date();
+  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const prsResult = await octokit.graphql(`
       query($q: String!, $first: Int!, $after: String) {
@@ -491,8 +496,9 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
 
 // Add all open PRs where the user is a commit author (not just PR author/assignee) to the project board.
 async function addAllCommitterPRsToProject(sprintField, diagnostics, statusFieldOptions) {
-  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
-  let processed = 0, added = 0, updated = 0, skipped = 0;
+  // Use current date for sinceDate
+  const now = new Date();
+  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   for (const repoEntry of reposConfig) {
     const repoFull = repoEntry.name.includes("/") ? repoEntry.name : `bcgov/${repoEntry.name}`;
     const [owner, name] = repoFull.split("/");
@@ -561,7 +567,9 @@ async function addAllCommitterPRsToProject(sprintField, diagnostics, statusField
 async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
   let after = null;
   let processed = 0, added = 0, updated = 0, skipped = 0;
-  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+  // Use current date for sinceDate
+  const now = new Date();
+  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const prsResult = await octokit.graphql(`
       query($q: String!, $first: Int!, $after: String) {
@@ -855,7 +863,9 @@ function sanitizeGraphQLResponse(response) {
 async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, statusFieldOptions) {
   let after = null;
   let processed = 0, added = 0, updated = 0, skipped = 0;
-  const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
+  // Use current date for sinceDate
+  const now = new Date();
+  const sinceDate = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     const prsResult = await octokit.graphql(`
       query($q: String!, $first: Int!, $after: String) {
