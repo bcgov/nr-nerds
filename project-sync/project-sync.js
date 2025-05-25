@@ -289,6 +289,8 @@ async function assignPRsInRepo(repo, sprintField, diagnostics) {
  *
  * `diagnostics.summary` is an array of strings, where each string summarizes actions taken for a repository.
  * Example: ["[repo1] Summary: PRs assigned: 2, PRs added/updated in project: 1, linked issues assigned: 0"]
+ *
+ * @returns {void} This function does not return a value.
  */
 function logDiagnostics(diagnostics) {
   if (diagnostics.errors.length > 0) {
