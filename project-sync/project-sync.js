@@ -192,7 +192,16 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
 async function addAssignedIssuesToProject(sprintField, diagnostics) {
   try {
     for (const repo of repos) {
-      const [owner, name] = repo.split("/");
+      let owner, name;
+      let repoFull = repo.includes("/") ? repo : `bcgov/${repo}`;
+      [owner, name] = repoFull.split("/");
+      if (!owner || !name) {
+        diagnostics.errors.push(`Invalid repo format in repos.yml: '${repo}'. Expected 'owner/repo' or repo name. Skipping.`);
+        if (VERBOSE) {
+          console.error(`Invalid repo format in repos.yml: '${repo}'. Skipping.`);
+        }
+        continue;
+      }
       let page = 1;
       while (true) {
         const { data: issues } = await octokit.issues.listForRepo({
@@ -560,11 +569,11 @@ function sanitizeGraphQLResponse(response) {
   // Add assigned issues to project board in 'New' column if not already set
   await addAssignedIssuesToProject(sprintField, diagnostics);
   for (const repo of repos) {
+    const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
     try {
-      const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
       await assignPRsInRepo(fullRepo, sprintField, diagnostics);
     } catch (e) {
-      const errMsg = `Error processing ${repo}: ${e.message}`;
+      const errMsg = `Error processing ${fullRepo}: ${e.message}`;
       diagnostics.errors.push(errMsg);
       console.error(errMsg);
     }
