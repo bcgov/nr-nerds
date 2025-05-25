@@ -167,6 +167,21 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           });
           statusMsg = ', status=Done (closed unmerged PR)';
           statusChanged = true;
+          // Update cache
+          if (projectItemCache[nodeId]) {
+            let fv = projectItemCache[nodeId].fieldValues;
+            let found = false;
+            for (const v of fv) {
+              if (v.field && v.field.name && v.field.name.toLowerCase() === 'status') {
+                v.optionId = desiredStatus;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              fv.push({ field: { name: 'Status' }, optionId: desiredStatus });
+            }
+          }
         } else {
           statusMsg = ', status=Done (already set)';
         }
@@ -262,6 +277,21 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
           });
           sprintMsg = `, sprint='${currentSprint.title}'`;
           sprintChanged = true;
+          // Update cache
+          if (projectItemCache[nodeId]) {
+            let fv = projectItemCache[nodeId].fieldValues;
+            let found = false;
+            for (const v of fv) {
+              if (v.field && v.field.name && v.field.name.toLowerCase().includes('sprint')) {
+                v.iterationId = currentSprintId;
+                found = true;
+                break;
+              }
+            }
+            if (!found) {
+              fv.push({ field: { name: 'Sprint' }, iterationId: currentSprintId });
+            }
+          }
         } else {
           sprintMsg = `, sprint='${currentSprint.title}' (already set)`;
         }
