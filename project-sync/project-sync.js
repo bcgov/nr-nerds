@@ -222,7 +222,6 @@ async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldO
           owner,
           repo: name,
           state: "open",
-          assignee: GITHUB_AUTHOR,
           per_page: 50,
           page
         });
