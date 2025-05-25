@@ -2,6 +2,7 @@
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
 const yaml = require("js-yaml");
+const nodemailer = require("nodemailer");
 
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
@@ -17,6 +18,43 @@ const STATUS_OPTIONS = {
 };
 const VERBOSE = process.argv.includes('--verbose');
 // REMINDER: Consider TypeScript and more unit tests in future for maintainability and safety.
+
+// === EMAIL CONFIGURATION ===
+const EMAIL_ENABLED = process.env.EMAIL_ENABLED === 'true';
+const EMAIL_SMTP_HOST = process.env.EMAIL_SMTP_HOST;
+const EMAIL_SMTP_PORT = process.env.EMAIL_SMTP_PORT || 587;
+const EMAIL_SMTP_USER = process.env.EMAIL_SMTP_USER;
+const EMAIL_SMTP_PASS = process.env.EMAIL_SMTP_PASS;
+const EMAIL_FROM = process.env.EMAIL_FROM;
+const EMAIL_TO = process.env.EMAIL_TO;
+
+// Helper to send email notification
+async function sendEmail(subject, text) {
+  if (!EMAIL_ENABLED) return;
+  try {
+    const transporter = nodemailer.createTransport({
+      host: EMAIL_SMTP_HOST,
+      port: EMAIL_SMTP_PORT,
+      secure: EMAIL_SMTP_PORT == 465, // true for 465, false for other ports
+      auth: {
+        user: EMAIL_SMTP_USER,
+        pass: EMAIL_SMTP_PASS
+      }
+    });
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: EMAIL_TO,
+      subject,
+      text
+    });
+    if (VERBOSE) console.log('Email notification sent.');
+  } catch (err) {
+    console.error('Failed to send email notification:', err.message);
+  }
+}
+
+let globalErrors = [];
+let globalSummary = [];
 
 // Helper to get the current sprint iteration ID (the one whose startDate is closest to today but not in the future)
 function getCurrentSprintIterationId(iterations) {
@@ -163,10 +201,10 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
         });
         sprintMsg = `, sprint='${currentSprint.title}'`;
       } else {
-        sprintMsg = ', sprint=NOT FOUND';
+        sprintMsg = ', sprint=NOT FOUND (check sprint setup in project!)';
       }
     } else {
-      sprintMsg = ', sprint=NOT FOUND';
+      sprintMsg = ', sprint=NOT FOUND (no sprint field)';
     }
     const action = added ? 'added to' : 'updated in';
     if (VERBOSE) {
@@ -176,6 +214,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
   } catch (err) {
     console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
+    globalErrors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
   }
 }
 
@@ -218,6 +257,7 @@ async function assignPRsInRepo(repo, sprintField) {
           summary.project++;
         } catch (err) {
           console.error(`  [${owner}/${name}] Error preparing PR #${pr.number} for project:`, err.message);
+          globalErrors.push(`Error preparing PR #${pr.number} for project: ${err.message}`);
         }
         // Fetch linked issues for this PR (only those in the same repository and in the development box)
         const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
@@ -252,6 +292,7 @@ async function assignPRsInRepo(repo, sprintField) {
             await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`);
           } catch (err) {
             console.error(`    [${owner}/${name}] Error preparing issue #${issueNum} for project:`, err.message);
+            globalErrors.push(`Error preparing issue #${issueNum} for project: ${err.message}`);
           }
         }
       }
@@ -259,9 +300,13 @@ async function assignPRsInRepo(repo, sprintField) {
     page++;
   }
   if (summary.assigned === 0) {
-    console.log(`[${owner}/${name}] No matching PRs by ${GITHUB_AUTHOR} found.`);
+    const msg = `[${owner}/${name}] No matching PRs by ${GITHUB_AUTHOR} found.`;
+    console.log(msg);
+    globalSummary.push(msg);
   } else {
-    console.log(`[${owner}/${name}] Summary: PRs assigned: ${summary.assigned}, PRs added/updated in project: ${summary.project}, linked issues assigned: ${summary.issues}`);
+    const msg = `[${owner}/${name}] Summary: PRs assigned: ${summary.assigned}, PRs added/updated in project: ${summary.project}, linked issues assigned: ${summary.issues}`;
+    console.log(msg);
+    globalSummary.push(msg);
   }
 }
 
@@ -305,13 +350,17 @@ async function assignPRsInRepo(repo, sprintField) {
     }
     await ensureCurrentSprintExists(sprintField);
   } catch (e) {
-    console.error('Error fetching/ensuring sprints:', e.message);
+    const errMsg = 'Error fetching/ensuring sprints: ' + e.message;
+    globalErrors.push(errMsg);
+    console.error(errMsg);
     if (e.errors) {
       for (const err of e.errors) {
+        globalErrors.push('GraphQL error: ' + JSON.stringify(err));
         console.error('GraphQL error:', err);
       }
     }
     if (e.response) {
+      globalErrors.push('GraphQL response: ' + JSON.stringify(e.response, null, 2));
       console.error('GraphQL response:', JSON.stringify(e.response, null, 2));
     }
   }
@@ -320,7 +369,16 @@ async function assignPRsInRepo(repo, sprintField) {
       const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
       await assignPRsInRepo(fullRepo, sprintField);
     } catch (e) {
-      console.error(`Error processing ${repo}:`, e.message);
+      const errMsg = `Error processing ${repo}: ${e.message}`;
+      globalErrors.push(errMsg);
+      console.error(errMsg);
     }
   }
+  // Send email notification at the end
+  let subject = `[project-sync] Run summary: ${globalErrors.length ? 'ERRORS' : 'Success'}`;
+  let text = '';
+  if (globalSummary.length) text += globalSummary.join('\n') + '\n';
+  if (globalErrors.length) text += '\nErrors:\n' + globalErrors.join('\n');
+  else text += '\nNo errors.';
+  await sendEmail(subject, text);
 })();
