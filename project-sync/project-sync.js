@@ -303,19 +303,33 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
     // Determine action message
     let action;
+    let explanation = '';
     if (added) {
       action = 'added to';
     } else if (!statusChanged && !sprintChanged) {
       action = 'already up to date in';
+      // Explain why: both status and sprint were already set
+      if (statusMsg.includes('(already set)') && sprintMsg.includes('(already set)')) {
+        explanation = ' (status and sprint already set)';
+      } else if (statusMsg.includes('(already set)')) {
+        explanation = ' (status already set)';
+      } else if (sprintMsg.includes('(already set)')) {
+        explanation = ' (sprint already set)';
+      }
     } else {
       action = 'updated in';
+      // Explain what was updated
+      let updates = [];
+      if (statusChanged) updates.push('status');
+      if (sprintChanged) updates.push('sprint');
+      if (updates.length > 0) explanation = ` (updated: ${updates.join(', ')})`;
     }
     // Only print if something was actually changed or added, or if VERBOSE
     if (VERBOSE) {
-      console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
+      console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}${explanation}`);
     } else if (action !== 'already up to date in') {
       // Only print if something was actually changed or added
-      console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}`);
+      console.log(`[${repoName}] ${type} #${number}: ${action} project${statusMsg}${sprintMsg}${explanation}`);
     }
   } catch (err) {
     console.error(`${logPrefix}[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
