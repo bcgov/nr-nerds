@@ -311,6 +311,8 @@ async function assignPRsInRepo(repo, sprintField) {
 }
 
 (async () => {
+  // Only send email notifications for failures if not running in a PR context
+  const isPRContext = process.env.GITHUB_EVENT_NAME === 'pull_request';
   // Fetch project fields to get sprintField
   let sprintField = null;
   try {
@@ -375,10 +377,11 @@ async function assignPRsInRepo(repo, sprintField) {
     }
   }
   // Send email notification at the end
-  let subject = `[project-sync] Run summary: ${globalErrors.length ? 'ERRORS' : 'Success'}`;
-  let text = '';
-  if (globalSummary.length) text += globalSummary.join('\n') + '\n';
-  if (globalErrors.length) text += '\nErrors:\n' + globalErrors.join('\n');
-  else text += '\nNo errors.';
-  await sendEmail(subject, text);
+  if (!isPRContext && globalErrors.length) {
+    let subject = `[project-sync] Run summary: ERRORS`;
+    let text = '';
+    if (globalSummary.length) text += globalSummary.join('\n') + '\n';
+    text += '\nErrors:\n' + globalErrors.join('\n');
+    await sendEmail(subject, text);
+  }
 })();
