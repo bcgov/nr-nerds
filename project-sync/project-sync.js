@@ -11,11 +11,6 @@ const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
 const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
 // === CONFIGURATION ===
-const STATUS_OPTIONS = {
-  active: 'c66ba2dd', // Project column optionId for 'Active'
-  done: 'b6e2e2b2',   // Project column optionId for 'Done' (update as needed)
-  new: 'b6e2e2b1'     // Project column optionId for 'New' (add/update as needed)
-};
 const VERBOSE = process.argv.includes('--verbose');
 // REMINDER: Consider TypeScript and more unit tests in future for maintainability and safety.
 
@@ -57,7 +52,7 @@ async function ensureCurrentSprintExists(sprintField) {
 }
 
 // Helper to add an item (PR or issue) to project and set status and sprint
-async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics, isLinkedIssue = false) {
+async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, logPrefix = '', repoName = '', prState = null, prMerged = false, diagnostics, isLinkedIssue = false, statusFieldOptions = null) {
   try {
     // Paginate through project items to check if this nodeId is already present
     let projectItemId = null;
@@ -106,6 +101,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
     }
     // Only set Status to Active for open PRs/issues, and to Done for closed unmerged PRs
     let statusMsg = '';
+    if (!statusFieldOptions) throw new Error('Status field options not provided');
     if (type === 'PR' && prState === 'closed') {
       if (prMerged) {
         statusMsg = ', status=UNCHANGED (merged PR)';
@@ -122,11 +118,29 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
         `, {
           projectId: PROJECT_ID,
           itemId: projectItemId,
-          fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
-          optionId: STATUS_OPTIONS.done
+          fieldId: statusFieldOptions.fieldId,
+          optionId: statusFieldOptions.done
         });
         statusMsg = ', status=Done (closed unmerged PR)';
       }
+    } else if (type === 'issue' && prState === 'closed') {
+      // For closed issues (e.g., linked issues after PR merge), set to Done
+      await octokit.graphql(`
+        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+          updateProjectV2ItemFieldValue(input: {
+            projectId: $projectId,
+            itemId: $itemId,
+            fieldId: $fieldId,
+            value: { singleSelectOptionId: $optionId }
+          }) { projectV2Item { id } }
+        }
+      `, {
+        projectId: PROJECT_ID,
+        itemId: projectItemId,
+        fieldId: statusFieldOptions.fieldId,
+        optionId: statusFieldOptions.done
+      });
+      statusMsg = ', status=Done (closed/linked issue)';
     } else {
       await octokit.graphql(`
         mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
@@ -140,8 +154,8 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
       `, {
         projectId: PROJECT_ID,
         itemId: projectItemId,
-        fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA',
-        optionId: STATUS_OPTIONS.active
+        fieldId: statusFieldOptions.fieldId,
+        optionId: statusFieldOptions.active
       });
       statusMsg = ', status=Active';
     }
@@ -189,7 +203,7 @@ async function addItemToProjectAndSetStatus(nodeId, type, number, sprintField, l
 }
 
 // Helper to add assigned issues to project board in 'New' column if not already set
-async function addAssignedIssuesToProject(sprintField, diagnostics) {
+async function addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions) {
   try {
     for (const repo of repos) {
       let owner, name;
@@ -289,8 +303,8 @@ async function addAssignedIssuesToProject(sprintField, diagnostics) {
               `, {
                 projectId: PROJECT_ID,
                 itemId: projectItemId,
-                fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status field
-                optionId: STATUS_OPTIONS.new
+                fieldId: statusFieldOptions.fieldId,
+                optionId: statusFieldOptions.new
               });
               if (VERBOSE) {
                 console.log(`[${owner}/${name}] Issue #${issue.number}: added to project, status=New`);
@@ -309,8 +323,8 @@ async function addAssignedIssuesToProject(sprintField, diagnostics) {
               `, {
                 projectId: PROJECT_ID,
                 itemId: projectItemId,
-                fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status field
-                optionId: STATUS_OPTIONS.new
+                fieldId: statusFieldOptions.fieldId,
+                optionId: statusFieldOptions.new
               });
               if (VERBOSE) {
                 console.log(`[${owner}/${name}] Issue #${issue.number}: status set to New`);
@@ -338,7 +352,7 @@ async function addAssignedIssuesToProject(sprintField, diagnostics) {
   }
 }
 
-async function assignPRsInRepo(repo, sprintField, diagnostics) {
+async function assignPRsInRepo(repo, sprintField, diagnostics, statusFieldOptions) {
   const [owner, name] = repo.split("/");
   let page = 1;
   let found = 0;
@@ -373,7 +387,7 @@ async function assignPRsInRepo(repo, sprintField, diagnostics) {
         try {
           const prDetails = await octokit.pulls.get({ owner, repo: name, pull_number: pr.number });
           const prNodeId = prDetails.data.node_id;
-          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null, diagnostics);
+          await addItemToProjectAndSetStatus(prNodeId, 'PR', pr.number, sprintField, '  ', `${owner}/${name}`, pr.state, pr.merged_at !== null, diagnostics, false, statusFieldOptions);
           summary.project++;
         } catch (err) {
           console.error(`  [${owner}/${name}] Error preparing PR #${pr.number} for project:`, err.message);
@@ -412,7 +426,7 @@ async function assignPRsInRepo(repo, sprintField, diagnostics) {
             // If PR is merged, move linked issue to Done and close if open
             if (pr.state === 'closed' && pr.merged_at) {
               // Move to Done in project
-              await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, 'closed', false, diagnostics, true);
+              await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, 'closed', false, diagnostics, true, statusFieldOptions);
               // Close the issue if open
               if (issueDetails.data.state === 'open') {
                 try {
@@ -429,7 +443,7 @@ async function assignPRsInRepo(repo, sprintField, diagnostics) {
               }
             } else {
               // Not a merged PR, set to Active as before
-              await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics);
+              await addItemToProjectAndSetStatus(issueNodeId, 'issue', issueNum, sprintField, '    ', `${owner}/${name}`, undefined, undefined, diagnostics, false, statusFieldOptions);
             }
           } catch (err) {
             console.error(`    [${owner}/${name}] Error preparing issue #${issueNum} for project:`, err.message);
@@ -449,6 +463,40 @@ async function assignPRsInRepo(repo, sprintField, diagnostics) {
     console.log(msg);
     diagnostics.summary.push(msg);
   }
+}
+
+// Helper to fetch Status field and its option IDs
+async function getStatusFieldOptions(projectId) {
+  const result = await octokit.graphql(`
+    query($projectId:ID!){
+      node(id:$projectId){
+        ... on ProjectV2 {
+          fields(first:50){
+            nodes {
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { projectId });
+  const fields = result.node.fields.nodes;
+  const statusField = fields.find(f => f.name && f.name.toLowerCase() === 'status');
+  if (!statusField) throw new Error('No Status field found in project');
+  const options = {};
+  for (const opt of statusField.options) {
+    if (opt.name.toLowerCase() === 'active') options.active = opt.id;
+    if (opt.name.toLowerCase() === 'done') options.done = opt.id;
+    if (opt.name.toLowerCase() === 'new') options.new = opt.id;
+  }
+  if (!options.active || !options.done || !options.new) {
+    throw new Error('Could not find all required Status options (Active, Done, New)');
+  }
+  return { fieldId: statusField.id, ...options };
 }
 
 /**
@@ -507,12 +555,13 @@ function sanitizeGraphQLResponse(response) {
 }
 
 (async () => {
-  // Fetch project fields to get sprintField
+  // Fetch project fields to get sprintField and statusField
   let sprintField = null;
+  let statusFieldOptions = null;
   const diagnostics = new DiagnosticsContext();
   try {
     if (VERBOSE) {
-      console.log('Fetching project fields for sprintField...');
+      console.log('Fetching project fields for sprintField and statusField...');
     }
     const projectFields = await octokit.graphql(`
       query($projectId:ID!){
@@ -550,8 +599,10 @@ function sanitizeGraphQLResponse(response) {
       sprintField.configuration = JSON.parse(sprintField.configuration);
     }
     await ensureCurrentSprintExists(sprintField);
+    // Fetch status field options
+    statusFieldOptions = await getStatusFieldOptions(PROJECT_ID);
   } catch (e) {
-    const errMsg = 'Error fetching/ensuring sprints: ' + e.message;
+    const errMsg = 'Error fetching/ensuring sprints or status field: ' + e.message;
     diagnostics.errors.push(errMsg);
     console.error(errMsg);
     if (e.errors) {
@@ -567,11 +618,11 @@ function sanitizeGraphQLResponse(response) {
     }
   }
   // Add assigned issues to project board in 'New' column if not already set
-  await addAssignedIssuesToProject(sprintField, diagnostics);
+  await addAssignedIssuesToProject(sprintField, diagnostics, statusFieldOptions);
   for (const repo of repos) {
     const fullRepo = repo.includes("/") ? repo : `bcgov/${repo}`;
     try {
-      await assignPRsInRepo(fullRepo, sprintField, diagnostics);
+      await assignPRsInRepo(fullRepo, sprintField, diagnostics, statusFieldOptions);
     } catch (e) {
       const errMsg = `Error processing ${fullRepo}: ${e.message}`;
       diagnostics.errors.push(errMsg);
