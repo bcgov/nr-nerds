@@ -449,7 +449,7 @@ async function addAllAuthoredPRsToProject(sprintField, diagnostics, statusFieldO
   let page = 1;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
-    const { data: prs } = await octokit.rest.search.issues({
+    const { data: prs } = await octokit.search.issues({
       q: `is:pr author:${GITHUB_AUTHOR} is:open`,
       per_page: 50,
       page
@@ -545,7 +545,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
   let page = 1;
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
-    const { data: prs } = await octokit.rest.search.issues({
+    const { data: prs } = await octokit.search.issues({
       q: `is:pr assignee:${GITHUB_AUTHOR} is:open`,
       per_page: 50,
       page
@@ -809,7 +809,7 @@ async function handleLinkedIssuesForAssignedPRs(sprintField, diagnostics, status
   const sinceDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
   while (true) {
     // Get PRs assigned to the user
-    const { data: prs } = await octokit.rest.search.issues({
+    const { data: prs } = await octokit.search.issues({
       q: `is:pr assignee:${GITHUB_AUTHOR} is:open`,
       per_page: 50,
       page
