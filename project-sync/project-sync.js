@@ -435,6 +435,51 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     page++;
   }
 
+  // 1b. Any PR assigned to me in any bcgov repo goes to "Active" (updated in last 2 days)
+  page = 1;
+  while (true) {
+    const res = await octokit.graphql(`
+      query($login: String!, $after: String) {
+        search(query: $login, type: ISSUE, first: 50, after: $after) {
+          nodes {
+            ... on PullRequest {
+              id
+              number
+              repository { nameWithOwner }
+              assignees(first: 10) { nodes { login } }
+              updatedAt
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { login: `assignee:${GITHUB_AUTHOR} user:bcgov is:pr is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
+    const prs = res.search.nodes;
+    for (const pr of prs) {
+      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) {
+        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Not a bcgov repo');
+        continue;
+      }
+      if (seenNodeIds.has(pr.id)) {
+        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Already processed');
+        continue;
+      }
+      seenNodeIds.add(pr.id);
+      logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'to be added/updated', 'Assigned to user');
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: pr.repository.nameWithOwner,
+        statusOption: STATUS_OPTIONS.active,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    if (!res.search.pageInfo.hasNextPage) break;
+    page++;
+  }
+
   // 2. Any PR authored by me in any bcgov repo goes to "Active" (and linked issues, updated in last 2 days)
   page = 1;
   while (true) {

@@ -13,6 +13,7 @@ _Last updated: 2025-05-25_
 ### 2.1. All `bcgov` Repos
 - **Any issue assigned to the user** (as set by `GITHUB_AUTHOR`) in any `bcgov` repo goes to the **"New"** column.
 - **Any PR authored by the user** in any `bcgov` repo goes to the **"Active"** column.
+- **Any PR assigned to the user** in any `bcgov` repo (and updated in the last two days) must be added to the **Active** column. This is in addition to PRs authored by the user. If a PR is both authored and assigned to the user, it should only be processed once.
 - **Any issue linked to a PR** authored by the user is also moved to **"Active"** (with the PR).
 
 ### 2.2. Managed Repos (see Managed Repositories below)
