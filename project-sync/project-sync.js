@@ -1,14 +1,12 @@
 // Script to manage GitHub Projects v2: assign issues/PRs to project columns based on rules
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
-const yaml = require("js-yaml");
 
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const octokit = new Octokit({ auth: GH_TOKEN });
 
 const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
-const repos = yaml.load(fs.readFileSync("project-sync/repos.yml")).repos;
 
 // --- CONFIGURATION ---
 const STATUS_OPTIONS = {
@@ -47,9 +45,29 @@ async function getCurrentSprintOptionId() {
   return current ? current.id : null;
 }
 
-// --- Helper: Get managed repos from repos.yml ---
+// --- Helper: Get managed repos from requirements.md ---
 function getManagedRepos() {
-  return repos.map(r => (typeof r === 'string' ? `bcgov/${r}` : (r.name && r.name.includes('/') ? r.name : `bcgov/${r.name}`)));
+  // Read requirements.md and extract the Managed Repositories section
+  const reqText = fs.readFileSync("project-sync/requirements.md", "utf8");
+  const match = reqText.match(/## 3. Managed Repositories[\s\S]*?- ([^\n]+)/g);
+  if (!match) return [];
+  // Find all lines that start with '  - '
+  const lines = reqText.split("\n");
+  const startIdx = lines.findIndex(l => l.trim() === '## 3. Managed Repositories');
+  if (startIdx === -1) return [];
+  const repos = [];
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('- ')) {
+      let repo = line.replace('- ', '').trim();
+      if (repo && !repo.startsWith('(')) repos.push(`bcgov/${repo}`);
+    } else if (line === '' || line.startsWith('(')) {
+      continue;
+    } else if (line.startsWith('## ')) {
+      break;
+    }
+  }
+  return repos;
 }
 
 // --- Helper: Parse repo full name from URL or object ---
