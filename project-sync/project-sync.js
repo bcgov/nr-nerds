@@ -440,16 +440,16 @@ async function printProjectFieldsAndOptions() {
           fields(first: 50) {
             nodes {
               __typename
-              id
-              name
+              ... on ProjectV2FieldCommon {
+                id
+                name
+              }
               ... on ProjectV2SingleSelectField {
                 options { id name }
               }
               ... on ProjectV2IterationField {
                 configuration {
-                  ... on ProjectV2IterationFieldConfiguration {
-                    iterations { id title startDate duration }
-                  }
+                  iterations { id title startDate duration }
                 }
               }
             }
@@ -466,7 +466,6 @@ async function printProjectFieldsAndOptions() {
         console.log(`  Option: ${opt.name} (id: ${opt.id})`);
       }
     }
-    // Defensive: print configuration if present
     if (field.configuration && field.configuration.iterations) {
       for (const iter of field.configuration.iterations) {
         console.log(`  Iteration: ${iter.title} (id: ${iter.id}, start: ${iter.startDate}, duration: ${iter.duration}d)`);
