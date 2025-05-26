@@ -314,10 +314,27 @@ class DiagnosticsContext {
   }
 }
 
+// --- LOOP BREAKER CONFIGURATION ---
+const errorCounts = new Map();
+const ERROR_LOOP_THRESHOLD = 3;
+const USER_PREF_LOOP_BREAK = process.env.LOOP_BREAK_ON_REPEAT === 'true';
+
+function handleErrorLoop(errorMsg) {
+  errorCounts.set(errorMsg, (errorCounts.get(errorMsg) || 0) + 1);
+  if (USER_PREF_LOOP_BREAK && errorCounts.get(errorMsg) >= ERROR_LOOP_THRESHOLD) {
+    console.error(`[LOOP BREAKER] The same error has occurred ${ERROR_LOOP_THRESHOLD} times: "${errorMsg}"`);
+    console.error('Halting further attempts to prevent an infinite loop. Please check your query or schema.');
+    process.exit(1);
+  }
+}
+
 function logDiagnostics(diagnostics) {
   if (diagnostics.errors.length) {
     console.error('Errors:');
-    diagnostics.errors.forEach(e => console.error(e));
+    diagnostics.errors.forEach(e => {
+      console.error(e);
+      handleErrorLoop(e);
+    });
   }
   if (diagnostics.warnings.length) {
     console.warn('Warnings:');
