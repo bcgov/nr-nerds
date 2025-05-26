@@ -40,7 +40,6 @@ _Last updated: 2025-05-25_
 
 ### 2.8. Reopening Issues Moved to Active
 - If an issue is moved to the "Active" column and it is currently closed, the script must reopen the issue.
-- Do not change the column (it remains in "Active").
 - Assign the issue to the current Sprint if it is moved to "Active".
 - This applies to all rules that move issues to "Active" (including linked issues following PRs).
 

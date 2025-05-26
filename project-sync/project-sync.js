@@ -89,8 +89,28 @@ function dedupeItems(items) {
 }
 
 // --- Add or update item in project ---
-async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics }) {
+async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics, reopenIfClosed }) {
   try {
+    // Optionally reopen closed issues if moving to Active
+    if (type === 'issue' && statusOption === STATUS_OPTIONS.active && reopenIfClosed) {
+      // Check if the issue is closed
+      const issueRes = await octokit.graphql(`
+        query($nodeId:ID!) {
+          node(id: $nodeId) { ... on Issue { state } }
+        }
+      `, { nodeId });
+      if (issueRes.node && issueRes.node.state === 'CLOSED') {
+        // Reopen the issue
+        const repoParts = repoName.split('/');
+        await octokit.issues.update({
+          owner: repoParts[0],
+          repo: repoParts[1],
+          issue_number: number,
+          state: 'open'
+        });
+        diagnostics.infos.push(`Reopened issue #${number} in ${repoName} because it was moved to Active.`);
+      }
+    }
     // Find or add item to project
     let projectItemId = null;
     let endCursor = null;
@@ -455,6 +475,7 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
         if (linked.updatedAt && linked.updatedAt < twoDaysAgo) continue;
         seenNodeIds.add(linked.id);
         // Always move linked issues to the same status as the PR
+        // If the issue is closed, reopen it, assign to Active, and assign to current Sprint
         itemsToProcess.push({
           nodeId: linked.id,
           type: 'issue',
@@ -462,7 +483,8 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
           repoName: linked.repository.nameWithOwner,
           statusOption: STATUS_OPTIONS.active, // Always follow PR to Active
           sprintField: null,
-          diagnostics
+          diagnostics,
+          reopenIfClosed: true // custom flag for reopening
         });
       }
     }
