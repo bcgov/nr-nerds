@@ -22,8 +22,24 @@ function getManagedRepos() {
   return repos.map(r => (typeof r === 'string' ? `bcgov/${r}` : (r.name && r.name.includes('/') ? r.name : `bcgov/${r.name}`)));
 }
 
+// --- Helper: Parse repo full name from URL or object ---
+function getRepoFullName(issueOrPr) {
+  if (issueOrPr.repository && issueOrPr.repository.full_name) return issueOrPr.repository.full_name;
+  if (issueOrPr.repository_url) return issueOrPr.repository_url.split('/').slice(-2).join('/');
+  return '';
+}
+
+// --- Helper: Deduplicate items by nodeId ---
+function dedupeItems(items) {
+  const map = new Map();
+  for (const item of items) {
+    if (!map.has(item.nodeId)) map.set(item.nodeId, item);
+  }
+  return Array.from(map.values());
+}
+
 // --- Add or update item in project ---
-async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics }) {
+async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, diagnostics }) {
   try {
     // Find or add item to project
     let projectItemId = null;
@@ -77,11 +93,8 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status fieldId
       optionId: statusOption
     });
-    // Optionally assign sprint (if needed)
-    // ...existing code for sprint assignment if you want to keep it...
   } catch (err) {
     diagnostics.errors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
-    console.error(`[${repoName}] Error adding/updating ${type} #${number} in project:`, err.message);
   }
 }
 
@@ -89,6 +102,8 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
 (async () => {
   const diagnostics = new DiagnosticsContext();
   const managedRepos = getManagedRepos();
+  const itemsToProcess = [];
+
   // 1. Add all issues assigned to me in any bcgov repo to New
   let page = 1;
   while (true) {
@@ -96,9 +111,9 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     if (!issues.length) break;
     for (const issue of issues) {
       if (issue.pull_request) continue;
-      const repoFullName = issue.repository.full_name;
+      const repoFullName = getRepoFullName(issue);
       if (!repoFullName.startsWith('bcgov/')) continue;
-      await addOrUpdateProjectItem({
+      itemsToProcess.push({
         nodeId: issue.node_id,
         type: 'issue',
         number: issue.number,
@@ -110,6 +125,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     }
     page++;
   }
+
   // 2. Add all PRs authored by me in any bcgov repo to Active, and handle linked issues
   page = 1;
   while (true) {
@@ -120,8 +136,8 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     });
     if (!prsResult.data.items.length) break;
     for (const pr of prsResult.data.items) {
-      const repoFullName = pr.repository_url.split('/').slice(-2).join('/');
-      await addOrUpdateProjectItem({
+      const repoFullName = getRepoFullName(pr);
+      itemsToProcess.push({
         nodeId: pr.node_id,
         type: 'PR',
         number: pr.number,
@@ -150,7 +166,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       for (const event of linkedIssues) {
         const issueNum = event.source.issue.number;
         const issueDetails = await octokit.issues.get({ owner, repo, issue_number: issueNum });
-        await addOrUpdateProjectItem({
+        itemsToProcess.push({
           nodeId: issueDetails.data.node_id,
           type: 'issue',
           number: issueNum,
@@ -163,6 +179,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     }
     page++;
   }
+
   // 3. For managed repos, add any new issues to New
   for (const repoFullName of managedRepos) {
     const [owner, repo] = repoFullName.split('/');
@@ -172,7 +189,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       if (!issues.length) break;
       for (const issue of issues) {
         if (issue.pull_request) continue;
-        await addOrUpdateProjectItem({
+        itemsToProcess.push({
           nodeId: issue.node_id,
           type: 'issue',
           number: issue.number,
@@ -185,6 +202,11 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       page++;
     }
   }
+
+  // Deduplicate and process all items in parallel
+  const uniqueItems = dedupeItems(itemsToProcess);
+  await Promise.allSettled(uniqueItems.map(item => addOrUpdateProjectItem(item)));
+
   // Log diagnostics at the end
   logDiagnostics(diagnostics);
 })();
