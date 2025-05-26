@@ -18,7 +18,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install @octokit/graphql @octokit/rest js-yaml
+        run: npm install @octokit/rest
 
       - name: Run GH Project Assigner
         env:
