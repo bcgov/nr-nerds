@@ -40,9 +40,35 @@ async function getCurrentSprintOptionId() {
   `, { projectId: PROJECT_ID });
   const sprintField = res.node.fields.nodes.find(f => f.id === SPRINT_FIELD_ID);
   if (!sprintField) return null;
-  // Find the option with 'current' or similar in the name (customize as needed)
-  const current = sprintField.options.find(opt => /current/i.test(opt.name));
-  return current ? current.id : null;
+  // Try to find a Sprint whose date range includes today
+  const today = new Date();
+  let current = null;
+  for (const opt of sprintField.options) {
+    // Match formats like 'Sprint 2025-05-20 to 2025-06-03' or '2025-05-20 – 2025-06-03'
+    const match = opt.name.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|–|-)\s*(\d{4}-\d{2}-\d{2})/);
+    if (match) {
+      const start = new Date(match[1]);
+      const end = new Date(match[2]);
+      if (today >= start && today <= end) {
+        current = opt;
+        break;
+      }
+    }
+  }
+  if (!current && sprintField.options.length) {
+    // Fallback: pick the most recently added Sprint (last in the list)
+    current = sprintField.options[sprintField.options.length - 1];
+    diagnostics.warnings.push(
+      `Warning: No Sprint option with a date range including today (${today.toISOString().slice(0,10)}). Using fallback: '${current.name}'. All available options: [${sprintField.options.map(o => `'${o.name}'`).join(', ')}]`
+    );
+  }
+  if (!current) {
+    diagnostics.warnings.push(
+      `Warning: No Sprint options found at all in the Sprint field.`
+    );
+    return null;
+  }
+  return current.id;
 }
 
 // --- Helper: Get managed repos from requirements.md ---
