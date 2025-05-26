@@ -123,8 +123,8 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status fieldId
       optionId: statusOption
     });
-    // If moving to Active or Done, assign to current Sprint
-    if (statusOption === STATUS_OPTIONS.active || statusOption === STATUS_OPTIONS.done) {
+    // If moving to Active, always assign to current Sprint
+    if (statusOption === STATUS_OPTIONS.active) {
       let sprintOptionId = sprintField;
       if (!sprintOptionId) {
         sprintOptionId = await getCurrentSprintOptionId();
@@ -145,6 +145,55 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
           fieldId: SPRINT_FIELD_ID,
           optionId: sprintOptionId
         });
+      }
+    }
+    // If moving to Done, only assign to current Sprint if not already set
+    if (statusOption === STATUS_OPTIONS.done) {
+      // Fetch current Sprint field value for this item
+      const sprintFieldRes = await octokit.graphql(`
+        query($projectId:ID!, $itemId:ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              item(id: $itemId) {
+                fieldValues(first: 20) {
+                  nodes {
+                    ... on ProjectV2ItemFieldSingleSelectValue {
+                      field {
+                        ... on ProjectV2SingleSelectField { id }
+                      }
+                      optionId
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `, { projectId: PROJECT_ID, itemId: projectItemId });
+      const sprintFieldValue = sprintFieldRes.node.items ? null : (sprintFieldRes.node.item.fieldValues.nodes.find(fv => fv.field && fv.field.id === SPRINT_FIELD_ID) || null);
+      const alreadyHasSprint = sprintFieldValue && sprintFieldValue.optionId;
+      if (!alreadyHasSprint) {
+        let sprintOptionId = sprintField;
+        if (!sprintOptionId) {
+          sprintOptionId = await getCurrentSprintOptionId();
+        }
+        if (sprintOptionId) {
+          await octokit.graphql(`
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+              updateProjectV2ItemFieldValue(input: {
+                projectId: $projectId,
+                itemId: $itemId,
+                fieldId: $fieldId,
+                value: { singleSelectOptionId: $optionId }
+              }) { projectV2Item { id } }
+            }
+          `, {
+            projectId: PROJECT_ID,
+            itemId: projectItemId,
+            fieldId: SPRINT_FIELD_ID,
+            optionId: sprintOptionId
+          });
+        }
       }
     }
   } catch (err) {
@@ -180,20 +229,20 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     page++;
   }
 
-  // 2. Add all open PRs in managed repos to Active
+  // 2. Add all PRs assigned to me in any bcgov repo to New
   page = 1;
   while (true) {
     const { data: prs } = await octokit.pulls.list({ state: 'open', per_page: 50, page });
     if (!prs.length) break;
     for (const pr of prs) {
       const repoFullName = getRepoFullName(pr);
-      if (!managedRepos.includes(repoFullName)) continue;
+      if (!repoFullName.startsWith('bcgov/')) continue;
       itemsToProcess.push({
         nodeId: pr.node_id,
         type: 'pr',
         number: pr.number,
         repoName: repoFullName,
-        statusOption: STATUS_OPTIONS.active,
+        statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
       });
@@ -201,34 +250,60 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     page++;
   }
 
-  // 3. Add all issues/PRs in managed repos with 'In Progress' or similar to Active
-  const inProgressKeywords = ['in progress', 'doing', 'wip'];
-  for (const repoFullName of managedRepos) {
+  // 3. Add all open issues/PRs in managed repos to Active
+  for (const repo of managedRepos) {
+    // Issues
     let endCursor = null;
     while (true) {
-      const { data: issues } = await octokit.issues.listForRepo({
+      const { data: issues, headers } = await octokit.issues.listForRepo({
         owner: 'bcgov',
-        repo: repoFullName.split('/')[1],
-        state: 'all',
-        labels: 'in progress',
+        repo: repo.replace('bcgov/', ''),
+        state: 'open',
         per_page: 100,
-        page: 1,
-        after: endCursor
+        page: endCursor ? parseInt(endCursor) : 1
       });
-      if (!issues.length) break;
       for (const issue of issues) {
-        if (issue.pull_request) continue;
         itemsToProcess.push({
           nodeId: issue.node_id,
           type: 'issue',
           number: issue.number,
-          repoName: repoFullName,
+          repoName: repo,
           statusOption: STATUS_OPTIONS.active,
           sprintField: null,
           diagnostics
         });
       }
-      endCursor = issues.length < 100 ? null : issues[issues.length - 1].cursor;
+      if (!headers.link) break;
+      const links = headers.link.split(',');
+      const nextLink = links.find(link => link.includes('rel="next"'));
+      endCursor = nextLink ? nextLink.split(';')[0].split('page=')[1] : null;
+      if (!endCursor) break;
+    }
+    // PRs
+    endCursor = null;
+    while (true) {
+      const { data: prs, headers } = await octokit.pulls.list({
+        owner: 'bcgov',
+        repo: repo.replace('bcgov/', ''),
+        state: 'open',
+        per_page: 100,
+        page: endCursor ? parseInt(endCursor) : 1
+      });
+      for (const pr of prs) {
+        itemsToProcess.push({
+          nodeId: pr.node_id,
+          type: 'pr',
+          number: pr.number,
+          repoName: repo,
+          statusOption: STATUS_OPTIONS.active,
+          sprintField: null,
+          diagnostics
+        });
+      }
+      if (!headers.link) break;
+      const links = headers.link.split(',');
+      const nextLink = links.find(link => link.includes('rel="next"'));
+      endCursor = nextLink ? nextLink.split(';')[0].split('page=')[1] : null;
       if (!endCursor) break;
     }
   }
