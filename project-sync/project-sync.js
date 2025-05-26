@@ -110,6 +110,12 @@ function dedupeItems(items) {
 // --- Add or update item in project ---
 async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics, reopenIfClosed, forceSprint }) {
   try {
+    // If forceSprint is true, assign the item to the current sprint
+    if (forceSprint) {
+      const currentSprintOptionId = await getCurrentSprintOptionId();
+      sprintField = currentSprintOptionId;
+      diagnostics.infos.push(`Assigned item to the current sprint due to forceSprint flag.`);
+    }
     // Optionally reopen closed issues if moving to Active
     if (type === 'issue' && statusOption === STATUS_OPTIONS.active && reopenIfClosed) {
       // Check if the issue is closed
