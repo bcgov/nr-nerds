@@ -17,7 +17,7 @@ const STATUS_OPTIONS = {
 };
 
 // Sprint field configuration
-const SPRINT_FIELD_ID = 'PVTSSF_lADOAA37OM4AFuzgzgDTYuB'; // Replace with your actual Sprint fieldId
+const SPRINT_FIELD_ID = 'PVTIF_lADOAA37OM4AFuzgzgDTbhE'; // Updated to actual Sprint fieldId (Iteration field)
 
 // Helper: Get current sprint optionId
 async function getCurrentSprintOptionId() {
