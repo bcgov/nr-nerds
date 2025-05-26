@@ -38,6 +38,14 @@ This file tracks potential improvements and future work for the project-sync aut
 ## 10. Self-Check/Healthcheck Command
 - Add a command to verify that all required fields, columns, and sprints exist and are correctly configured before running automation.
 
+## 11. Dynamic Project Board Selection and User-Friendly Parameters
+- Allow users to specify the project board by URL or board number, not just by raw ID.
+- Add logic to dynamically resolve the project board ID from a URL or number, making configuration easier and less error-prone.
+- Support updating the requirements and script automatically if the board changes.
+
+## 12. Proposed Rule Changes
+- Anything moved to the **New, Parked, or Backlog** columns should not have a Sprint assigned.
+
 ---
 
 If you want to work on any of these, create a GitHub issue and reference this file for details.
