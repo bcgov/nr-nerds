@@ -62,12 +62,12 @@ async function getCurrentSprintOptionId() {
   throw new Error(`No Sprint iteration with a date range including today (${today.toISOString().slice(0,10)}). Available iterations: [${sprintField.configuration.iterations.map(i => `'${i.title}' (${i.startDate}, ${i.duration}d)`).join(', ')}]`);
 }
 
-// --- Helper: Get managed repos from requirements.md ---
-function getManagedRepos() {
-  // Read requirements.md and extract the Managed Repositories section
+// --- Helper: Get issue-import repos from requirements.md ---
+function getIssueImportRepos() {
+  // Read requirements.md and extract the Issue-Import Repositories section
   const reqText = fs.readFileSync("project-sync/requirements.md", "utf8");
   const lines = reqText.split("\n");
-  const startIdx = lines.findIndex(l => l.trim().startsWith('## 3. Managed Repositories'));
+  const startIdx = lines.findIndex(l => l.trim().startsWith('### Issue-Import Repositories'));
   if (startIdx === -1) return [];
   const repos = [];
   for (let i = startIdx + 1; i < lines.length; i++) {
@@ -413,7 +413,10 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
-  const managedRepos = getManagedRepos();
+  // Use issueImportRepos for all logic
+  const issueImportRepos = getIssueImportRepos();
+  // Calculate date string for two days ago (YYYY-MM-DD)
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const itemsToProcess = [];
   const seenNodeIds = new Set();
   const projectItemNodeIds = new Set(); // Track items already in project
@@ -433,9 +436,6 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
       url: `https://github.com/${item.repoName}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`
     });
   }
-
-  // Calculate date string for two days ago (YYYY-MM-DD)
-  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   // 1. Any issue assigned to me in any bcgov repo goes to "New" (updated in last 2 days)
   let page = 1;
@@ -530,6 +530,7 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
   } diagnostics
 
   // 2. Any PR authored by me in any bcgov repo goes to "Active" (and linked issues, updated in last 2 days)
+  //    Any issue linked to a PR is handled exactly like that PR (follows the same logic as the PR it is linked to)
   page = 1;
   while (true) {
     const res = await octokit.graphql(`
@@ -596,8 +597,9 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     page++;
   }
 
-  // 3. Any issue or PR in my repos that is not in the project goes to "New" (updated in last 2 days)
-  const myRepos = managedRepos.filter(repo => repo.startsWith('bcgov/'));
+  // 3. Any issue or PR in my issue-import repos that is not in the project goes to "New" (updated in last 2 days)
+  //    (No per-rule two-day logic; the two-day rule is applied globally below)
+  const myRepos = issueImportRepos.filter(repo => repo.startsWith('bcgov/'));
   await processInBatches(myRepos, 5, 2000, async repoName => {
     const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repoName, twoDaysAgo);
     for (const issue of issues) {
