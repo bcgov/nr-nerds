@@ -40,33 +40,35 @@ async function getCurrentSprintOptionId() {
   `, { projectId: PROJECT_ID });
   const sprintField = res.node.fields.nodes.find(f => f.id === SPRINT_FIELD_ID);
   if (!sprintField) return null;
-  // Try to find a Sprint whose date range includes today
   const today = new Date();
   let current = null;
+  let debugLog = [];
   for (const opt of sprintField.options) {
-    // Match formats like 'Sprint 2025-05-20 to 2025-06-03' or '2025-05-20 – 2025-06-03'
-    const match = opt.name.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|–|-)\s*(\d{4}-\d{2}-\d{2})/);
+    // Match formats like 'Sprint 2025-05-20 to 2025-06-03', '2025-05-20 – 2025-06-03', etc.
+    const match = opt.name.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|–|—|-)\s*(\d{4}-\d{2}-\d{2})/);
+    let parsed = null;
     if (match) {
       const start = new Date(match[1]);
       const end = new Date(match[2]);
+      parsed = { start, end };
       if (today >= start && today <= end) {
         current = opt;
-        break;
       }
     }
+    debugLog.push(`Option: '${opt.name}'${parsed ? ` [${parsed.start.toISOString().slice(0,10)} to ${parsed.end.toISOString().slice(0,10)}]` : ' [no date range]'}`);
   }
   if (!current && sprintField.options.length) {
-    // Fallback: pick the most recently added Sprint (last in the list)
     current = sprintField.options[sprintField.options.length - 1];
-    diagnostics.warnings.push(
-      `Warning: No Sprint option with a date range including today (${today.toISOString().slice(0,10)}). Using fallback: '${current.name}'. All available options: [${sprintField.options.map(o => `'${o.name}'`).join(', ')}]`
+    console.warn(
+      `No Sprint option with a date range including today (${today.toISOString().slice(0,10)}). Using fallback: '${current.name}'.\nAll available options:\n${debugLog.join('\n')}`
     );
-  }
-  if (!current) {
-    diagnostics.warnings.push(
-      `Warning: No Sprint options found at all in the Sprint field.`
+  } else if (!current) {
+    console.warn(
+      `No Sprint options found at all in the Sprint field.`
     );
     return null;
+  } else {
+    console.info(`Selected Sprint: '${current.name}' for today (${today.toISOString().slice(0,10)}).\nAll available options:\n${debugLog.join('\n')}`);
   }
   return current.id;
 }
