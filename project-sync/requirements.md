@@ -16,7 +16,9 @@ _Last updated: 2025-05-25_
 - **Any issue linked to a PR** authored by the user is also moved to **"Active"** (with the PR).
 
 ### 2.2. Managed Repos (see Managed Repositories below)
-- For any repo listed in the **Managed Repositories** section, **any new issue** (regardless of assignee) is added to the **"New"** column **if it is not already in the project and was updated in the last two days**. Do not move issues or PRs that are already in the project (in any column), or that have not been updated in the last two days.
+- For any repo listed in the **Managed Repositories** section, **any new issue** (regardless of assignee) is added to the **"New"** column **if it is not already in the project and was updated in the last two days**.
+- **If an issue or PR is already in the project (in any column), do not change its column.**
+- Do not move issues or PRs that have not been updated in the last two days.
 
 ### 2.3. Time Filtering
 - Only process issues and PRs **updated in the last two days** (based on `updatedAt`).
