@@ -447,6 +447,7 @@ async function printProjectFieldsAndOptions() {
               }
               ... on ProjectV2IterationField {
                 configuration {
+                  __typename
                   ... on ProjectV2IterationFieldConfiguration {
                     iterations { id title startDate duration }
                   }
