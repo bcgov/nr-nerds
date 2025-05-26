@@ -78,10 +78,15 @@ function getIssueImportRepos() {
     const line = lines[i].trim();
     if (line === '' || line.startsWith('(') || line.startsWith('_')) continue;
     if (line.startsWith('- ')) {
-      // Only add if the line is a valid repo name (letters, numbers, dashes, underscores, dots)
+      // Only add if the line is a valid repo name (letters, numbers, dashes, underscores, dots, or org/repo)
       const repo = line.replace('- ', '').trim();
-      if (/^[a-zA-Z0-9._-]+$/.test(repo)) {
-        repos.push('bcgov/' + repo);
+      if (/^[a-zA-Z0-9._/-]+$/.test(repo)) {
+        // If the repo name does not contain a slash, prepend 'bcgov/'
+        if (!repo.includes('/')) {
+          repos.push('bcgov/' + repo);
+        } else {
+          repos.push(repo);
+        }
       }
     } else {
       // Stop if we've left the list
