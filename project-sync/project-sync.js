@@ -474,7 +474,7 @@ async function printProjectFieldsAndOptions() {
 }
 
 // Uncomment to print field IDs and options for debugging
-// printProjectFieldsAndOptions();
+printProjectFieldsAndOptions();
 
 // --- Main logic ---
 (async () => {
