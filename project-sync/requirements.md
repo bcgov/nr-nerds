@@ -36,6 +36,8 @@ _Last updated: 2025-05-25_
 
   - nr-nerds
   - quickstart-openshift
+  - quickstart-openshift-backends
+  - quickstart-openshift-helpers
 
   (All are assumed to be under the `bcgov` GitHub organization unless otherwise specified.)
 
