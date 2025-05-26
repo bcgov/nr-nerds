@@ -17,7 +17,7 @@ const STATUS_OPTIONS = {
 };
 
 // Sprint field configuration
-const SPRINT_FIELD_ID = 'PVTIF_lADOAA37OM4AFuzgzgDTbhE'; // Updated to actual Sprint fieldId (Iteration field)
+const SPRINT_FIELD_ID = 'PVTIF_lADOAA37OM4AFuzgzgDTbhE'; // Correct Sprint (Iteration) fieldId
 
 // Helper: Get current sprint optionId
 async function getCurrentSprintOptionId() {
@@ -26,12 +26,20 @@ async function getCurrentSprintOptionId() {
     query($projectId:ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
-          fields(first: 20) {
+          fields(first: 50) {
             nodes {
-              ... on ProjectV2SingleSelectField {
+              ... on ProjectV2IterationField {
                 id
                 name
-                options { id name }
+                configuration {
+                  iterations {
+                    id
+                    title
+                    startDate
+                    duration
+                    completed
+                  }
+                }
               }
             }
           }
@@ -44,17 +52,15 @@ async function getCurrentSprintOptionId() {
     throw new Error('Sprint field not found in project configuration.');
   }
   const today = new Date();
-  for (const opt of sprintField.options) {
-    const match = opt.name.match(/(\d{4}-\d{2}-\d{2})\s*(?:to|–|—|-)\s*(\d{4}-\d{2}-\d{2})/);
-    if (match) {
-      const start = new Date(match[1]);
-      const end = new Date(match[2]);
-      if (today >= start && today <= end) {
-        return opt.id;
-      }
+  // Find the iteration (sprint) whose startDate <= today < startDate+duration and not completed
+  for (const iter of sprintField.configuration.iterations) {
+    const start = new Date(iter.startDate);
+    const end = new Date(start.getTime() + iter.duration * 24 * 60 * 60 * 1000);
+    if (today >= start && today < end && !iter.completed) {
+      return iter.id;
     }
   }
-  throw new Error(`No Sprint option with a date range including today (${today.toISOString().slice(0,10)}). Available options: [${sprintField.options.map(o => `'${o.name}'`).join(', ')}]`);
+  throw new Error(`No Sprint iteration with a date range including today (${today.toISOString().slice(0,10)}). Available iterations: [${sprintField.configuration.iterations.map(i => `'${i.title}' (${i.startDate}, ${i.duration}d)`).join(', ')}]`);
 }
 
 // --- Helper: Get managed repos from requirements.md ---
