@@ -575,7 +575,7 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     for (const s of summary.processed) {
       const url = makeGithubUrl(s.type, s.repoName, s.number);
       // Print as: - [issue] #67 in bcgov/nr-nerds: ... (URL: https://...)
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}${s.reason ? ' (' + s.reason + ')' : ''} (URL: ${url})`);
+      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}${s.reason ? ' (' + s.reason + ')' : ''} - ${url}`);
     }
   } else {
     console.log('Processed 0 items.');
@@ -584,7 +584,7 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     console.log('\nChanged:');
     for (const s of summary.changed) {
       const url = makeGithubUrl(s.type, s.repoName, s.number);
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action} (URL: ${url})`);
+      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action} - ${url}`);
     }
   } else {
     console.log('\nChanged 0 items.');
