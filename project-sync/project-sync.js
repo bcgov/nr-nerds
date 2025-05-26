@@ -11,8 +11,12 @@ const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
 
 // --- CONFIGURATION ---
 const STATUS_OPTIONS = {
+  parked: '5bc8cfd4',    // optionId for 'Parked' column
   new: 'f8e1e5a4',      // optionId for 'New' column
+  backlog: 'd8686046',  // optionId for 'Backlog' column
+  next: 'ab0fb504',     // optionId for 'Next' column
   active: 'c66ba2dd',   // optionId for 'Active' column
+  waiting: 'cd3ebcfd',  // optionId for 'Waiting' column
   done: '46321e20'      // optionId for 'Done' column
 };
 
@@ -104,7 +108,7 @@ function dedupeItems(items) {
 }
 
 // --- Add or update item in project ---
-async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics, reopenIfClosed }) {
+async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics, reopenIfClosed, forceSprint }) {
   try {
     // Optionally reopen closed issues if moving to Active
     if (type === 'issue' && statusOption === STATUS_OPTIONS.active && reopenIfClosed) {
@@ -175,8 +179,8 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status fieldId
       optionId: statusOption
     });
-    // Only assign to Sprint if moving to Active or Done
-    if (statusOption === STATUS_OPTIONS.active) {
+    // Assign Sprint for Next/Active regardless of previous value
+    if (statusOption === STATUS_OPTIONS.next || statusOption === STATUS_OPTIONS.active) {
       let sprintOptionId = sprintField;
       if (!sprintOptionId) {
         try {
@@ -208,7 +212,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
         throw new Error(`No current Sprint option found for ${type} #${number} in ${repoName}`);
       }
     }
-    // Always check for Sprint assignment if item is in Done
+    // Only assign Sprint for Done if not already assigned
     if (statusOption === STATUS_OPTIONS.done) {
       const sprintFieldRes = await octokit.graphql(`
         query($projectId:ID!, $itemId:ID!) {
@@ -636,6 +640,54 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
   await processInBatches(itemsToProcess, 5, 2000, async item => {
     await addOrUpdateProjectItemWithSummary(item);
   });
+
+  // Fetch all project items and update Sprint for Next/Active
+  let endCursor = null;
+  do {
+    const res = await octokit.graphql(`
+      query($projectId:ID!, $after:String) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100, after: $after) {
+              nodes {
+                id
+                content { ... on Issue { id number title repository { nameWithOwner } } ... on PullRequest { id number title repository { nameWithOwner } } }
+                fieldValues(first: 50) {
+                  nodes {
+                    ... on ProjectV2ItemFieldSingleSelectValue {
+                      field { ... on ProjectV2SingleSelectField { id name } }
+                      optionId
+                    }
+                  }
+                }
+              }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+      }
+    `, { projectId: PROJECT_ID, after: endCursor });
+    const items = res.node.items.nodes;
+    for (const item of items) {
+      // Find status option
+      const statusField = item.fieldValues.nodes.find(fv => fv.field && fv.field.name === 'Status');
+      if (!statusField) continue;
+      if (statusField.optionId === STATUS_OPTIONS.next || statusField.optionId === STATUS_OPTIONS.active) {
+        // Always assign to current Sprint
+        await addOrUpdateProjectItem({
+          nodeId: item.content.id,
+          type: item.content.number ? 'issue' : 'pr',
+          number: item.content.number,
+          repoName: item.content.repository.nameWithOwner,
+          statusOption: statusField.optionId,
+          sprintField: null,
+          diagnostics,
+          forceSprint: true
+        });
+      }
+    }
+    endCursor = res.node.items.pageInfo.endCursor;
+  } while (endCursor);
 
   // Log diagnostics
   logDiagnostics(diagnostics);
