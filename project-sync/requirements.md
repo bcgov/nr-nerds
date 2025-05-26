@@ -10,8 +10,6 @@ To change automation, simply edit this file and request a sync—no coding requi
 - Ask Copilot: "Please update the automation based on requirements.md" or "Sync the code with the latest requirements."
 - Or, create a GitHub issue or pull request referencing requirements.md and request an update.
 
-All code changes must follow the requirements in this file.
-
 ## Scope
 - Organization: `bcgov`
 - Project Board: `ProjectV2` with ID `PVT_kwDOAA37OM4AFuzg`
@@ -22,6 +20,7 @@ All code changes must follow the requirements in this file.
 - Any item moved to the **"Done"** column should be assigned to the current Sprint if not already assigned.
 
 ## User Rules
+_Note: These rules apply only to PRs and issues authored by the user specified in the Scope section._
 - **Any PR authored by the user**:
   - New PR: Move to **"Active"**.
   - PR closed: Move to **"Done"**.
@@ -47,7 +46,7 @@ _All repositories listed above are under the `bcgov` GitHub organization unless 
 - The sync automation runs every 30 minutes via a scheduled GitHub Actions workflow.
 - Project column and field IDs are set in the script configuration. This is expected to become dynamic in the future.
 - All errors, warnings, and info should be logged at the end of the run.
-- Process changes in batches (default: 5 at a time, 2s delay between batches) to avoid GitHub secondary rate limits.
+- Process changes in batches (default: 10 at a time, 1s delay between batches) to avoid GitHub secondary rate limits.
 - All issues and PRs should be deduplicated by node ID before processing.
 - Only process issues and PRs **updated in the last two days** (based on `updatedAt`). This rule applies to all automation logic above.
 
@@ -58,8 +57,8 @@ _All repositories listed above are under the `bcgov` GitHub organization unless 
 We welcome contributions from anyone interested in improving or extending this automation!
 
 - **To propose a change to the automation rules:**
-  - Edit this requirements.md file directly, or
-  - Open a GitHub issue or pull request describing your suggestion.
+  - Open a GitHub pull request with your proposed changes to this requirements.md file, or
+  - Open a GitHub issue describing your suggestion.
 - **To add your repository to the Monitored Repositories list:**
   - Simply add your repo name to the list above. No approval required—if it’s in the list, it will be included!
 - **For questions or help:**
