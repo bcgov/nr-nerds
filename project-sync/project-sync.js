@@ -253,28 +253,7 @@ function logDiagnostics(diagnostics) {
     page++;
   }
 
-  // 2. Add all PRs assigned to me in any bcgov repo to New
-  page = 1;
-  while (true) {
-    const { data: prs } = await octokit.pulls.list({ state: 'open', per_page: 50, page });
-    if (!prs.length) break;
-    for (const pr of prs) {
-      const repoFullName = getRepoFullName(pr);
-      if (!repoFullName.startsWith('bcgov/')) continue;
-      itemsToProcess.push({
-        nodeId: pr.node_id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repoFullName,
-        statusOption: STATUS_OPTIONS.new,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    page++;
-  }
-
-  // 3. Add all open issues/PRs in managed repos to Active
+  // 2. Add all open issues/PRs in managed repos to Active
   for (const repo of managedRepos) {
     // Issues
     let endCursor = null;
