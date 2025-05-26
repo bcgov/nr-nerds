@@ -431,6 +431,51 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
   return { issues, prs };
 }
 
+// --- Helper: Print all project field IDs and their options (for admin/debug) ---
+async function printProjectFieldsAndOptions() {
+  const res = await octokit.graphql(`
+    query($projectId:ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 50) {
+            nodes {
+              __typename
+              id
+              name
+              ... on ProjectV2SingleSelectField {
+                options { id name }
+              }
+              ... on ProjectV2IterationField {
+                configuration {
+                  iterations { id title startDate duration }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { projectId: PROJECT_ID });
+  console.log('--- Project Fields and Options ---');
+  for (const field of res.node.fields.nodes) {
+    console.log(`Field: ${field.name} (id: ${field.id}, type: ${field.__typename})`);
+    if (field.options) {
+      for (const opt of field.options) {
+        console.log(`  Option: ${opt.name} (id: ${opt.id})`);
+      }
+    }
+    if (field.configuration && field.configuration.iterations) {
+      for (const iter of field.configuration.iterations) {
+        console.log(`  Iteration: ${iter.title} (id: ${iter.id}, start: ${iter.startDate}, duration: ${iter.duration}d)`);
+      }
+    }
+  }
+  console.log('--- End Project Fields ---');
+}
+
+// Uncomment to print field IDs and options for debugging
+// printProjectFieldsAndOptions();
+
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
