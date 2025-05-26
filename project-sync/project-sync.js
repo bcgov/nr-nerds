@@ -279,7 +279,8 @@ async function addOrUpdateProjectItemWithSummary(item) {
     type: item.type,
     number: item.number,
     repoName: item.repoName,
-    action: `moved to ${Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === item.statusOption) || 'updated'}`
+    action: `moved to ${Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === item.statusOption) || 'updated'}`,
+    url: `https://github.com/${item.repoName}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`
   });
 }
 
@@ -428,7 +429,8 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
       number: item.number,
       repoName: item.repoName,
       action,
-      reason
+      reason,
+      url: `https://github.com/${item.repoName}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`
     });
   }
 
