@@ -304,6 +304,7 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   const managedRepos = getManagedRepos();
   const itemsToProcess = [];
   const seenNodeIds = new Set();
+  const projectItemNodeIds = new Set(); // Track items already in project
   const summary = {
     processed: [], // {type, number, repoName, action}
     changed: []    // {type, number, repoName, action}
@@ -404,113 +405,68 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
     page++;
   }
 
-  // 3. Any issue or PR in managed repos with no project assignment goes to "New"
-  for (const repoName of managedRepos) {
-    const { issues, prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repoName);
+  // 3. Any issue or PR in managed repos with no project assignment and updated in last 2 days goes to "New"
+  for (const repo of managedRepos) {
+    // Issues
+    const { issues } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
+      if (issue.updatedAt && issue.updatedAt < twoDaysAgo) continue;
       seenNodeIds.add(issue.id);
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName: repoName,
+        repoName: repo,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
       });
     }
+    // PRs
+    const { prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
     for (const pr of prs) {
       if (seenNodeIds.has(pr.id)) continue;
+      if (pr.updatedAt && pr.updatedAt < twoDaysAgo) continue;
       seenNodeIds.add(pr.id);
       itemsToProcess.push({
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
-        repoName: repoName,
-        statusOption: STATUS_OPTIONS.new,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.active,
         sprintField: null,
         diagnostics
       });
-    }
-  }
-
-  // Wrap addOrUpdateProjectItem to track summary
-  async function addOrUpdateProjectItemWithSummary(item) {
-    summary.processed.push({
-      type: item.type,
-      number: item.number,
-      repoName: item.repoName,
-      action: `Checked for project sync`
-    });
-    // Try to detect if a change was made (e.g., not already in project, or status/sprint updated)
-    let changed = false;
-    let projectItemId = null;
-    let endCursor = null;
-    let found = false;
-    do {
-      const res = await octokit.graphql(`
-        query($projectId:ID!, $after:String) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              items(first: 100, after: $after) {
-                nodes { id content { ... on PullRequest { id } ... on Issue { id } } }
-                pageInfo { hasNextPage endCursor }
-              }
-            }
-          }
-        }
-      `, { projectId: PROJECT_ID, after: endCursor });
-      const items = res.node.items.nodes;
-      const match = items.find(i => i.content && i.content.id === item.nodeId);
-      if (match) {
-        projectItemId = match.id;
-        found = true;
-        break;
+      // Linked issues (only if updated in last 2 days)
+      for (const linked of pr.closingIssuesReferences.nodes) {
+        if (seenNodeIds.has(linked.id)) continue;
+        if (linked.updatedAt && linked.updatedAt < twoDaysAgo) continue;
+        seenNodeIds.add(linked.id);
+        itemsToProcess.push({
+          nodeId: linked.id,
+          type: 'issue',
+          number: linked.number,
+          repoName: repo,
+          statusOption: STATUS_OPTIONS.active,
+          sprintField: null,
+          diagnostics
+        });
       }
-      endCursor = res.node.items.pageInfo.endCursor;
-    } while (endCursor);
-    if (!found) {
-      changed = true;
-    }
-    // Call the real function
-    await addOrUpdateProjectItem(item);
-    if (changed) {
-      summary.changed.push({
-        type: item.type,
-        number: item.number,
-        repoName: item.repoName,
-        action: 'Added to project and set status/sprint'
-      });
-    } else {
-      // Optionally, could check if status/sprint was updated, but for now only track adds
     }
   }
 
-  // --- Process items in batches ---
-  await processInBatches(itemsToProcess, 5, 1000, async (item) => {
-    if (item.type === 'issue' || item.type === 'pr') {
-      await addOrUpdateProjectItemWithSummary(item);
-    }
+  // Remove duplicates
+  const newItems = dedupeItems(itemsToProcess);
+
+  // 4. Add or update all items in project in batches
+  await processInBatches(newItems, 25, 1000, async item => {
+    await addOrUpdateProjectItem(item);
   });
 
   // Log diagnostics
   logDiagnostics(diagnostics);
 
-  // Print summary
-  console.log('\n--- Project Sync Summary ---');
-  if (summary.processed.length) {
-    console.log('Processed:');
-    for (const s of summary.processed) {
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}`);
-    }
-  }
-  if (summary.changed.length) {
-    console.log('\nChanged:');
-    for (const s of summary.changed) {
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}`);
-    }
-  } else {
-    console.log('\nNo items were changed.');
-  }
+  // Summary
+  console.log(`Processed ${summary.processed.length} items, changed ${summary.changed.length}.`);
 })();
