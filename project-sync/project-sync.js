@@ -52,11 +52,11 @@ async function getCurrentSprintOptionId() {
     throw new Error('Sprint field not found in project configuration.');
   }
   const today = new Date();
-  // Find the iteration (sprint) whose startDate <= today < startDate+duration and not completed
+  // Find the iteration (sprint) whose startDate <= today < startDate+duration
   for (const iter of sprintField.configuration.iterations) {
     const start = new Date(iter.startDate);
     const end = new Date(start.getTime() + iter.duration * 24 * 60 * 60 * 1000);
-    if (today >= start && today < end && !iter.completed) {
+    if (today >= start && today < end) {
       return iter.id;
     }
   }
