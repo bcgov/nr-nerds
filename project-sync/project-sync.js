@@ -201,6 +201,30 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
   }
 }
 
+// --- DiagnosticsContext helper ---
+class DiagnosticsContext {
+  constructor() {
+    this.errors = [];
+    this.warnings = [];
+    this.infos = [];
+  }
+}
+
+function logDiagnostics(diagnostics) {
+  if (diagnostics.errors.length) {
+    console.error('Errors:');
+    diagnostics.errors.forEach(e => console.error(e));
+  }
+  if (diagnostics.warnings.length) {
+    console.warn('Warnings:');
+    diagnostics.warnings.forEach(w => console.warn(w));
+  }
+  if (diagnostics.infos.length) {
+    console.info('Info:');
+    diagnostics.infos.forEach(i => console.info(i));
+  }
+}
+
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
