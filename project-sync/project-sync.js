@@ -225,6 +225,17 @@ function logDiagnostics(diagnostics) {
   }
 }
 
+// --- Helper: Throttle async operations in batches ---
+async function processInBatches(items, batchSize, delayMs, fn) {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.allSettled(batch.map(fn));
+    if (i + batchSize < items.length) {
+      await new Promise(res => setTimeout(res, delayMs));
+    }
+  }
+}
+
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
@@ -253,67 +264,46 @@ function logDiagnostics(diagnostics) {
     page++;
   }
 
-  // 2. Add all open issues/PRs in managed repos to Active
-  for (const repo of managedRepos) {
-    // Issues
-    let endCursor = null;
+  // 2. For each managed repo, add/update all open PRs and issues
+  for (const repoFullName of managedRepos) {
+    let repoDiagnostics = new DiagnosticsContext();
+    // Fetch all open issues and PRs assigned to me
+    let issuesAndPrs = [];
+    let page = 1;
     while (true) {
-      const { data: issues, headers } = await octokit.issues.listForRepo({
-        owner: 'bcgov',
-        repo: repo.replace('bcgov/', ''),
+      const { data: items } = await octokit.issues.listForRepo({
+        owner: repoFullName.split('/')[0],
+        repo: repoFullName.split('/')[1],
+        filter: 'assigned',
         state: 'open',
         per_page: 100,
-        page: endCursor ? parseInt(endCursor) : 1
+        page
       });
-      for (const issue of issues) {
-        itemsToProcess.push({
-          nodeId: issue.node_id,
-          type: 'issue',
-          number: issue.number,
-          repoName: repo,
-          statusOption: STATUS_OPTIONS.active,
-          sprintField: null,
-          diagnostics
-        });
-      }
-      if (!headers.link) break;
-      const links = headers.link.split(',');
-      const nextLink = links.find(link => link.includes('rel="next"'));
-      endCursor = nextLink ? nextLink.split(';')[0].split('page=')[1] : null;
-      if (!endCursor) break;
+      if (!items.length) break;
+      issuesAndPrs = issuesAndPrs.concat(items);
+      page++;
     }
-    // PRs
-    endCursor = null;
-    while (true) {
-      const { data: prs, headers } = await octokit.pulls.list({
-        owner: 'bcgov',
-        repo: repo.replace('bcgov/', ''),
-        state: 'open',
-        per_page: 100,
-        page: endCursor ? parseInt(endCursor) : 1
+    // Add/update each issue/PR
+    for (const item of issuesAndPrs) {
+      const isPr = !!item.pull_request;
+      const type = isPr ? 'pr' : 'issue';
+      const number = isPr ? item.number : item.number;
+      const statusOption = isPr ? STATUS_OPTIONS.active : STATUS_OPTIONS.new;
+      itemsToProcess.push({
+        nodeId: item.node_id,
+        type,
+        number,
+        repoName: repoFullName,
+        statusOption,
+        sprintField: null,
+        diagnostics: repoDiagnostics
       });
-      for (const pr of prs) {
-        itemsToProcess.push({
-          nodeId: pr.node_id,
-          type: 'pr',
-          number: pr.number,
-          repoName: repo,
-          statusOption: STATUS_OPTIONS.active,
-          sprintField: null,
-          diagnostics
-        });
-      }
-      if (!headers.link) break;
-      const links = headers.link.split(',');
-      const nextLink = links.find(link => link.includes('rel="next"'));
-      endCursor = nextLink ? nextLink.split(';')[0].split('page=')[1] : null;
-      if (!endCursor) break;
     }
   }
 
-  // Deduplicate and process all items in parallel
+  // Deduplicate and process all items in batches to avoid rate limits
   const uniqueItems = dedupeItems(itemsToProcess);
-  await Promise.allSettled(uniqueItems.map(item => addOrUpdateProjectItem(item)));
+  await processInBatches(uniqueItems, 5, 2000, item => addOrUpdateProjectItem(item));
 
   // Log diagnostics at the end
   logDiagnostics(diagnostics);
