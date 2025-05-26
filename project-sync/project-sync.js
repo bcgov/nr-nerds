@@ -454,12 +454,13 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
         if (seenNodeIds.has(linked.id)) continue;
         if (linked.updatedAt && linked.updatedAt < twoDaysAgo) continue;
         seenNodeIds.add(linked.id);
+        // Always move linked issues to the same status as the PR
         itemsToProcess.push({
           nodeId: linked.id,
           type: 'issue',
           number: linked.number,
           repoName: linked.repository.nameWithOwner,
-          statusOption: STATUS_OPTIONS.active,
+          statusOption: STATUS_OPTIONS.active, // Always follow PR to Active
           sprintField: null,
           diagnostics
         });

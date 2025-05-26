@@ -38,6 +38,12 @@ _Last updated: 2025-05-25_
 - Closed issues/PRs should be moved to the appropriate column (e.g., "Done") and assigned to the current Sprint if moved to "Done" and not already assigned.
 - All other rules (deduplication, batching, logging, etc.) apply equally to closed items.
 
+### 2.8. Reopening Issues Moved to Active
+- If an issue is moved to the "Active" column and it is currently closed, the script must reopen the issue.
+- Do not change the column (it remains in "Active").
+- Assign the issue to the current Sprint if it is moved to "Active".
+- This applies to all rules that move issues to "Active" (including linked issues following PRs).
+
 ## 3. Managed Repositories
 - The following repositories are managed for the purposes of automation:
 
