@@ -175,6 +175,12 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
         }`, { projectId: PROJECT_ID, contentId: nodeId });
       projectItemId = addResult.addProjectV2ItemById.item.id;
     }
+    // Defensive: Check required variables before GraphQL mutation
+    if (!projectItemId || !statusOption) {
+      throw new Error(`Missing required variable: projectItemId='${projectItemId}', statusOption='${statusOption}' for ${type} #${number} in ${repoName}`);
+    }
+    // Log variables before mutation
+    console.log(`[DEBUG] Updating status for ${type} #${number} in ${repoName}: projectItemId=${projectItemId}, statusOption=${statusOption}`);
     // Set status
     await octokit.graphql(`
       mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
