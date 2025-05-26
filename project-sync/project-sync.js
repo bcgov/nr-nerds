@@ -179,7 +179,11 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     if (statusOption === STATUS_OPTIONS.active) {
       let sprintOptionId = sprintField;
       if (!sprintOptionId) {
-        sprintOptionId = await getCurrentSprintOptionId();
+        try {
+          sprintOptionId = await getCurrentSprintOptionId();
+        } catch (err) {
+          throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
+        }
       }
       if (sprintOptionId) {
         try {
@@ -189,7 +193,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
                 projectId: $projectId,
                 itemId: $itemId,
                 fieldId: $fieldId,
-                value: { singleSelectOptionId: $optionId }
+                value: { iterationId: $optionId }
               }) { projectV2Item { id } }
             }`, {
             projectId: PROJECT_ID,
@@ -198,10 +202,10 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
             optionId: sprintOptionId
           });
         } catch (err) {
-          diagnostics.warnings.push(`Warning: Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
+          throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
         }
       } else {
-        diagnostics.warnings.push(`Warning: No current Sprint option found for ${type} #${number} in ${repoName}`);
+        throw new Error(`No current Sprint option found for ${type} #${number} in ${repoName}`);
       }
     }
     // Always check for Sprint assignment if item is in Done
@@ -223,8 +227,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
                 }
               }
             }
-          }
-        }`, { projectId: PROJECT_ID, itemId: projectItemId });
+          }`, { projectId: PROJECT_ID, itemId: projectItemId });
       // Find the Sprint field value
       let sprintFieldValue = null;
       if (sprintFieldRes.node && sprintFieldRes.node.item && sprintFieldRes.node.item.fieldValues) {
@@ -234,7 +237,11 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       if (!alreadyHasSprint) {
         let sprintOptionId = sprintField;
         if (!sprintOptionId) {
-          sprintOptionId = await getCurrentSprintOptionId();
+          try {
+            sprintOptionId = await getCurrentSprintOptionId();
+          } catch (err) {
+            throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
+          }
         }
         if (sprintOptionId) {
           try {
@@ -244,7 +251,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
                   projectId: $projectId,
                   itemId: $itemId,
                   fieldId: $fieldId,
-                  value: { singleSelectOptionId: $optionId }
+                  value: { iterationId: $optionId }
                 }) { projectV2Item { id } }
               }`, {
               projectId: PROJECT_ID,
@@ -253,10 +260,10 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
               optionId: sprintOptionId
             });
           } catch (err) {
-            diagnostics.warnings.push(`Warning: Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
+            throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
           }
         } else {
-          diagnostics.warnings.push(`Warning: No current Sprint option found for ${type} #${number} in ${repoName} (Done)`);
+          throw new Error(`No current Sprint option found for ${type} #${number} in ${repoName} (Done)`);
         }
       }
     }
