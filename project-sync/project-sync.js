@@ -447,7 +447,6 @@ async function printProjectFieldsAndOptions() {
               }
               ... on ProjectV2IterationField {
                 configuration {
-                  __typename
                   ... on ProjectV2IterationFieldConfiguration {
                     iterations { id title startDate duration }
                   }
@@ -468,7 +467,7 @@ async function printProjectFieldsAndOptions() {
       }
     }
     if (field.configuration) {
-      console.log(`  configuration.__typename: ${field.configuration.__typename}`);
+      // Defensive: print configuration type if available
       if (field.configuration.iterations) {
         for (const iter of field.configuration.iterations) {
           console.log(`  Iteration: ${iter.title} (id: ${iter.id}, start: ${iter.startDate}, duration: ${iter.duration}d)`);
