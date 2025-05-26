@@ -49,21 +49,23 @@ async function getCurrentSprintOptionId() {
 function getManagedRepos() {
   // Read requirements.md and extract the Managed Repositories section
   const reqText = fs.readFileSync("project-sync/requirements.md", "utf8");
-  const match = reqText.match(/## 3. Managed Repositories[\s\S]*?- ([^\n]+)/g);
-  if (!match) return [];
-  // Find all lines that start with '  - '
   const lines = reqText.split("\n");
-  const startIdx = lines.findIndex(l => l.trim() === '## 3. Managed Repositories');
+  const startIdx = lines.findIndex(l => l.trim().startsWith('## 3. Managed Repositories'));
   if (startIdx === -1) return [];
   const repos = [];
+  let inList = false;
   for (let i = startIdx + 1; i < lines.length; i++) {
     const line = lines[i].trim();
+    if (line === '' || line.startsWith('(')) continue;
     if (line.startsWith('- ')) {
-      let repo = line.replace('- ', '').trim();
-      if (repo && !repo.startsWith('(')) repos.push(`bcgov/${repo}`);
-    } else if (line === '' || line.startsWith('(')) {
-      continue;
-    } else if (line.startsWith('## ')) {
+      // Only add if the line is a valid repo name (letters, numbers, dashes, underscores)
+      const repo = line.replace('- ', '').trim();
+      if (/^[a-zA-Z0-9._-]+$/.test(repo)) {
+        repos.push(`bcgov/${repo}`);
+      }
+      inList = true;
+    } else if (inList && !line.startsWith('- ')) {
+      // Stop if we've left the list
       break;
     }
   }
@@ -398,43 +400,49 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
     page++;
   }
 
-  // 3. For managed repos, any new issue is added to "New" (updated in last 2 days)
-  for (const repoFullName of managedRepos) {
-    const [owner, repo] = repoFullName.split('/');
-    let hasNextPage = true;
-    let endCursor = null;
-    while (hasNextPage) {
-      const res = await octokit.graphql(`
-        query($owner: String!, $repo: String!, $after: String) {
-          repository(owner: $owner, name: $repo) {
-            issues(first: 50, states: OPEN, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
-              nodes { id number updatedAt }
-              pageInfo { hasNextPage endCursor }
-            }
-          }
-        }
-      `, { owner, repo, after: endCursor });
-      const issues = res.repository.issues.nodes;
-      for (const issue of issues) {
-        if (seenNodeIds.has(issue.id)) continue;
-        if (issue.updatedAt < twoDaysAgo) continue;
-        seenNodeIds.add(issue.id);
-        itemsToProcess.push({
-          nodeId: issue.id,
-          type: 'issue',
-          number: issue.number,
-          repoName: repoFullName,
-          statusOption: STATUS_OPTIONS.new,
-          sprintField: null,
-          diagnostics
-        });
-      }
-      hasNextPage = res.repository.issues.pageInfo.hasNextPage;
-      endCursor = res.repository.issues.pageInfo.endCursor;
+  // 3. Any issue or PR in managed repos with no project assignment goes to "New"
+  for (const repo of managedRepos) {
+    // Issues
+    const { issues } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.new,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    // PRs
+    const { prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.new,
+        sprintField: null,
+        diagnostics
+      });
     }
   }
 
-  // Deduplicate and process all items in batches to avoid rate limits
-  await processInBatches(itemsToProcess, 5, 2000, item => addOrUpdateProjectItem(item));
+  // --- Process items in batches ---
+  await processInBatches(itemsToProcess, 5, 1000, async (item) => {
+    if (item.type === 'issue') {
+      await addOrUpdateProjectItem({ ...item, statusOption: STATUS_OPTIONS.new });
+    } else if (item.type === 'pr') {
+      await addOrUpdateProjectItem({ ...item, statusOption: STATUS_OPTIONS.active });
+    }
+  });
+
+  // Log diagnostics
   logDiagnostics(diagnostics);
 })();
