@@ -304,6 +304,10 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   const managedRepos = getManagedRepos();
   const itemsToProcess = [];
   const seenNodeIds = new Set();
+  const summary = {
+    processed: [], // {type, number, repoName, action}
+    changed: []    // {type, number, repoName, action}
+  };
 
   // Calculate date string for two days ago (YYYY-MM-DD)
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -431,15 +435,82 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
     }
   }
 
+  // Wrap addOrUpdateProjectItem to track summary
+  async function addOrUpdateProjectItemWithSummary(item) {
+    summary.processed.push({
+      type: item.type,
+      number: item.number,
+      repoName: item.repoName,
+      action: `Checked for project sync`
+    });
+    // Try to detect if a change was made (e.g., not already in project, or status/sprint updated)
+    let changed = false;
+    let projectItemId = null;
+    let endCursor = null;
+    let found = false;
+    do {
+      const res = await octokit.graphql(`
+        query($projectId:ID!, $after:String) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: 100, after: $after) {
+                nodes { id content { ... on PullRequest { id } ... on Issue { id } } }
+                pageInfo { hasNextPage endCursor }
+              }
+            }
+          }
+        }
+      `, { projectId: PROJECT_ID, after: endCursor });
+      const items = res.node.items.nodes;
+      const match = items.find(i => i.content && i.content.id === item.nodeId);
+      if (match) {
+        projectItemId = match.id;
+        found = true;
+        break;
+      }
+      endCursor = res.node.items.pageInfo.endCursor;
+    } while (endCursor);
+    if (!found) {
+      changed = true;
+    }
+    // Call the real function
+    await addOrUpdateProjectItem(item);
+    if (changed) {
+      summary.changed.push({
+        type: item.type,
+        number: item.number,
+        repoName: item.repoName,
+        action: 'Added to project and set status/sprint'
+      });
+    } else {
+      // Optionally, could check if status/sprint was updated, but for now only track adds
+    }
+  }
+
   // --- Process items in batches ---
   await processInBatches(itemsToProcess, 5, 1000, async (item) => {
-    if (item.type === 'issue') {
-      await addOrUpdateProjectItem({ ...item, statusOption: STATUS_OPTIONS.new });
-    } else if (item.type === 'pr') {
-      await addOrUpdateProjectItem({ ...item, statusOption: STATUS_OPTIONS.active });
+    if (item.type === 'issue' || item.type === 'pr') {
+      await addOrUpdateProjectItemWithSummary(item);
     }
   });
 
   // Log diagnostics
   logDiagnostics(diagnostics);
+
+  // Print summary
+  console.log('\n--- Project Sync Summary ---');
+  if (summary.processed.length) {
+    console.log('Processed:');
+    for (const s of summary.processed) {
+      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}`);
+    }
+  }
+  if (summary.changed.length) {
+    console.log('\nChanged:');
+    for (const s of summary.changed) {
+      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}`);
+    }
+  } else {
+    console.log('\nNo items were changed.');
+  }
 })();
