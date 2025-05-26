@@ -236,23 +236,62 @@ async function processInBatches(items, batchSize, delayMs, fn) {
   }
 }
 
+// --- Helper: Fetch all open issues and PRs for a repo using GraphQL ---
+async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
+  let issues = [];
+  let prs = [];
+  let hasNextPage = true;
+  let endCursor = null;
+  while (hasNextPage) {
+    const res = await octokit.graphql(`
+      query($owner: String!, $repo: String!, $after: String) {
+        repository(owner: $owner, name: $repo) {
+          issues(first: 50, states: OPEN, after: $after) {
+            nodes {
+              id
+              number
+              title
+              assignees(first: 10) { nodes { login } }
+              author { login }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+          pullRequests(first: 50, states: OPEN, after: $after) {
+            nodes {
+              id
+              number
+              title
+              assignees(first: 10) { nodes { login } }
+              author { login }
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    `, { owner, repo, after: endCursor });
+    const repoData = res.repository;
+    issues = issues.concat(repoData.issues.nodes);
+    prs = prs.concat(repoData.pullRequests.nodes);
+    hasNextPage = repoData.issues.pageInfo.hasNextPage || repoData.pullRequests.pageInfo.hasNextPage;
+    endCursor = repoData.issues.pageInfo.endCursor || repoData.pullRequests.pageInfo.endCursor;
+  }
+  return { issues, prs };
+}
+
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
   const managedRepos = getManagedRepos();
   const itemsToProcess = [];
 
-  // 1. Add all issues assigned to me in any bcgov repo to New
-  let page = 1;
-  while (true) {
-    const { data: issues } = await octokit.issues.listForAuthenticatedUser({ filter: 'assigned', state: 'open', per_page: 50, page });
-    if (!issues.length) break;
+  // 1. Add all issues assigned to me in any bcgov repo to New (GraphQL)
+  for (const repoFullName of managedRepos) {
+    const [owner, repo] = repoFullName.split('/');
+    const { issues } = await fetchOpenIssuesAndPRsGraphQL(owner, repo);
     for (const issue of issues) {
-      if (issue.pull_request) continue;
-      const repoFullName = getRepoFullName(issue);
-      if (!repoFullName.startsWith('bcgov/')) continue;
+      if (!issue.assignees.nodes.some(a => a.login === GITHUB_AUTHOR)) continue;
       itemsToProcess.push({
-        nodeId: issue.node_id,
+        nodeId: issue.id,
         type: 'issue',
         number: issue.number,
         repoName: repoFullName,
@@ -261,42 +300,34 @@ async function processInBatches(items, batchSize, delayMs, fn) {
         diagnostics
       });
     }
-    page++;
   }
 
-  // 2. For each managed repo, add/update all open PRs and issues
+  // 2. For each managed repo, add/update all open PRs and issues (GraphQL)
   for (const repoFullName of managedRepos) {
-    let repoDiagnostics = new DiagnosticsContext();
-    // Fetch all open issues and PRs assigned to me
-    let issuesAndPrs = [];
-    let page = 1;
-    while (true) {
-      const { data: items } = await octokit.issues.listForRepo({
-        owner: repoFullName.split('/')[0],
-        repo: repoFullName.split('/')[1],
-        filter: 'assigned',
-        state: 'open',
-        per_page: 100,
-        page
-      });
-      if (!items.length) break;
-      issuesAndPrs = issuesAndPrs.concat(items);
-      page++;
-    }
-    // Add/update each issue/PR
-    for (const item of issuesAndPrs) {
-      const isPr = !!item.pull_request;
-      const type = isPr ? 'pr' : 'issue';
-      const number = isPr ? item.number : item.number;
-      const statusOption = isPr ? STATUS_OPTIONS.active : STATUS_OPTIONS.new;
+    const [owner, repo] = repoFullName.split('/');
+    const { issues, prs } = await fetchOpenIssuesAndPRsGraphQL(owner, repo);
+    // Add all open issues
+    for (const issue of issues) {
       itemsToProcess.push({
-        nodeId: item.node_id,
-        type,
-        number,
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
         repoName: repoFullName,
-        statusOption,
+        statusOption: STATUS_OPTIONS.active,
         sprintField: null,
-        diagnostics: repoDiagnostics
+        diagnostics
+      });
+    }
+    // Add all open PRs
+    for (const pr of prs) {
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repoFullName,
+        statusOption: STATUS_OPTIONS.active,
+        sprintField: null,
+        diagnostics
       });
     }
   }
