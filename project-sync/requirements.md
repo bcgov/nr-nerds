@@ -42,6 +42,8 @@ All code changes must follow the requirements in this file.
 - quickstart-openshift-backends
 - quickstart-openshift-helpers
 
+_All repositories listed above are under the `bcgov` GitHub organization unless otherwise specified._
+
 ## Technical Details
 - The sync automation runs every 30 minutes via a scheduled GitHub Actions workflow.
 - Project column and field IDs are set in the script configuration. This is expected to become dynamic in the future.
