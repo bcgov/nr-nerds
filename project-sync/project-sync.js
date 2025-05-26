@@ -17,6 +17,36 @@ const STATUS_OPTIONS = {
   done: '46321e20'      // optionId for 'Done' column
 };
 
+// Sprint field configuration
+const SPRINT_FIELD_ID = 'PVTSSF_lADOAA37OM4AFuzgzgDTYuB'; // Replace with your actual Sprint fieldId
+
+// Helper: Get current sprint optionId
+async function getCurrentSprintOptionId() {
+  // Fetch project fields and options
+  const res = await octokit.graphql(`
+    query($projectId:ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 20) {
+            nodes {
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, { projectId: PROJECT_ID });
+  const sprintField = res.node.fields.nodes.find(f => f.id === SPRINT_FIELD_ID);
+  if (!sprintField) return null;
+  // Find the option with 'current' or similar in the name (customize as needed)
+  const current = sprintField.options.find(opt => /current/i.test(opt.name));
+  return current ? current.id : null;
+}
+
 // --- Helper: Get managed repos from repos.yml ---
 function getManagedRepos() {
   return repos.map(r => (typeof r === 'string' ? `bcgov/${r}` : (r.name && r.name.includes('/') ? r.name : `bcgov/${r.name}`)));
@@ -39,7 +69,7 @@ function dedupeItems(items) {
 }
 
 // --- Add or update item in project ---
-async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, diagnostics }) {
+async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics }) {
   try {
     // Find or add item to project
     let projectItemId = null;
@@ -93,6 +123,30 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status fieldId
       optionId: statusOption
     });
+    // If moving to Active or Done, assign to current Sprint
+    if (statusOption === STATUS_OPTIONS.active || statusOption === STATUS_OPTIONS.done) {
+      let sprintOptionId = sprintField;
+      if (!sprintOptionId) {
+        sprintOptionId = await getCurrentSprintOptionId();
+      }
+      if (sprintOptionId) {
+        await octokit.graphql(`
+          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+            updateProjectV2ItemFieldValue(input: {
+              projectId: $projectId,
+              itemId: $itemId,
+              fieldId: $fieldId,
+              value: { singleSelectOptionId: $optionId }
+            }) { projectV2Item { id } }
+          }
+        `, {
+          projectId: PROJECT_ID,
+          itemId: projectItemId,
+          fieldId: SPRINT_FIELD_ID,
+          optionId: sprintOptionId
+        });
+      }
+    }
   } catch (err) {
     diagnostics.errors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
   }
@@ -126,66 +180,41 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
     page++;
   }
 
-  // 2. Add all PRs authored by me in any bcgov repo to Active, and handle linked issues
+  // 2. Add all open PRs in managed repos to Active
   page = 1;
   while (true) {
-    const prsResult = await octokit.search.issuesAndPullRequests({
-      q: `is:pr is:open user:bcgov author:${GITHUB_AUTHOR}`,
-      per_page: 50,
-      page
-    });
-    if (!prsResult.data.items.length) break;
-    for (const pr of prsResult.data.items) {
+    const { data: prs } = await octokit.pulls.list({ state: 'open', per_page: 50, page });
+    if (!prs.length) break;
+    for (const pr of prs) {
       const repoFullName = getRepoFullName(pr);
+      if (!managedRepos.includes(repoFullName)) continue;
       itemsToProcess.push({
         nodeId: pr.node_id,
-        type: 'PR',
+        type: 'pr',
         number: pr.number,
         repoName: repoFullName,
         statusOption: STATUS_OPTIONS.active,
         sprintField: null,
         diagnostics
       });
-      // Linked issues: fetch timeline for cross-referenced issues
-      const [owner, repo] = repoFullName.split('/');
-      const { data: timeline } = await octokit.request('GET /repos/{owner}/{repo}/issues/{issue_number}/timeline', {
-        owner,
-        repo,
-        issue_number: pr.number,
-        mediaType: { previews: ['mockingbird'] }
-      });
-      const linkedIssues = timeline.filter(event =>
-        event.event === 'cross-referenced' &&
-        event.source &&
-        event.source.issue &&
-        event.source.issue.pull_request === undefined &&
-        !event.source.comment &&
-        event.source.issue.repository &&
-        event.source.issue.repository.full_name === repoFullName
-      );
-      for (const event of linkedIssues) {
-        const issueNum = event.source.issue.number;
-        const issueDetails = await octokit.issues.get({ owner, repo, issue_number: issueNum });
-        itemsToProcess.push({
-          nodeId: issueDetails.data.node_id,
-          type: 'issue',
-          number: issueNum,
-          repoName: repoFullName,
-          statusOption: STATUS_OPTIONS.active,
-          sprintField: null,
-          diagnostics
-        });
-      }
     }
     page++;
   }
 
-  // 3. For managed repos, add any new issues to New
+  // 3. Add all issues/PRs in managed repos with 'In Progress' or similar to Active
+  const inProgressKeywords = ['in progress', 'doing', 'wip'];
   for (const repoFullName of managedRepos) {
-    const [owner, repo] = repoFullName.split('/');
-    let page = 1;
+    let endCursor = null;
     while (true) {
-      const { data: issues } = await octokit.issues.listForRepo({ owner, repo, state: 'open', per_page: 50, page });
+      const { data: issues } = await octokit.issues.listForRepo({
+        owner: 'bcgov',
+        repo: repoFullName.split('/')[1],
+        state: 'all',
+        labels: 'in progress',
+        per_page: 100,
+        page: 1,
+        after: endCursor
+      });
       if (!issues.length) break;
       for (const issue of issues) {
         if (issue.pull_request) continue;
@@ -194,12 +223,13 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
           type: 'issue',
           number: issue.number,
           repoName: repoFullName,
-          statusOption: STATUS_OPTIONS.new,
+          statusOption: STATUS_OPTIONS.active,
           sprintField: null,
           diagnostics
         });
       }
-      page++;
+      endCursor = issues.length < 100 ? null : issues[issues.length - 1].cursor;
+      if (!endCursor) break;
     }
   }
 
@@ -210,4 +240,3 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
   // Log diagnostics at the end
   logDiagnostics(diagnostics);
 })();
-//# sourceMappingURL=index.js.map
