@@ -28,13 +28,12 @@ All code changes must follow the requirements in this file.
 - **Any issue linked to a PR**:
   - New link: inherit the sprint and column from its PR.
   - PR merged: inherit the sprint and column from its PR.
-  - PR closed: do not change the issue's column or Sprint.
+  - PR closed: do not change the issue's column or sprint.
 
 ## Monitored Repository Rules
 - For repositories listed below:
   - **Any new issue not in the project** is added to the **"New"** column.
   - **Any issue already in the project** is unaffected.
-  - Sprint is unaffected.
 
 ## Monitored Repositories
 - nr-nerds
