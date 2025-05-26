@@ -143,7 +143,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status fieldId
       optionId: statusOption
     });
-    // If moving to Active, always assign to current Sprint
+    // Only assign to Sprint if moving to Active or Done
     if (statusOption === STATUS_OPTIONS.active) {
       let sprintOptionId = sprintField;
       if (!sprintOptionId) {
@@ -167,7 +167,6 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
         });
       }
     }
-    // If moving to Done, only assign to current Sprint if not already set
     if (statusOption === STATUS_OPTIONS.done) {
       // Fetch current Sprint field value for this item
       const sprintFieldRes = await octokit.graphql(`
