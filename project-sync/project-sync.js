@@ -37,7 +37,6 @@ async function getCurrentSprintOptionId() {
                     title
                     startDate
                     duration
-                    completed
                   }
                 }
               }
