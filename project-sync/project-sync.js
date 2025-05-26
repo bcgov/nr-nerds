@@ -170,53 +170,7 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
         sprintOptionId = await getCurrentSprintOptionId();
       }
       if (sprintOptionId) {
-        await octokit.graphql(`
-          mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-            updateProjectV2ItemFieldValue(input: {
-              projectId: $projectId,
-              itemId: $itemId,
-              fieldId: $fieldId,
-              value: { singleSelectOptionId: $optionId }
-            }) { projectV2Item { id } }
-          }
-        `, {
-          projectId: PROJECT_ID,
-          itemId: projectItemId,
-          fieldId: SPRINT_FIELD_ID,
-          optionId: sprintOptionId
-        });
-      }
-    }
-    if (statusOption === STATUS_OPTIONS.done) {
-      // Fetch current Sprint field value for this item
-      const sprintFieldRes = await octokit.graphql(`
-        query($projectId:ID!, $itemId:ID!) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              item(id: $itemId) {
-                fieldValues(first: 20) {
-                  nodes {
-                    ... on ProjectV2ItemFieldSingleSelectValue {
-                      field {
-                        ... on ProjectV2SingleSelectField { id }
-                      }
-                      optionId
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      `, { projectId: PROJECT_ID, itemId: projectItemId });
-      const sprintFieldValue = sprintFieldRes.node.items ? null : (sprintFieldRes.node.item.fieldValues.nodes.find(fv => fv.field && fv.field.id === SPRINT_FIELD_ID) || null);
-      const alreadyHasSprint = sprintFieldValue && sprintFieldValue.optionId;
-      if (!alreadyHasSprint) {
-        let sprintOptionId = sprintField;
-        if (!sprintOptionId) {
-          sprintOptionId = await getCurrentSprintOptionId();
-        }
-        if (sprintOptionId) {
+        try {
           await octokit.graphql(`
             mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
               updateProjectV2ItemFieldValue(input: {
@@ -232,6 +186,69 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
             fieldId: SPRINT_FIELD_ID,
             optionId: sprintOptionId
           });
+        } catch (err) {
+          diagnostics.warnings.push(`Warning: Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
+        }
+      } else {
+        diagnostics.warnings.push(`Warning: No current Sprint option found for ${type} #${number} in ${repoName}`);
+      }
+    }
+    // Always check for Sprint assignment if item is in Done
+    if (statusOption === STATUS_OPTIONS.done) {
+      // Always check for Sprint field value for this item (issue or PR)
+      const sprintFieldRes = await octokit.graphql(`
+        query($projectId:ID!, $itemId:ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              item(id: $itemId) {
+                fieldValues(first: 50) {
+                  nodes {
+                    ... on ProjectV2ItemFieldSingleSelectValue {
+                      field {
+                        ... on ProjectV2SingleSelectField { id }
+                      }
+                      optionId
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      `, { projectId: PROJECT_ID, itemId: projectItemId });
+      // Find the Sprint field value
+      let sprintFieldValue = null;
+      if (sprintFieldRes.node && sprintFieldRes.node.item && sprintFieldRes.node.item.fieldValues) {
+        sprintFieldValue = sprintFieldRes.node.item.fieldValues.nodes.find(fv => fv.field && fv.field.id === SPRINT_FIELD_ID) || null;
+      }
+      const alreadyHasSprint = sprintFieldValue && sprintFieldValue.optionId;
+      if (!alreadyHasSprint) {
+        let sprintOptionId = sprintField;
+        if (!sprintOptionId) {
+          sprintOptionId = await getCurrentSprintOptionId();
+        }
+        if (sprintOptionId) {
+          try {
+            await octokit.graphql(`
+              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId,
+                  itemId: $itemId,
+                  fieldId: $fieldId,
+                  value: { singleSelectOptionId: $optionId }
+                }) { projectV2Item { id } }
+              }
+            `, {
+              projectId: PROJECT_ID,
+              itemId: projectItemId,
+              fieldId: SPRINT_FIELD_ID,
+              optionId: sprintOptionId
+            });
+          } catch (err) {
+            diagnostics.warnings.push(`Warning: Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
+          }
+        } else {
+          diagnostics.warnings.push(`Warning: No current Sprint option found for ${type} #${number} in ${repoName} (Done)`);
         }
       }
     }
@@ -504,7 +521,6 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
               repository { nameWithOwner }
               author { login }
               closingIssuesReferences(first: 10) { nodes { id number repository { nameWithOwner updatedAt } } }
-              updatedAt
             }
           }
           pageInfo { hasNextPage endCursor }
@@ -513,9 +529,16 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
     const prs = res.search.nodes;
     for (const pr of prs) {
-      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) continue;
-      if (seenNodeIds.has(pr.id)) continue;
+      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) {
+        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Not a bcgov repo');
+        continue;
+      }
+      if (seenNodeIds.has(pr.id)) {
+        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Already processed');
+        continue;
+      }
       seenNodeIds.add(pr.id);
+      logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'to be added/updated', 'Authored by user');
       itemsToProcess.push({
         nodeId: pr.id,
         type: 'pr',
@@ -525,124 +548,74 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
         sprintField: null,
         diagnostics
       });
-      // Linked issues (only if updated in last 2 days)
-      for (const linked of pr.closingIssuesReferences.nodes) {
-        if (seenNodeIds.has(linked.id)) continue;
-        if (linked.updatedAt && linked.updatedAt < twoDaysAgo) continue;
-        seenNodeIds.add(linked.id);
-        // Always move linked issues to the same status as the PR
-        // If the issue is closed, reopen it, assign to Active, and assign to current Sprint
-        itemsToProcess.push({
-          nodeId: linked.id,
-          type: 'issue',
-          number: linked.number,
-          repoName: linked.repository.nameWithOwner,
-          statusOption: STATUS_OPTIONS.active, // Always follow PR to Active
-          sprintField: null,
-          diagnostics,
-          reopenIfClosed: true // custom flag for reopening
-        });
+      // Linked issues (closingIssuesReferences) go to Active if updated in last 2 days
+      if (pr.closingIssuesReferences && pr.closingIssuesReferences.nodes) {
+        for (const linkedIssue of pr.closingIssuesReferences.nodes) {
+          if (!linkedIssue.repository.nameWithOwner.startsWith('bcgov/')) continue;
+          if (seenNodeIds.has(linkedIssue.id)) continue;
+          if (linkedIssue.updatedAt && linkedIssue.updatedAt >= twoDaysAgo) {
+            seenNodeIds.add(linkedIssue.id);
+            logProcessed({type: 'issue', number: linkedIssue.number, repoName: linkedIssue.repository.nameWithOwner}, 'to be added/updated', 'Linked to PR authored by user');
+            itemsToProcess.push({
+              nodeId: linkedIssue.id,
+              type: 'issue',
+              number: linkedIssue.number,
+              repoName: linkedIssue.repository.nameWithOwner,
+              statusOption: STATUS_OPTIONS.active,
+              sprintField: null,
+              diagnostics,
+              reopenIfClosed: true
+            });
+          }
+        }
       }
     }
     if (!res.search.pageInfo.hasNextPage) break;
     page++;
   }
 
-  // 3. Any issue or PR in managed repos with no project assignment and updated in last 2 days goes to "New"
-  // Get all project item node IDs (already in any column)
-  let endCursor = null;
-  do {
-    const res = await octokit.graphql(`
-      query($projectId:ID!, $after:String) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            items(first: 100, after: $after) {
-              nodes { content { ... on Issue { id } ... on PullRequest { id } } }
-              pageInfo { hasNextPage endCursor }
-            }
-          }
-        }
-      }
-    `, { projectId: PROJECT_ID, after: endCursor });
-    for (const item of res.node.items.nodes) {
-      if (item.content && item.content.id) projectItemNodeIds.add(item.content.id);
-    }
-    endCursor = res.node.items.pageInfo.endCursor;
-  } while (endCursor);
-
-  for (const repo of managedRepos) {
-    // Issues & PRs (open and closed, updated in last 2 days)
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repo, twoDaysAgo);
+  // 3. Any issue or PR in my repos that is not in the project goes to "New" (updated in last 2 days)
+  const myRepos = managedRepos.filter(repo => repo.startsWith('bcgov/'));
+  await processInBatches(myRepos, 5, 2000, async repoName => {
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repoName, twoDaysAgo);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
-      if (projectItemNodeIds.has(issue.id)) continue; // Only add if not already in project (any column)
-      if (!issue.updatedAt || issue.updatedAt < twoDaysAgo) continue; // Only if updated in last 2 days
       seenNodeIds.add(issue.id);
-      // If closed, move to Done, else New
-      const statusOption = issue.state === 'CLOSED' ? STATUS_OPTIONS.done : STATUS_OPTIONS.new;
+      logProcessed({type: 'issue', number: issue.number, repoName}, 'to be added/updated', 'Not in project');
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName: `bcgov/${repo}`,
-        statusOption,
+        repoName,
+        statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
       });
     }
     for (const pr of prs) {
       if (seenNodeIds.has(pr.id)) continue;
-      if (projectItemNodeIds.has(pr.id)) continue; // Only add if not already in project (any column)
-      if (!pr.updatedAt || pr.updatedAt < twoDaysAgo) continue; // Only if updated in last 2 days
       seenNodeIds.add(pr.id);
-      // If closed, move to Done, else New
-      const statusOption = pr.state === 'CLOSED' ? STATUS_OPTIONS.done : STATUS_OPTIONS.new;
+      logProcessed({type: 'pr', number: pr.number, repoName}, 'to be added/updated', 'Not in project');
       itemsToProcess.push({
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
-        repoName: `bcgov/${repo}`,
-        statusOption,
+        repoName,
+        statusOption: STATUS_OPTIONS.active,
         sprintField: null,
         diagnostics
       });
     }
-  }
+  });
 
-  // --- Process items in batches ---
-  await processInBatches(itemsToProcess, 5, 1000, async (item) => {
-    if (item.type === 'issue' || item.type === 'pr') {
-      await addOrUpdateProjectItemWithSummary(item);
-    }
+  // 4. Add or update all items in project
+  await processInBatches(itemsToProcess, 5, 2000, async item => {
+    await addOrUpdateProjectItemWithSummary(item);
   });
 
   // Log diagnostics
   logDiagnostics(diagnostics);
 
-  // Print summary
-  console.log('\n--- Project Sync Summary ---');
-  function makeGithubUrl(type, repoName, number) {
-    if (type === 'issue') return `https://github.com/${repoName}/issues/${number}`;
-    if (type === 'pr') return `https://github.com/${repoName}/pull/${number}`;
-    return '';
-  }
-  if (summary.processed.length) {
-    console.log('Processed:');
-    for (const s of summary.processed) {
-      const url = makeGithubUrl(s.type, s.repoName, s.number);
-      // Print as: - [issue] #67 in bcgov/nr-nerds: ... (URL: https://...)
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}${s.reason ? ' (' + s.reason + ')' : ''} - ${url}`);
-    }
-  } else {
-    console.log('Processed 0 items.');
-  }
-  if (summary.changed.length) {
-    console.log('\nChanged:');
-    for (const s of summary.changed) {
-      const url = makeGithubUrl(s.type, s.repoName, s.number);
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action} - ${url}`);
-    }
-  } else {
-    console.log('\nChanged 0 items.');
-  }
+  // Output summary
+  console.log(JSON.stringify(summary, null, 2));
 })();
