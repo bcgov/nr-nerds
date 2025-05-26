@@ -33,6 +33,11 @@ _Last updated: 2025-05-25_
 ### 2.6. Rate Limiting
 - Project item updates should be processed in batches (default: 5 at a time, 2s delay between batches) to avoid GitHub secondary rate limits.
 
+### 2.7. Closed Items
+- Any issue or PR (including those that are closed or merged) that was updated in the last two days should be processed according to the same rules as open items.
+- Closed issues/PRs should be moved to the appropriate column (e.g., "Done") and assigned to the current Sprint if moved to "Done" and not already assigned.
+- All other rules (deduplication, batching, logging, etc.) apply equally to closed items.
+
 ## 3. Managed Repositories
 - The following repositories are managed for the purposes of automation:
 

@@ -297,6 +297,53 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   return { issues, prs };
 }
 
+// --- Helper: Fetch all issues and PRs (open and closed) for a repo using GraphQL ---
+async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
+  let issues = [];
+  let prs = [];
+  let hasNextPage = true;
+  let endCursor = null;
+  while (hasNextPage) {
+    const res = await octokit.graphql(`
+      query($owner: String!, $repo: String!, $after: String) {
+        repository(owner: $owner, name: $repo) {
+          issues(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+            nodes {
+              id
+              number
+              title
+              assignees(first: 10) { nodes { login } }
+              author { login }
+              state
+              updatedAt
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+          pullRequests(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+            nodes {
+              id
+              number
+              title
+              assignees(first: 10) { nodes { login } }
+              author { login }
+              state
+              updatedAt
+            }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+      }
+    `, { owner, repo, after: endCursor });
+    const repoData = res.repository;
+    // Only include issues/PRs updated in the last two days
+    issues = issues.concat(repoData.issues.nodes.filter(i => i.updatedAt && i.updatedAt >= sinceIso));
+    prs = prs.concat(repoData.pullRequests.nodes.filter(pr => pr.updatedAt && pr.updatedAt >= sinceIso));
+    hasNextPage = repoData.issues.pageInfo.hasNextPage || repoData.pullRequests.pageInfo.hasNextPage;
+    endCursor = repoData.issues.pageInfo.endCursor || repoData.pullRequests.pageInfo.endCursor;
+  }
+  return { issues, prs };
+}
+
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
@@ -445,36 +492,38 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   } while (endCursor);
 
   for (const repo of managedRepos) {
-    // Issues
-    const { issues } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
+    // Issues & PRs (open and closed, updated in last 2 days)
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repo, twoDaysAgo);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
       if (projectItemNodeIds.has(issue.id)) continue; // Only add if not already in project (any column)
       if (!issue.updatedAt || issue.updatedAt < twoDaysAgo) continue; // Only if updated in last 2 days
       seenNodeIds.add(issue.id);
+      // If closed, move to Done, else New
+      const statusOption = issue.state === 'CLOSED' ? STATUS_OPTIONS.done : STATUS_OPTIONS.new;
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
         repoName: `bcgov/${repo}`,
-        statusOption: STATUS_OPTIONS.new,
+        statusOption,
         sprintField: null,
         diagnostics
       });
     }
-    // PRs
-    const { prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
     for (const pr of prs) {
       if (seenNodeIds.has(pr.id)) continue;
       if (projectItemNodeIds.has(pr.id)) continue; // Only add if not already in project (any column)
       if (!pr.updatedAt || pr.updatedAt < twoDaysAgo) continue; // Only if updated in last 2 days
       seenNodeIds.add(pr.id);
+      // If closed, move to Done, else New
+      const statusOption = pr.state === 'CLOSED' ? STATUS_OPTIONS.done : STATUS_OPTIONS.new;
       itemsToProcess.push({
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
         repoName: `bcgov/${repo}`,
-        statusOption: STATUS_OPTIONS.new,
+        statusOption,
         sprintField: null,
         diagnostics
       });
