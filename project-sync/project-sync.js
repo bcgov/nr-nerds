@@ -447,6 +447,7 @@ async function printProjectFieldsAndOptions() {
               }
               ... on ProjectV2IterationField {
                 configuration {
+                  __typename
                   ... on ProjectV2IterationFieldConfiguration {
                     iterations { id title startDate duration }
                   }
@@ -466,13 +467,16 @@ async function printProjectFieldsAndOptions() {
         console.log(`  Option: ${opt.name} (id: ${opt.id})`);
       }
     }
-    if (field.configuration && field.configuration.iterations) {
-      for (const iter of field.configuration.iterations) {
-        console.log(`  Iteration: ${iter.title} (id: ${iter.id}, start: ${iter.startDate}, duration: ${iter.duration}d)`);
+    if (field.configuration) {
+      console.log(`  configuration.__typename: ${field.configuration.__typename}`);
+      if (field.configuration.iterations) {
+        for (const iter of field.configuration.iterations) {
+          console.log(`  Iteration: ${iter.title} (id: ${iter.id}, start: ${iter.startDate}, duration: ${iter.duration}d)`);
+        }
+      } else {
+        // Defensive: print raw configuration if not as expected
+        console.log('  [DEBUG] configuration:', JSON.stringify(field.configuration));
       }
-    } else if (field.configuration) {
-      // Defensive: print raw configuration if not as expected
-      console.log('  [DEBUG] configuration:', JSON.stringify(field.configuration));
     }
   }
   console.log('--- End Project Fields ---');
