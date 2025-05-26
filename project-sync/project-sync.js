@@ -439,18 +439,26 @@ async function printProjectFieldsAndOptions() {
         ... on ProjectV2 {
           fields(first: 50) {
             nodes {
-              __typename
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration {
+                  iterations {
+                    id
+                    title
+                    startDate
+                    duration
+                  }
+                }
+              }
+              ... on ProjectV2SingleSelectField {
+                id
+                name
+                options { id name }
+              }
               ... on ProjectV2FieldCommon {
                 id
                 name
-              }
-              ... on ProjectV2SingleSelectField {
-                options { id name }
-              }
-              ... on ProjectV2IterationField {
-                configuration {
-                  iterations { id title startDate duration }
-                }
               }
             }
           }
