@@ -68,20 +68,20 @@ async function getCurrentSprintOptionId() {
 
 // --- Helper: Get issue-import repos from requirements.md ---
 function getIssueImportRepos() {
-  // Read requirements.md and extract the Issue-Import Repositories section
+  // Read requirements.md and extract the Monitored Repositories section
   const reqText = fs.readFileSync("project-sync/requirements.md", "utf8");
   const lines = reqText.split("\n");
-  const startIdx = lines.findIndex(l => l.trim().startsWith('### Issue-Import Repositories'));
+  const startIdx = lines.findIndex(l => l.trim().startsWith('## Monitored Repositories'));
   if (startIdx === -1) return [];
   const repos = [];
   for (let i = startIdx + 1; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (line === '' || line.startsWith('(')) continue;
+    if (line === '' || line.startsWith('(') || line.startsWith('_')) continue;
     if (line.startsWith('- ')) {
       // Only add if the line is a valid repo name (letters, numbers, dashes, underscores, dots)
       const repo = line.replace('- ', '').trim();
       if (/^[a-zA-Z0-9._-]+$/.test(repo)) {
-        repos.push(repo);
+        repos.push('bcgov/' + repo);
       }
     } else {
       // Stop if we've left the list
