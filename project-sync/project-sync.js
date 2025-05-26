@@ -813,4 +813,10 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     console.log('Changed items:');
     summary.changed.forEach(c => console.log(`- ${c.type} #${c.number} in ${c.repoName}: ${c.action} (${c.url})`));
   }
+
+  // Fail the workflow if any errors occurred
+  if (diagnostics.errors.length > 0) {
+    console.error('One or more errors occurred. Failing the workflow.');
+    process.exit(1);
+  }
 })();
