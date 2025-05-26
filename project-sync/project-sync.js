@@ -423,8 +423,8 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
 // --- Main logic ---
 (async () => {
   const diagnostics = new DiagnosticsContext();
-  // Use issueImportRepos for all logic
-  const issueImportRepos = getIssueImportRepos();
+  // Use monitoredRepos for all logic
+  const monitoredRepos = getIssueImportRepos();
   // Calculate date string for two days ago (YYYY-MM-DD)
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const itemsToProcess = [];
@@ -435,7 +435,7 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
   };
 
   // 1. Any PR authored by the user
-  let page = 1;
+  let endCursor = null;
   while (true) {
     const res = await octokit.graphql(`
       query($login: String!, $after: String) {
@@ -455,7 +455,7 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
           pageInfo { hasNextPage endCursor }
         }
       }
-    `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
+    `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr updated:>=${twoDaysAgo}`, after: endCursor });
     const prs = res.search.nodes;
     for (const pr of prs) {
       if (!pr.repository.nameWithOwner.startsWith('bcgov/')) continue;
@@ -506,15 +506,13 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
       }
     }
     if (!res.search.pageInfo.hasNextPage) break;
-    page++;
+    endCursor = res.search.pageInfo.endCursor;
   }
 
-  // 2. Any issue linked to a PR (new link): handled above by PR logic
-
-  // 3. Any new issue in triaged repos
-  const myRepos = issueImportRepos.filter(repo => repo.startsWith('bcgov/'));
-  await processInBatches(myRepos, 5, 2000, async repoName => {
-    const { issues } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repoName, twoDaysAgo);
+  // 2. Any open issues in the user's repos
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues } = await fetchOpenIssuesAndPRsGraphQL(owner, name);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
       seenNodeIds.add(issue.id);
@@ -522,68 +520,292 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName,
-        statusOption: STATUS_OPTIONS.new,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.active,
         sprintField: null,
         diagnostics
       });
     }
-  });
+  }
 
-  // 4. Assign Sprint for all items in Next/Active columns (even if already assigned)
-  let endCursor = null;
-  do {
-    const res = await octokit.graphql(`
-      query($projectId:ID!, $after:String) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            items(first: 100, after: $after) {
-              nodes {
-                id
-                content { ... on Issue { id number title repository { nameWithOwner } } ... on PullRequest { id number title repository { nameWithOwner } } }
-                fieldValues(first: 50) {
-                  nodes {
-                    ... on ProjectV2ItemFieldSingleSelectValue {
-                      field { ... on ProjectV2SingleSelectField { id name } }
-                      optionId
-                    }
-                  }
-                }
-              }
-              pageInfo { hasNextPage endCursor }
-            }
-          }
-        }
-      }
-    `, { projectId: PROJECT_ID, after: endCursor });
-    const items = res.node.items.nodes;
-    for (const item of items) {
-      const statusField = item.fieldValues.nodes.find(fv => fv.field && fv.field.name === 'Status');
-      if (!statusField) continue;
-      if (statusField.optionId === STATUS_OPTIONS.next || statusField.optionId === STATUS_OPTIONS.active) {
-        await addOrUpdateProjectItem({
-          nodeId: item.content.id,
-          type: item.content.number ? 'issue' : 'pr',
-          number: item.content.number,
-          repoName: item.content.repository.nameWithOwner,
-          statusOption: statusField.optionId,
+  // 3. Any new issue in monitored repos
+  const myRepos = monitoredRepos.filter(repo => repo.startsWith('bcgov/'));
+  for (const repo of myRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues } = await fetchOpenIssuesAndPRsGraphQL(owner, name);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.active,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // 4. Any closed issues/PRs in the last two days in the user's repos
+  const sinceIso = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, sinceIso);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.done,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      if (pr.state === 'OPEN') {
+        itemsToProcess.push({
+          nodeId: pr.id,
+          type: 'pr',
+          number: pr.number,
+          repoName: repo,
+          statusOption: STATUS_OPTIONS.active,
           sprintField: null,
-          diagnostics,
-          forceSprint: true
+          diagnostics
+        });
+      } else {
+        itemsToProcess.push({
+          nodeId: pr.id,
+          type: 'pr',
+          number: pr.number,
+          repoName: repo,
+          statusOption: STATUS_OPTIONS.done,
+          sprintField: null,
+          diagnostics
         });
       }
     }
-    endCursor = res.node.items.pageInfo.endCursor;
-  } while (endCursor);
+  }
 
-  // 5. Add or update all items in project
-  await processInBatches(itemsToProcess, 5, 2000, async item => {
-    await addOrUpdateProjectItemWithSummary(item);
+  // 5. Any issues/PRs in the parked column for more than 2 days
+  const parkedThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, parkedThresholdDate);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.backlog,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.backlog,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // 6. Any issues/PRs in the backlog column for more than 2 days
+  const backlogThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, backlogThresholdDate);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.next,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.next,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // 7. Any issues/PRs in the active column for more than 2 days
+  const activeThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, activeThresholdDate);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.waiting,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.waiting,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // 8. Any issues/PRs in the waiting column for more than 2 days
+  const waitingThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, waitingThresholdDate);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.parked,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.parked,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // 9. Any issues/PRs in the done column for more than 2 days
+  const doneThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, doneThresholdDate);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.parked,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.parked,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // 10. Any issues/PRs not in any project
+  for (const repo of monitoredRepos) {
+    const [owner, name] = repo.split('/');
+    const { issues, prs } = await fetchOpenIssuesAndPRsGraphQL(owner, name);
+    for (const issue of issues) {
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
+      itemsToProcess.push({
+        nodeId: issue.id,
+        type: 'issue',
+        number: issue.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.parked,
+        sprintField: null,
+        diagnostics
+      });
+    }
+    for (const pr of prs) {
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
+      itemsToProcess.push({
+        nodeId: pr.id,
+        type: 'pr',
+        number: pr.number,
+        repoName: repo,
+        statusOption: STATUS_OPTIONS.parked,
+        sprintField: null,
+        diagnostics
+      });
+    }
+  }
+
+  // Process all items in parallel
+  await processInBatches(itemsToProcess, 10, 1000, async (item) => {
+    if (item.type === 'issue') {
+      await addOrUpdateProjectItemWithSummary(item);
+    } else if (item.type === 'pr') {
+      await addOrUpdateProjectItemWithSummary(item);
+    }
   });
 
   // Log diagnostics
   logDiagnostics(diagnostics);
 
   // Output summary
-  console.log(JSON.stringify(summary, null, 2));
+  console.log(`Processed ${summary.processed.length} items, changed ${summary.changed.length} items.`);
+  if (summary.changed.length) {
+    console.log('Changed items:');
+    summary.changed.forEach(c => console.log(`- ${c.type} #${c.number} in ${c.repoName}: ${c.action} (${c.url})`));
+  }
 })();
