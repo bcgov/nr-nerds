@@ -318,7 +318,6 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
               number
               repository { nameWithOwner }
               assignees(first: 10) { nodes { login } }
-              pullRequest { id }
               updatedAt
             }
           }
