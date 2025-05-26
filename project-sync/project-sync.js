@@ -306,9 +306,20 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   const seenNodeIds = new Set();
   const projectItemNodeIds = new Set(); // Track items already in project
   const summary = {
-    processed: [], // {type, number, repoName, action}
+    processed: [], // {type, number, repoName, action, reason}
     changed: []    // {type, number, repoName, action}
   };
+
+  // Helper to add to summary.processed with reason
+  function logProcessed(item, action, reason) {
+    summary.processed.push({
+      type: item.type,
+      number: item.number,
+      repoName: item.repoName,
+      action,
+      reason
+    });
+  }
 
   // Calculate date string for two days ago (YYYY-MM-DD)
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -334,9 +345,16 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
     `, { login: `assignee:${GITHUB_AUTHOR} user:bcgov is:issue is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
     const issues = res.search.nodes;
     for (const issue of issues) {
-      if (!issue.repository.nameWithOwner.startsWith('bcgov/')) continue;
-      if (seenNodeIds.has(issue.id)) continue;
+      if (!issue.repository.nameWithOwner.startsWith('bcgov/')) {
+        logProcessed({type: 'issue', number: issue.number, repoName: issue.repository.nameWithOwner}, 'skipped', 'Not a bcgov repo');
+        continue;
+      }
+      if (seenNodeIds.has(issue.id)) {
+        logProcessed({type: 'issue', number: issue.number, repoName: issue.repository.nameWithOwner}, 'skipped', 'Already processed');
+        continue;
+      }
       seenNodeIds.add(issue.id);
+      logProcessed({type: 'issue', number: issue.number, repoName: issue.repository.nameWithOwner}, 'to be added/updated', 'Assigned to user');
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
@@ -466,19 +484,30 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
 
   // --- Process items in batches ---
   await processInBatches(itemsToProcess, 5, 1000, async (item) => {
-    await addOrUpdateProjectItem(item);
+    if (item.type === 'issue' || item.type === 'pr') {
+      await addOrUpdateProjectItemWithSummary(item);
+    }
   });
 
-  // --- Log diagnostics ---
+  // Log diagnostics
   logDiagnostics(diagnostics);
 
-  // --- Summary ---
-  console.log(`Processed ${summary.processed.length} items:`);
-  for (const item of summary.processed) {
-    console.log(`- ${item.type === 'issue' ? 'Issue' : 'PR'} #${item.number} in ${item.repoName} => ${item.action}`);
+  // Print summary
+  console.log('\n--- Project Sync Summary ---');
+  if (summary.processed.length) {
+    console.log('Processed:');
+    for (const s of summary.processed) {
+      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}${s.reason ? ' (' + s.reason + ')' : ''}`);
+    }
+  } else {
+    console.log('Processed 0 items.');
   }
-  console.log(`Changed ${summary.changed.length} items:`);
-  for (const item of summary.changed) {
-    console.log(`- ${item.type === 'issue' ? 'Issue' : 'PR'} #${item.number} in ${item.repoName} => ${item.action}`);
+  if (summary.changed.length) {
+    console.log('\nChanged:');
+    for (const s of summary.changed) {
+      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}`);
+    }
+  } else {
+    console.log('\nChanged 0 items.');
   }
 })();
