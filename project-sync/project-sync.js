@@ -401,9 +401,8 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   }
 
   // 3. Any issue or PR in managed repos with no project assignment goes to "New"
-  for (const repo of managedRepos) {
-    // Issues
-    const { issues } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
+  for (const repoName of managedRepos) {
+    const { issues, prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repoName);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
       seenNodeIds.add(issue.id);
@@ -411,14 +410,12 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName: `bcgov/${repo}`,
+        repoName: repoName,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
       });
     }
-    // PRs
-    const { prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
     for (const pr of prs) {
       if (seenNodeIds.has(pr.id)) continue;
       seenNodeIds.add(pr.id);
@@ -426,7 +423,7 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
-        repoName: `bcgov/${repo}`,
+        repoName: repoName,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
