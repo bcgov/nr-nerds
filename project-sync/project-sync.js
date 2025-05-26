@@ -406,18 +406,40 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   }
 
   // 3. Any issue or PR in managed repos with no project assignment and updated in last 2 days goes to "New"
+  // Get all project item node IDs (already in any column)
+  let endCursor = null;
+  do {
+    const res = await octokit.graphql(`
+      query($projectId:ID!, $after:String) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100, after: $after) {
+              nodes { content { ... on Issue { id } ... on PullRequest { id } } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+      }
+    `, { projectId: PROJECT_ID, after: endCursor });
+    for (const item of res.node.items.nodes) {
+      if (item.content && item.content.id) projectItemNodeIds.add(item.content.id);
+    }
+    endCursor = res.node.items.pageInfo.endCursor;
+  } while (endCursor);
+
   for (const repo of managedRepos) {
     // Issues
     const { issues } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
-      if (issue.updatedAt && issue.updatedAt < twoDaysAgo) continue;
+      if (projectItemNodeIds.has(issue.id)) continue; // Only add if not already in project (any column)
+      if (!issue.updatedAt || issue.updatedAt < twoDaysAgo) continue; // Only if updated in last 2 days
       seenNodeIds.add(issue.id);
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName: repo,
+        repoName: `bcgov/${repo}`,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
@@ -427,46 +449,36 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
     const { prs } = await fetchOpenIssuesAndPRsGraphQL('bcgov', repo);
     for (const pr of prs) {
       if (seenNodeIds.has(pr.id)) continue;
-      if (pr.updatedAt && pr.updatedAt < twoDaysAgo) continue;
+      if (projectItemNodeIds.has(pr.id)) continue; // Only add if not already in project (any column)
+      if (!pr.updatedAt || pr.updatedAt < twoDaysAgo) continue; // Only if updated in last 2 days
       seenNodeIds.add(pr.id);
       itemsToProcess.push({
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.active,
+        repoName: `bcgov/${repo}`,
+        statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
       });
-      // Linked issues (only if updated in last 2 days)
-      for (const linked of pr.closingIssuesReferences.nodes) {
-        if (seenNodeIds.has(linked.id)) continue;
-        if (linked.updatedAt && linked.updatedAt < twoDaysAgo) continue;
-        seenNodeIds.add(linked.id);
-        itemsToProcess.push({
-          nodeId: linked.id,
-          type: 'issue',
-          number: linked.number,
-          repoName: repo,
-          statusOption: STATUS_OPTIONS.active,
-          sprintField: null,
-          diagnostics
-        });
-      }
     }
   }
 
-  // Remove duplicates
-  const newItems = dedupeItems(itemsToProcess);
-
-  // 4. Add or update all items in project in batches
-  await processInBatches(newItems, 25, 1000, async item => {
+  // --- Process items in batches ---
+  await processInBatches(itemsToProcess, 5, 1000, async (item) => {
     await addOrUpdateProjectItem(item);
   });
 
-  // Log diagnostics
+  // --- Log diagnostics ---
   logDiagnostics(diagnostics);
 
-  // Summary
-  console.log(`Processed ${summary.processed.length} items, changed ${summary.changed.length}.`);
+  // --- Summary ---
+  console.log(`Processed ${summary.processed.length} items:`);
+  for (const item of summary.processed) {
+    console.log(`- ${item.type === 'issue' ? 'Issue' : 'PR'} #${item.number} in ${item.repoName} => ${item.action}`);
+  }
+  console.log(`Changed ${summary.changed.length} items:`);
+  for (const item of summary.changed) {
+    console.log(`- ${item.type === 'issue' ? 'Issue' : 'PR'} #${item.number} in ${item.repoName} => ${item.action}`);
+  }
 })();
