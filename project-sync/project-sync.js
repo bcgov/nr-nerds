@@ -283,59 +283,141 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
   const diagnostics = new DiagnosticsContext();
   const managedRepos = getManagedRepos();
   const itemsToProcess = [];
+  const seenNodeIds = new Set();
 
-  // 1. Add all issues assigned to me in any bcgov repo to New (GraphQL)
-  for (const repoFullName of managedRepos) {
-    const [owner, repo] = repoFullName.split('/');
-    const { issues } = await fetchOpenIssuesAndPRsGraphQL(owner, repo);
+  // Calculate date string for two days ago (YYYY-MM-DD)
+  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // 1. Any issue assigned to me in any bcgov repo goes to "New" (updated in last 2 days)
+  let page = 1;
+  while (true) {
+    const res = await octokit.graphql(`
+      query($login: String!, $after: String) {
+        search(query: $login, type: ISSUE, first: 50, after: $after) {
+          nodes {
+            ... on Issue {
+              id
+              number
+              repository { nameWithOwner }
+              assignees(first: 10) { nodes { login } }
+              pullRequest { id }
+              updatedAt
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { login: `assignee:${GITHUB_AUTHOR} user:bcgov is:issue is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
+    const issues = res.search.nodes;
     for (const issue of issues) {
-      if (!issue.assignees.nodes.some(a => a.login === GITHUB_AUTHOR)) continue;
+      if (!issue.repository.nameWithOwner.startsWith('bcgov/')) continue;
+      if (seenNodeIds.has(issue.id)) continue;
+      seenNodeIds.add(issue.id);
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName: repoFullName,
+        repoName: issue.repository.nameWithOwner,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
       });
     }
+    if (!res.search.pageInfo.hasNextPage) break;
+    page++;
   }
 
-  // 2. For each managed repo, add/update all open PRs and issues (GraphQL)
-  for (const repoFullName of managedRepos) {
-    const [owner, repo] = repoFullName.split('/');
-    const { issues, prs } = await fetchOpenIssuesAndPRsGraphQL(owner, repo);
-    // Add all open issues
-    for (const issue of issues) {
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repoFullName,
-        statusOption: STATUS_OPTIONS.active,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    // Add all open PRs
+  // 2. Any PR authored by me in any bcgov repo goes to "Active" (and linked issues, updated in last 2 days)
+  page = 1;
+  while (true) {
+    const res = await octokit.graphql(`
+      query($login: String!, $after: String) {
+        search(query: $login, type: ISSUE, first: 50, after: $after) {
+          nodes {
+            ... on PullRequest {
+              id
+              number
+              repository { nameWithOwner }
+              author { login }
+              closingIssuesReferences(first: 10) { nodes { id number repository { nameWithOwner updatedAt } } }
+              updatedAt
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
+    const prs = res.search.nodes;
     for (const pr of prs) {
+      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) continue;
+      if (seenNodeIds.has(pr.id)) continue;
+      seenNodeIds.add(pr.id);
       itemsToProcess.push({
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
-        repoName: repoFullName,
+        repoName: pr.repository.nameWithOwner,
         statusOption: STATUS_OPTIONS.active,
         sprintField: null,
         diagnostics
       });
+      // Linked issues (only if updated in last 2 days)
+      for (const linked of pr.closingIssuesReferences.nodes) {
+        if (seenNodeIds.has(linked.id)) continue;
+        if (linked.updatedAt && linked.updatedAt < twoDaysAgo) continue;
+        seenNodeIds.add(linked.id);
+        itemsToProcess.push({
+          nodeId: linked.id,
+          type: 'issue',
+          number: linked.number,
+          repoName: linked.repository.nameWithOwner,
+          statusOption: STATUS_OPTIONS.active,
+          sprintField: null,
+          diagnostics
+        });
+      }
+    }
+    if (!res.search.pageInfo.hasNextPage) break;
+    page++;
+  }
+
+  // 3. For managed repos, any new issue is added to "New" (updated in last 2 days)
+  for (const repoFullName of managedRepos) {
+    const [owner, repo] = repoFullName.split('/');
+    let hasNextPage = true;
+    let endCursor = null;
+    while (hasNextPage) {
+      const res = await octokit.graphql(`
+        query($owner: String!, $repo: String!, $after: String) {
+          repository(owner: $owner, name: $repo) {
+            issues(first: 50, states: OPEN, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+              nodes { id number updatedAt }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }
+      `, { owner, repo, after: endCursor });
+      const issues = res.repository.issues.nodes;
+      for (const issue of issues) {
+        if (seenNodeIds.has(issue.id)) continue;
+        if (issue.updatedAt < twoDaysAgo) continue;
+        seenNodeIds.add(issue.id);
+        itemsToProcess.push({
+          nodeId: issue.id,
+          type: 'issue',
+          number: issue.number,
+          repoName: repoFullName,
+          statusOption: STATUS_OPTIONS.new,
+          sprintField: null,
+          diagnostics
+        });
+      }
+      hasNextPage = res.repository.issues.pageInfo.hasNextPage;
+      endCursor = res.repository.issues.pageInfo.endCursor;
     }
   }
 
   // Deduplicate and process all items in batches to avoid rate limits
-  const uniqueItems = dedupeItems(itemsToProcess);
-  await processInBatches(uniqueItems, 5, 2000, item => addOrUpdateProjectItem(item));
-
-  // Log diagnostics at the end
+  await processInBatches(itemsToProcess, 5, 2000, item => addOrUpdateProjectItem(item));
   logDiagnostics(diagnostics);
 })();
