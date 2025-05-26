@@ -565,10 +565,17 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
 
   // Print summary
   console.log('\n--- Project Sync Summary ---');
+  function makeGithubUrl(type, repoName, number) {
+    if (type === 'issue') return `https://github.com/${repoName}/issues/${number}`;
+    if (type === 'pr') return `https://github.com/${repoName}/pull/${number}`;
+    return '';
+  }
   if (summary.processed.length) {
     console.log('Processed:');
     for (const s of summary.processed) {
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}${s.reason ? ' (' + s.reason + ')' : ''}`);
+      const url = makeGithubUrl(s.type, s.repoName, s.number);
+      // Print as markdown link for clickable output in some terminals/markdown renderers
+      console.log(`- [${s.type}]([${url}]) #${s.number} in ${s.repoName}: ${s.action}${s.reason ? ' (' + s.reason + ')' : ''}`);
     }
   } else {
     console.log('Processed 0 items.');
@@ -576,7 +583,8 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
   if (summary.changed.length) {
     console.log('\nChanged:');
     for (const s of summary.changed) {
-      console.log(`- [${s.type}] #${s.number} in ${s.repoName}: ${s.action}`);
+      const url = makeGithubUrl(s.type, s.repoName, s.number);
+      console.log(`- [${s.type}]([${url}]) #${s.number} in ${s.repoName}: ${s.action}`);
     }
   } else {
     console.log('\nChanged 0 items.');
