@@ -2,45 +2,49 @@
 
 _Last updated: 2025-05-26_
 
-> **Purpose:** This requirements file is the single source of truth for all automation logic and will be referenced by both the user and AI assistant for all code changes. Any code modifications must be checked against this file to ensure all requirements are met and preserved.
-> 
-> **Usage:** To change automation, simply edit this file and ask Copilot to update the code to match. No coding knowledge required.
-> 
-> **Example:** After editing, you can:
-> - Ask Copilot: "Please update the automation based on requirements.md" or "Sync the code with the latest requirements."
-> - Or, create a GitHub issue or pull request referencing requirements.md and request an update. Copilot or a maintainer can then process the change.
+## Overview
+This file is the single source of truth for all automation logic that manages issues and pull requests across monitored `bcgov` repositories using a GitHub Projects v2 board. The automation runs every 30 minutes via a scheduled GitHub Actions workflow.
 
-## SCOPE
+To change automation, simply edit this file and request a sync—no coding required. For example:
+- Edit the rules or repository list below.
+- Ask Copilot: "Please update the automation based on requirements.md" or "Sync the code with the latest requirements."
+- Or, create a GitHub issue or pull request referencing requirements.md and request an update.
+
+All code changes must follow the requirements in this file.
+
+## Scope
 - Organization: `bcgov`
 - Project Board: `ProjectV2` with ID `PVT_kwDOAA37OM4AFuzg`
 - User: `GITHUB_AUTHOR` (set by the environment variable)
 
-## PROJECT BOARD RULES
+## Project Board Rules
 - Any item in the **"Next"** or **"Active"** columns should be assigned to the current Sprint, even if a Sprint is already assigned.
 - Any item moved to the **"Done"** column should be assigned to the current Sprint if not already assigned.
 
-## USER RULES
-- **Any issue assigned to the user**:
-  - Move to the **"New"** column.
+## User Rules
 - **Any PR authored by the user**:
-  - New PR: Move to **"Active"**, assign to current Sprint.
-  - PR merged: Move to **"Done"**, assign to current Sprint if not already assigned (includes linked issues).
-  - PR closed without merging: Move to **"Done"**, assign to current Sprint if not already assigned (does not affect linked issues).
+  - New PR: Move to **"Active"**.
+  - PR closed: Move to **"Done"**.
 - **Any issue linked to a PR**:
-  - If the PR is merged: Move to **"Done"**, assign to current Sprint if not already assigned.
-  - If the PR is closed without merging: Do not change the issue's column or Sprint.
+  - New link: inherit the sprint and column from its PR.
+  - PR merged: inherit the sprint and column from its PR.
+  - PR closed: do not change the issue's column or Sprint.
 
-## REPOSITORY RULES
-- For any repository listed below, **any new issue** (regardless of assignee) is added to the **"New"** column if it is not already in the project. No Sprint is assigned.
-- If an issue or PR is already in the project (in any column), do not change its column or Sprint.
-- **To add your own repositories to be issue-imported, simply add them to the list below:**
-  - nr-nerds
-  - quickstart-openshift
-  - quickstart-openshift-backends
-  - quickstart-openshift-helpers
+## Monitored Repository Rules
+- For repositories listed below:
+  - **Any new issue not in the project** is added to the **"New"** column.
+  - **Any issue already in the project** is unaffected.
+  - Sprint is unaffected.
 
-## TECHNICAL DETAILS
-- Project column and field IDs are set in the script configuration.
+## Monitored Repositories
+- nr-nerds
+- quickstart-openshift
+- quickstart-openshift-backends
+- quickstart-openshift-helpers
+
+## Technical Details
+- The sync automation runs every 30 minutes via a scheduled GitHub Actions workflow.
+- Project column and field IDs are set in the script configuration. This is expected to become dynamic in the future.
 - All errors, warnings, and info should be logged at the end of the run.
 - Process changes in batches (default: 5 at a time, 2s delay between batches) to avoid GitHub secondary rate limits.
 - All issues and PRs should be deduplicated by node ID before processing.
@@ -48,15 +52,15 @@ _Last updated: 2025-05-26_
 
 ---
 
-## HOW TO CONTRIBUTE
+## How to Contribute
 
 We welcome contributions from anyone interested in improving or extending this automation!
 
 - **To propose a change to the automation rules:**
   - Edit this requirements.md file directly, or
   - Open a GitHub issue or pull request describing your suggestion.
-- **To add your repository to the Issue-Import list:**
-  - Simply add your repo name to the list in the Repository Rules section above. No approval required—if it’s in the list, it will be included!
+- **To add your repository to the Monitored Repositories list:**
+  - Simply add your repo name to the list above. No approval required—if it’s in the list, it will be included!
 - **For questions or help:**
   - Tag a maintainer in an issue or discussion, or reach out in your team’s preferred channel.
 

@@ -423,119 +423,13 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const itemsToProcess = [];
   const seenNodeIds = new Set();
-  const projectItemNodeIds = new Set(); // Track items already in project
   const summary = {
-    processed: [], // {type, number, repoName, action, reason}
-    changed: []    // {type, number, repoName, action}
+    processed: [],
+    changed: []
   };
 
-  // Helper to add to summary.processed with reason
-  function logProcessed(item, action, reason) {
-    summary.processed.push({
-      type: item.type,
-      number: item.number,
-      repoName: item.repoName,
-      action,
-      reason,
-      url: `https://github.com/${item.repoName}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`
-    });
-  }
-
-  // 1. Any issue assigned to me in any bcgov repo goes to "New" (updated in last 2 days)
+  // 1. Any PR authored by the user
   let page = 1;
-  while (true) {
-    const res = await octokit.graphql(`
-      query($login: String!, $after: String) {
-        search(query: $login, type: ISSUE, first: 50, after: $after) {
-          nodes {
-            ... on Issue {
-              id
-              number
-              title
-              repository { nameWithOwner }
-              assignees(first: 10) { nodes { login } }
-              updatedAt
-            }
-          }
-          pageInfo { hasNextPage endCursor }
-        }
-      }
-    `, { login: `assignee:${GITHUB_AUTHOR} user:bcgov is:issue is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
-    const issues = res.search.nodes;
-    for (const issue of issues) {
-      if (!issue.repository.nameWithOwner.startsWith('bcgov/')) {
-        logProcessed({type: 'issue', number: issue.number, repoName: issue.repository.nameWithOwner}, 'skipped', 'Not a bcgov repo');
-        continue;
-      }
-      if (seenNodeIds.has(issue.id)) {
-        logProcessed({type: 'issue', number: issue.number, repoName: issue.repository.nameWithOwner}, 'skipped', 'Already processed');
-        continue;
-      }
-      seenNodeIds.add(issue.id);
-      logProcessed({type: 'issue', number: issue.number, repoName: issue.repository.nameWithOwner}, 'to be added/updated', 'Assigned to user');
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: issue.repository.nameWithOwner,
-        statusOption: STATUS_OPTIONS.new,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    if (!res.search.pageInfo.hasNextPage) break;
-    page++;
-  } diagnostics
-
-  // 1b. Any PR assigned to me in any bcgov repo goes to "Active" (updated in last 2 days)
-  page = 1;
-  while (true) {
-    const res = await octokit.graphql(`
-      query($login: String!, $after: String) {
-        search(query: $login, type: ISSUE, first: 50, after: $after) {
-          nodes {
-            ... on PullRequest {
-              id
-              number
-              title
-              repository { nameWithOwner }
-              assignees(first: 10) { nodes { login } }
-              updatedAt
-            }
-          }
-          pageInfo { hasNextPage endCursor }
-        }
-      }
-    `, { login: `assignee:${GITHUB_AUTHOR} user:bcgov is:pr is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
-    const prs = res.search.nodes;
-    for (const pr of prs) {
-      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) {
-        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Not a bcgov repo');
-        continue;
-      }
-      if (seenNodeIds.has(pr.id)) {
-        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Already processed');
-        continue;
-      }
-      seenNodeIds.add(pr.id);
-      logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'to be added/updated', 'Assigned to user');
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: pr.repository.nameWithOwner,
-        statusOption: STATUS_OPTIONS.active,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    if (!res.search.pageInfo.hasNextPage) break;
-    page++;
-  } diagnostics
-
-  // 2. Any PR authored by me in any bcgov repo goes to "Active" (and linked issues, updated in last 2 days)
-  //    Any issue linked to a PR is handled exactly like that PR (follows the same logic as the PR it is linked to)
-  page = 1;
   while (true) {
     const res = await octokit.graphql(`
       query($login: String!, $after: String) {
@@ -547,51 +441,59 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
               title
               repository { nameWithOwner }
               author { login }
-              closingIssuesReferences(first: 10) { nodes { id number repository { nameWithOwner updatedAt } } }
+              state
+              closingIssuesReferences(first: 10) { nodes { id number repository { nameWithOwner } } }
+              updatedAt
             }
           }
           pageInfo { hasNextPage endCursor }
         }
       }
-    `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr is:open updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
+    `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr updated:>=${twoDaysAgo}`, after: page > 1 ? endCursor : null });
     const prs = res.search.nodes;
     for (const pr of prs) {
-      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) {
-        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Not a bcgov repo');
-        continue;
-      }
-      if (seenNodeIds.has(pr.id)) {
-        logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'skipped', 'Already processed');
-        continue;
-      }
+      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) continue;
+      if (seenNodeIds.has(pr.id)) continue;
       seenNodeIds.add(pr.id);
-      logProcessed({type: 'pr', number: pr.number, repoName: pr.repository.nameWithOwner}, 'to be added/updated', 'Authored by user');
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: pr.repository.nameWithOwner,
-        statusOption: STATUS_OPTIONS.active,
-        sprintField: null,
-        diagnostics
-      });
-      // Linked issues (closingIssuesReferences) go to Active if updated in last 2 days
+      if (pr.state === 'OPEN') {
+        // New PR: Move to Active
+        itemsToProcess.push({
+          nodeId: pr.id,
+          type: 'pr',
+          number: pr.number,
+          repoName: pr.repository.nameWithOwner,
+          statusOption: STATUS_OPTIONS.active,
+          sprintField: null,
+          diagnostics
+        });
+      } else {
+        // PR closed (merged or not): Move to Done
+        itemsToProcess.push({
+          nodeId: pr.id,
+          type: 'pr',
+          number: pr.number,
+          repoName: pr.repository.nameWithOwner,
+          statusOption: STATUS_OPTIONS.done,
+          sprintField: null,
+          diagnostics
+        });
+      }
+      // Linked issues
       if (pr.closingIssuesReferences && pr.closingIssuesReferences.nodes) {
         for (const linkedIssue of pr.closingIssuesReferences.nodes) {
           if (!linkedIssue.repository.nameWithOwner.startsWith('bcgov/')) continue;
           if (seenNodeIds.has(linkedIssue.id)) continue;
-          if (linkedIssue.updatedAt && linkedIssue.updatedAt >= twoDaysAgo) {
+          // Only update linked issues if PR is merged
+          if (pr.state === 'MERGED') {
             seenNodeIds.add(linkedIssue.id);
-            logProcessed({type: 'issue', number: linkedIssue.number, repoName: linkedIssue.repository.nameWithOwner}, 'to be added/updated', 'Linked to PR authored by user');
             itemsToProcess.push({
               nodeId: linkedIssue.id,
               type: 'issue',
               number: linkedIssue.number,
               repoName: linkedIssue.repository.nameWithOwner,
-              statusOption: STATUS_OPTIONS.active,
+              statusOption: STATUS_OPTIONS.done,
               sprintField: null,
-              diagnostics,
-              reopenIfClosed: true
+              diagnostics
             });
           }
         }
@@ -601,15 +503,15 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     page++;
   }
 
-  // 3. Any issue or PR in my issue-import repos that is not in the project goes to "New" (updated in last 2 days)
-  //    (No per-rule two-day logic; the two-day rule is applied globally below)
+  // 2. Any issue linked to a PR (new link): handled above by PR logic
+
+  // 3. Any new issue in triaged repos
   const myRepos = issueImportRepos.filter(repo => repo.startsWith('bcgov/'));
   await processInBatches(myRepos, 5, 2000, async repoName => {
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repoName, twoDaysAgo);
+    const { issues } = await fetchRecentIssuesAndPRsGraphQL('bcgov', repoName, twoDaysAgo);
     for (const issue of issues) {
       if (seenNodeIds.has(issue.id)) continue;
       seenNodeIds.add(issue.id);
-      logProcessed({type: 'issue', number: issue.number, repoName}, 'to be added/updated', 'Not in project');
       itemsToProcess.push({
         nodeId: issue.id,
         type: 'issue',
@@ -620,28 +522,9 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
         diagnostics
       });
     }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      logProcessed({type: 'pr', number: pr.number, repoName}, 'to be added/updated', 'Not in project');
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName,
-        statusOption: STATUS_OPTIONS.new,
-        sprintField: null,
-        diagnostics
-      });
-    }
   });
 
-  // 4. Add or update all items in project
-  await processInBatches(itemsToProcess, 5, 2000, async item => {
-    await addOrUpdateProjectItemWithSummary(item);
-  });
-
-  // Fetch all project items and update Sprint for Next/Active
+  // 4. Assign Sprint for all items in Next/Active columns (even if already assigned)
   let endCursor = null;
   do {
     const res = await octokit.graphql(`
@@ -669,11 +552,9 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     `, { projectId: PROJECT_ID, after: endCursor });
     const items = res.node.items.nodes;
     for (const item of items) {
-      // Find status option
       const statusField = item.fieldValues.nodes.find(fv => fv.field && fv.field.name === 'Status');
       if (!statusField) continue;
       if (statusField.optionId === STATUS_OPTIONS.next || statusField.optionId === STATUS_OPTIONS.active) {
-        // Always assign to current Sprint
         await addOrUpdateProjectItem({
           nodeId: item.content.id,
           type: item.content.number ? 'issue' : 'pr',
@@ -688,6 +569,11 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
     }
     endCursor = res.node.items.pageInfo.endCursor;
   } while (endCursor);
+
+  // 5. Add or update all items in project
+  await processInBatches(itemsToProcess, 5, 2000, async item => {
+    await addOrUpdateProjectItemWithSummary(item);
+  });
 
   // Log diagnostics
   logDiagnostics(diagnostics);
