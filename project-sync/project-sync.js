@@ -240,6 +240,17 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
   }
 }
 
+// --- Wrapper: Add or update item and log to summary.changed if changed ---
+async function addOrUpdateProjectItemWithSummary(item) {
+  await addOrUpdateProjectItem(item);
+  summary.changed.push({
+    type: item.type,
+    number: item.number,
+    repoName: item.repoName,
+    action: `moved to ${Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === item.statusOption) || 'updated'}`
+  });
+}
+
 // --- DiagnosticsContext helper ---
 class DiagnosticsContext {
   constructor() {
