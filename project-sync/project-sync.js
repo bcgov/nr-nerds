@@ -61,7 +61,7 @@ function getManagedRepos() {
       // Only add if the line is a valid repo name (letters, numbers, dashes, underscores)
       const repo = line.replace('- ', '').trim();
       if (/^[a-zA-Z0-9._-]+$/.test(repo)) {
-        repos.push(`bcgov/${repo}`);
+        repos.push(repo);
       }
       inList = true;
     } else if (inList && !line.startsWith('- ')) {
@@ -411,7 +411,7 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
         nodeId: issue.id,
         type: 'issue',
         number: issue.number,
-        repoName: repo,
+        repoName: `bcgov/${repo}`,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
@@ -426,7 +426,7 @@ async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
         nodeId: pr.id,
         type: 'pr',
         number: pr.number,
-        repoName: repo,
+        repoName: `bcgov/${repo}`,
         statusOption: STATUS_OPTIONS.new,
         sprintField: null,
         diagnostics
