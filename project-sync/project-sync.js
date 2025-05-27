@@ -59,6 +59,101 @@ class DiagnosticsContext {
 // --- Helper Functions ---
 
 /**
+ * Assign a user to a project item
+ * @param {string} projectItemId - The project item ID
+ * @param {string} userId - GitHub user ID to assign
+ * @param {Object} diagnostics - Diagnostics context for logging
+ * @param {Object} itemInfo - Information about the item being processed
+ */
+async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemInfo) {
+  try {
+    // First, find the assignees field ID
+    const res = await octokit.graphql(`
+      query($projectId:ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            fields(first: 20) {
+              nodes {
+                ... on ProjectV2Field {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+    `, { projectId: PROJECT_ID });
+
+    const assigneesField = res.node.fields.nodes.find(f => f.name === 'Assignees');
+    if (!assigneesField) {
+      diagnostics.warnings.push(`Could not find Assignees field in project. Skipping user assignment for ${itemInfo.type} #${itemInfo.number}.`);
+      return false;
+    }
+
+    // Perform the assignment
+    await octokit.graphql(`
+      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $userId:String!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { assigneeIds: ["$userId"] }
+        }) { 
+          projectV2Item { 
+            id 
+          } 
+        }
+      }
+    `, {
+      projectId: PROJECT_ID,
+      itemId: projectItemId,
+      fieldId: assigneesField.id,
+      userId: userId
+    });
+    
+    // Log the success
+    const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+    diagnostics.infos.push(`Assigned ${itemInfo.type} #${itemInfo.number}${repoInfo} to user ${userId}`);
+    
+    // Add verbose record
+    diagnostics.addVerboseRecord({
+      operation: 'assignUser',
+      itemType: itemInfo.type,
+      itemNumber: itemInfo.number,
+      repository: itemInfo.repoName,
+      projectItemId,
+      contentId: itemInfo.contentId,
+      userId,
+      result: 'success',
+      url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+      reason: `Assigning ${itemInfo.type} to user based on requirements`
+    });
+
+    return true;
+  } catch (err) {
+    // Log the error
+    diagnostics.errors.push(`Failed to assign user for ${itemInfo.type} #${itemInfo.number}: ${err.message}`);
+    
+    // Add detailed error record
+    diagnostics.addVerboseRecord({
+      operation: 'assignUser',
+      itemType: itemInfo.type,
+      itemNumber: itemInfo.number,
+      repository: itemInfo.repoName,
+      result: 'error',
+      error: err.message,
+      projectItemId,
+      itemId: itemInfo.contentId,
+      userId,
+      url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
+    });
+
+    return false;
+  }
+}
+
+/**
  * Gets the current Sprint iteration ID by finding the iteration that includes today's date
  */
 async function getCurrentSprintOptionId() {
@@ -686,6 +781,11 @@ async function main() {
         const statusUpdated = await updateItemStatus(projectItemId, item.targetStatus, diagnostics, item);
         if (statusUpdated) summary.changed++;
         
+        // Step 2a: If it's a PR authored by the user and opened (in Active column), assign to user
+        if (item.type === 'PR' && item.author === GITHUB_AUTHOR && item.state === 'OPEN') {
+          await assignUserToProjectItem(projectItemId, GITHUB_AUTHOR, diagnostics, item);
+        }
+        
         // Step 3: Apply the sprint field rules
         const currentStatusOption = item.targetStatus;
         
@@ -805,6 +905,15 @@ async function main() {
                 contentId: linkedIssue.id,
                 currentStatus: linkedIssueInfo.currentStatus,
                 reason: `Inheriting status from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
+              });
+              
+              // Assign the same user as the PR (as per requirements)
+              await assignUserToProjectItem(issueItemId, GITHUB_AUTHOR, diagnostics, {
+                type: 'Issue',
+                number: linkedIssue.number,
+                repoName: linkedIssue.repository.nameWithOwner,
+                contentId: linkedIssue.id,
+                reason: `Inheriting user assignment from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
               });
               
               // Update sprint to match PR

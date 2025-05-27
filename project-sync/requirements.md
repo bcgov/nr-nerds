@@ -22,11 +22,11 @@ To change automation, simply edit this file and request a sync—no coding requi
 ## User Rules
 _Note: These rules apply only to PRs and issues authored by the user specified in the Scope section._
 - **Any PR authored by the user**:
-  - New PR: Move to **"Active"**.
+  - New PR: Move to **"Active"**, assign to user.
   - PR closed: Move to **"Done"**.
 - **Any issue linked to a PR**:
-  - New link: inherit the sprint and column from its PR.
-  - PR merged: inherit the sprint and column from its PR.
+  - New link: inherit the sprint, column and user assignment from its PR.
+  - PR merged: inherit the sprint, column and user assignment from its PR.
   - PR closed: do not change the issue's column or sprint.
 
 ## Monitored Repository Rules
