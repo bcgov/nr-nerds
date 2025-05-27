@@ -79,6 +79,38 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
     const [owner, repo] = repoName.split('/');
     
     try {
+      // First, check if the user is already assigned to avoid duplicate assignments
+      const issueDetails = await octokit.issues.get({
+        owner,
+        repo,
+        issue_number: itemNumber
+      });
+      
+      // Get current assignees
+      const currentAssignees = issueDetails.data.assignees.map(a => a.login);
+      
+      // If user is already assigned, skip the assignment
+      if (currentAssignees.includes(userId)) {
+        const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+        diagnostics.infos.push(`User ${userId} is already assigned to ${itemInfo.type} #${itemInfo.number}${repoInfo}, skipping assignment`);
+        
+        diagnostics.addVerboseRecord({
+          operation: 'skipAssignUser',
+          itemType: itemInfo.type,
+          itemNumber: itemInfo.number,
+          repository: itemInfo.repoName,
+          projectItemId,
+          contentId: itemInfo.contentId,
+          userId,
+          result: 'skipped',
+          existingAssignees: currentAssignees,
+          url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+          reason: `User already assigned to ${itemInfo.type}`
+        });
+        
+        return true;
+      }
+      
       // In GitHub's API, pull requests are treated as issues for assignment operations
       // Use only the issues endpoint for both types
       const response = await octokit.issues.addAssignees({
@@ -102,13 +134,75 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         contentId: itemInfo.contentId,
         userId,
         result: 'success',
-        assignees: response.data.assignees ? response.data.assignees.map(a => a.login) : [userId],
+        previousAssignees: currentAssignees,
+        newAssignees: response.data.assignees ? response.data.assignees.map(a => a.login) : [userId],
         url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
         reason: `Assigning ${itemInfo.type} to user based on requirements`
       });
       
       return true;
     } catch (apiErr) {
+      // If we hit a rate limit or transient error, try again after a short delay
+      if (apiErr.status === 403 || apiErr.status === 429 || apiErr.status === 502 || apiErr.status === 503) {
+        diagnostics.warnings.push(`Rate limit or transient error when assigning user ${userId} to ${itemInfo.type} #${itemInfo.number}. Retrying in 2 seconds...`);
+        
+        // Wait 2 seconds
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        try {
+          // Try again with the same parameters
+          const retryResponse = await octokit.issues.addAssignees({
+            owner,
+            repo,
+            issue_number: itemNumber,
+            assignees: [userId]
+          });
+          
+          // Log retry success
+          const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+          diagnostics.infos.push(`Successfully assigned ${itemInfo.type} #${itemInfo.number}${repoInfo} to user ${userId} on retry`);
+          
+          diagnostics.addVerboseRecord({
+            operation: 'assignUserRetrySuccess',
+            itemType: itemInfo.type,
+            itemNumber: itemInfo.number,
+            repository: itemInfo.repoName,
+            projectItemId,
+            contentId: itemInfo.contentId,
+            userId,
+            result: 'success',
+            originalError: apiErr.message,
+            url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+            reason: `Assignment succeeded on retry after ${apiErr.message}`
+          });
+          
+          return true;
+        } catch (retryErr) {
+          // Log the retry failure
+          diagnostics.errors.push(`Failed to assign user ${userId} to ${itemInfo.type} #${itemInfo.number} on retry: ${retryErr.message}`);
+          
+          diagnostics.addVerboseRecord({
+            operation: 'assignUserRetryFailure',
+            itemType: itemInfo.type,
+            itemNumber: itemInfo.number,
+            repository: itemInfo.repoName,
+            projectItemId,
+            contentId: itemInfo.contentId,
+            userId,
+            result: 'error',
+            originalErrorMessage: apiErr.message,
+            retryErrorMessage: retryErr.message,
+            errorStatus: retryErr.status,
+            errorResponse: retryErr.response?.data,
+            url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
+          });
+          
+          // Throw to outer catch to ensure workflow failure on retry failure
+          throw new Error(`Assignment failed after retry: ${retryErr.message}`);
+        }
+      }
+      
+      // For other errors (not rate limit/transient), log and return false
       diagnostics.errors.push(`Failed to assign user ${userId} to ${itemInfo.type} #${itemInfo.number} via GitHub API: ${apiErr.message}`);
       
       // Add more detailed error information
@@ -127,7 +221,8 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
       });
       
-      return false;
+      // Throw to outer catch to ensure workflow failure
+      throw new Error(`Failed to assign user: ${apiErr.message}`);
     }
   } catch (err) {
     // Log the error
