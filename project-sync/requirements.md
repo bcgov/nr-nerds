@@ -19,7 +19,7 @@ To change automation, simply edit this file and request a sync—no coding requi
 
 | Rule # | Trigger/Condition | Item Type | Action/Status | Sprint Assignment | Notes/Reasoning |
 |--------|------------------|-----------|---------------|------------------|-----------------|
-| 1 | PR authored by `${GITHUB_AUTHOR}` is opened | PR | Move to **Active** | Assign to current Sprint | Only for monitored repos |
+| 1 | PR authored by `${GITHUB_AUTHOR}` is opened | PR | Move to **Active** | Assign to current Sprint | Applies to any repository, not just monitored repos |
 | 2 | PR authored by `${GITHUB_AUTHOR}` is merged or closed | PR | Move to **Done** | Assign to current Sprint (if not already set) | Merged or closed PRs only |
 | 3 | Issue is newly created in monitored repo | Issue | Add to **New** | _None_ | Only if not already in project |
 | 4 | Issue already exists in project | Issue | _No change_ | _No change_ | Skipped by automation |
