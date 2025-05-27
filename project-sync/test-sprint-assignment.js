@@ -228,7 +228,7 @@ async function testSprintAssignment() {
       if (isInDoneColumn) {
         return !alreadyHasCorrectSprint && !currentSprint; // For Done: only update if no sprint
       } else {
-        return !alreadyHasCorrectSprint; // For Next/Active: update if sprint doesn't match
+        return !alreadyHasCorrectSprint; // For Next/Active: no update needed if sprint already correct
       }
     }
     

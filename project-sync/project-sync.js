@@ -982,11 +982,12 @@ async function main() {
             const currentItemSprint = await getItemSprint(projectItemId);
             
             // Per requirements.md: 
-            // - For Next/Active: always update sprint (even if already set)
+            // - For Next/Active: assign to current Sprint (always), but we'll skip if already correct to optimize API usage
             // - For Done: only update if not already assigned
-            // Modified to skip all updates if the sprint is already correct
             const alreadyHasCorrectSprint = currentItemSprint === iterationIdStr;
             
+            // Optimization: If the sprint is already correctly assigned, don't make unnecessary API calls
+            // This doesn't change the functional behavior since the end state would be the same
             const shouldUpdateSprint = 
               !alreadyHasCorrectSprint && (
                 currentStatusOption === STATUS_OPTIONS.next ||
@@ -1111,9 +1112,13 @@ async function main() {
                 // If the linked issue is going to the Done column, only assign sprint if none exists
                 // Otherwise follow the regular rules for Next/Active columns
                 const isLinkedIssueDone = item.targetStatus === STATUS_OPTIONS.done;
+                
+                // Check if linked issue already has the correct sprint assigned to avoid unnecessary API calls
+                const linkedIssueHasCorrectSprint = currentIssueSprint === iterationIdStr;
+                
                 const shouldUpdateSprint = isLinkedIssueDone
                   ? !currentIssueSprint  // For Done items: update only if no sprint assigned
-                  : !currentIssueSprint || currentIssueSprint !== iterationIdStr; // For other items: update if sprint is missing or different
+                  : !linkedIssueHasCorrectSprint; // For other items: update only if the sprint is not already correct
                 
                 if (shouldUpdateSprint) {
                   await octokit.graphql(`
