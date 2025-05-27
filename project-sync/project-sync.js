@@ -850,6 +850,41 @@ async function main() {
           return;
         }
         
+        // For PRs that are already in the project, check if they are already in the correct state
+        if (item.type === 'PR' && !wasAdded) {
+          // Map status name to option ID for comparison
+          const currentStatusId = Object.entries(STATUS_OPTIONS).find(([key, value]) => 
+            key.toLowerCase() === (currentStatus || '').toLowerCase()
+          )?.[1];
+          
+          // Check if the status already matches the target status
+          const statusMatchesTarget = currentStatusId === item.targetStatus;
+          
+          if (statusMatchesTarget) {
+            // For closed PRs, we only need to check if they're in the correct column
+            if (item.state === 'CLOSED') {
+              diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in correct column '${currentStatus}')`);
+              
+              // Add detailed record for skipped item
+              diagnostics.addVerboseRecord({
+                operation: 'skipFullyConfigured',
+                itemType: item.type,
+                itemNumber: item.number,
+                repository: item.repoName,
+                projectItemId,
+                contentId: item.contentId,
+                currentStatus,
+                state: item.state,
+                result: 'skipped',
+                url: `https://github.com/${item.repoName}/issues/${item.number}`,
+                reason: 'PR already in correct column, skip further processing'
+              });
+              return;
+            }
+            // For open PRs, we'd still want to check user assignment later
+          }
+        }
+        
         // Skip status updates for PRs not authored by the specified user
         if (item.type === 'PR' && item.author !== GITHUB_AUTHOR) {
           diagnostics.infos.push(`Skipping PR #${item.number} [${item.repoName}] status update (not authored by ${GITHUB_AUTHOR})`);
@@ -871,9 +906,37 @@ async function main() {
           return;
         }
         
-        // Step 2: Update the status
-        const statusUpdated = await updateItemStatus(projectItemId, item.targetStatus, diagnostics, item);
-        if (statusUpdated) summary.changed++;
+        // Step 2: Update the status (only if needed)
+        // Map status name to option ID for comparison
+        const currentStatusId = Object.entries(STATUS_OPTIONS).find(([key, value]) => 
+          key.toLowerCase() === (currentStatus || '').toLowerCase()
+        )?.[1];
+          
+        // Check if the status already matches the target status
+        const statusMatchesTarget = currentStatusId === item.targetStatus;
+        
+        if (!statusMatchesTarget) {
+          // Only update status if it doesn't match the target
+          const statusUpdated = await updateItemStatus(projectItemId, item.targetStatus, diagnostics, item);
+          if (statusUpdated) summary.changed++;
+        } else {
+          diagnostics.infos.push(`Status for ${item.type} #${item.number} [${item.repoName}] already set to '${currentStatus}', skipping update`);
+          
+          // Add verbose record for skipped status update
+          diagnostics.addVerboseRecord({
+            operation: 'skipStatusUpdate',
+            itemType: item.type,
+            itemNumber: item.number,
+            repository: item.repoName,
+            projectItemId,
+            contentId: item.contentId,
+            currentStatus,
+            targetStatus: Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === item.targetStatus),
+            result: 'skipped',
+            url: `https://github.com/${item.repoName}/issues/${item.number}`,
+            reason: 'Item already in correct status/column'
+          });
+        }
         
         // Step 2a: If it's a PR authored by the user and opened (in Active column), assign to user
         if (item.type === 'PR' && item.author === GITHUB_AUTHOR && item.state === 'OPEN') {
@@ -902,14 +965,20 @@ async function main() {
             // Per requirements.md: 
             // - For Next/Active: always update sprint (even if already set)
             // - For Done: only update if not already assigned
+            // Modified to skip all updates if the sprint is already correct
+            const alreadyHasCorrectSprint = currentItemSprint === iterationIdStr;
+            
             const shouldUpdateSprint = 
-              currentStatusOption === STATUS_OPTIONS.next ||
-              currentStatusOption === STATUS_OPTIONS.active ||
-              (currentStatusOption === STATUS_OPTIONS.done && (!currentItemSprint || currentItemSprint !== iterationIdStr));
+              !alreadyHasCorrectSprint && (
+                currentStatusOption === STATUS_OPTIONS.next ||
+                currentStatusOption === STATUS_OPTIONS.active ||
+                (currentStatusOption === STATUS_OPTIONS.done && !currentItemSprint)
+              );
             
             // Determine reason based on status and current sprint
             const sprintAssignReason = 
-              !shouldUpdateSprint ? `Item already assigned to current Sprint, no update needed` :
+              alreadyHasCorrectSprint ? `Item already assigned to current Sprint (${currentItemSprint}), skipping update` :
+              !shouldUpdateSprint ? `Item already assigned to a Sprint, no update needed per requirements` :
               currentStatusOption === STATUS_OPTIONS.next ? 'Item in Next column assigned to current Sprint' :
               currentStatusOption === STATUS_OPTIONS.active ? 'Item in Active column assigned to current Sprint' :
               'Item in Done column assigned to current Sprint';

@@ -46,7 +46,6 @@ To change automation, simply edit this file and request a sync—no coding requi
 | Issue State | Project Board Action |
 |------------|---------------------|
 | New issue not in project | Add to **"New"** column |
-| Existing issue in project | No change |
 
 ## Monitored Repositories
 - nr-nerds
