@@ -67,6 +67,15 @@ This file tracks potential improvements and future work for the project-sync aut
 ## 12. Proposed Rule Changes
 - Anything moved to the **New, Parked, or Backlog** columns should not have a Sprint assigned.
 
+## 13. Add Issues and PRs assigned to User to the Project
+- Anything assigned to a user should be added to the project board, even if it is not in the "New" column.
+
+## 14. Batch Processing for Linked Issues
+
+## 15. Reduce GraphQL Query Complexity
+
+## 16. Additional Caching for Frequently Accessed Data
+
 ---
 
 If you want to work on any of these, create a GitHub issue and reference this file for details.
