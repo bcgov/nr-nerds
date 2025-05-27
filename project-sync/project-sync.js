@@ -213,7 +213,8 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
     });
     
     const columnName = Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === statusOption) || "unknown";
-    diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number} to column "${columnName}"`);
+    const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+    diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number}${repoInfo} to column "${columnName}"`);
     
     return true;
   } catch (err) {
@@ -461,13 +462,13 @@ async function main() {
         
         // Skip further processing for issues that were already in the project
         if (item.type === 'Issue' && !wasAdded) {
-          diagnostics.infos.push(`Skipping ${item.type} #${item.number} (already in project)`);
+          diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
           return;
         }
         
         // Skip status updates for PRs not authored by the specified user
         if (item.type === 'PR' && item.author !== GITHUB_AUTHOR) {
-          diagnostics.infos.push(`Skipping PR #${item.number} status update (not authored by ${GITHUB_AUTHOR})`);
+          diagnostics.infos.push(`Skipping PR #${item.number} [${item.repoName}] status update (not authored by ${GITHUB_AUTHOR})`);
           return;
         }
         
@@ -511,9 +512,9 @@ async function main() {
               iterationId: iterationIdStr
             });
             
-            diagnostics.infos.push(`Updated ${item.type} #${item.number} sprint field`);
+            diagnostics.infos.push(`Updated ${item.type} #${item.number} [${item.repoName}] sprint field`);
           } catch (err) {
-            diagnostics.errors.push(`Failed to update sprint for ${item.type} #${item.number}: ${err.message}`);
+            diagnostics.errors.push(`Failed to update sprint for ${item.type} #${item.number} [${item.repoName}]: ${err.message}`);
           }
         }
         
@@ -564,17 +565,17 @@ async function main() {
                   iterationId: iterationIdStr
                 });
                 
-                diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} sprint field`);
+                diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] sprint field`);
               } catch (err) {
-                diagnostics.errors.push(`Failed to update sprint for linked Issue #${linkedIssue.number}: ${err.message}`);
+                diagnostics.errors.push(`Failed to update sprint for linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}]: ${err.message}`);
               }
             }
           } else {
-            diagnostics.infos.push(`Skipping linked issues for PR #${item.number} (merged=${item.merged}, state=${item.state}; only update linked issues for open or merged PRs)`);
+            diagnostics.infos.push(`Skipping linked issues for PR #${item.number} [${item.repoName}] (merged=${item.merged}, state=${item.state}; only update linked issues for open or merged PRs)`);
           }
         }
       } catch (error) {
-        diagnostics.errors.push(`Error processing ${item.type} #${item.number}: ${error.message}`);
+        diagnostics.errors.push(`Error processing ${item.type} #${item.number} [${item.repoName}]: ${error.message}`);
         summary.errors++;
       }
     });
