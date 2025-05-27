@@ -94,8 +94,12 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
           repo,
           issue_number: itemNumber
         });
-        // Store the result in the cache
-        issueDetailsCache[cacheKey] = issueDetails;
+        // Store only the necessary assignee data in the cache to reduce memory usage
+        issueDetailsCache[cacheKey] = {
+          data: {
+            assignees: issueDetails.data.assignees ? issueDetails.data.assignees.map(a => a.login) : []
+          }
+        };
       }
       
       // Get current assignees
@@ -133,8 +137,12 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
       });
       
       
-      // Invalidate cache after assignment to keep data fresh
-      issueDetailsCache[cacheKey] = response;
+      // Update cache with only the necessary assignee data to reduce memory usage
+      issueDetailsCache[cacheKey] = {
+        data: {
+          assignees: response.data.assignees ? response.data.assignees.map(a => a.login) : []
+        }
+      };
       
       // Log the success
       const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
