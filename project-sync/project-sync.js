@@ -16,6 +16,9 @@ const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const VERBOSE = process.env.VERBOSE === 'true' || process.env.VERBOSE === '1';
 const octokit = new Octokit({ auth: GH_TOKEN });
 
+// Cache for issue details to reduce API calls
+const issueDetailsCache = {};
+
 // Project configuration
 const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
 
@@ -79,6 +82,51 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
     const [owner, repo] = repoName.split('/');
     
     try {
+      // First, check if the user is already assigned to avoid duplicate assignments
+      // Check cache for issue details to reduce API calls
+      const cacheKey = `${repoName}/${itemNumber}`;
+      let issueDetails = issueDetailsCache[cacheKey];
+      
+      if (!issueDetails) {
+        // Fetch issue details from GitHub API if not in cache
+        issueDetails = await octokit.issues.get({
+          owner,
+          repo,
+          issue_number: itemNumber
+        });
+        // Store only the necessary assignee data in the cache to reduce memory usage
+        issueDetailsCache[cacheKey] = {
+          data: {
+            assignees: issueDetails.data.assignees ? issueDetails.data.assignees.map(a => a.login) : []
+          }
+        };
+      }
+      
+      // Get current assignees
+      const currentAssignees = issueDetails.data.assignees.map(a => a.login);
+      
+      // If user is already assigned, skip the assignment
+      if (currentAssignees.includes(userId)) {
+        const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+        diagnostics.infos.push(`User ${userId} is already assigned to ${itemInfo.type} #${itemInfo.number}${repoInfo}, skipping assignment`);
+        
+        diagnostics.addVerboseRecord({
+          operation: 'skipAssignUser',
+          itemType: itemInfo.type,
+          itemNumber: itemInfo.number,
+          repository: itemInfo.repoName,
+          projectItemId,
+          contentId: itemInfo.contentId,
+          userId,
+          result: 'skipped',
+          existingAssignees: currentAssignees,
+          url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+          reason: `User already assigned to ${itemInfo.type}`
+        });
+        
+        return true;
+      }
+      
       // In GitHub's API, pull requests are treated as issues for assignment operations
       // Use only the issues endpoint for both types
       const response = await octokit.issues.addAssignees({
@@ -87,6 +135,14 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         issue_number: itemNumber,
         assignees: [userId]
       });
+      
+      
+      // Update cache with only the necessary assignee data to reduce memory usage
+      issueDetailsCache[cacheKey] = {
+        data: {
+          assignees: response.data.assignees ? response.data.assignees.map(a => a.login) : []
+        }
+      };
       
       // Log the success
       const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
@@ -102,13 +158,75 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         contentId: itemInfo.contentId,
         userId,
         result: 'success',
-        assignees: response.data.assignees ? response.data.assignees.map(a => a.login) : [userId],
+        previousAssignees: currentAssignees,
+        newAssignees: response.data.assignees ? response.data.assignees.map(a => a.login) : [userId],
         url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
         reason: `Assigning ${itemInfo.type} to user based on requirements`
       });
       
       return true;
     } catch (apiErr) {
+      // If we hit a rate limit or transient error, try again after a short delay
+      if (apiErr.status === 403 || apiErr.status === 429 || apiErr.status === 502 || apiErr.status === 503 || apiErr.status === 504) {
+        diagnostics.warnings.push(`Rate limit or transient error when assigning user ${userId} to ${itemInfo.type} #${itemInfo.number}. Retrying in 2 seconds...`);
+        
+        // Wait 2 seconds
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        try {
+          // Try again with the same parameters
+          const retryResponse = await octokit.issues.addAssignees({
+            owner,
+            repo,
+            issue_number: itemNumber,
+            assignees: [userId]
+          });
+          
+          // Log retry success
+          const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+          diagnostics.infos.push(`Successfully assigned ${itemInfo.type} #${itemInfo.number}${repoInfo} to user ${userId} on retry`);
+          
+          diagnostics.addVerboseRecord({
+            operation: 'assignUserRetrySuccess',
+            itemType: itemInfo.type,
+            itemNumber: itemInfo.number,
+            repository: itemInfo.repoName,
+            projectItemId,
+            contentId: itemInfo.contentId,
+            userId,
+            result: 'success',
+            originalError: apiErr.message,
+            url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+            reason: `Assignment succeeded on retry after ${apiErr.message}`
+          });
+          
+          return true;
+        } catch (retryErr) {
+          // Log the retry failure
+          diagnostics.errors.push(`Failed to assign user ${userId} to ${itemInfo.type} #${itemInfo.number} on retry: ${retryErr.message}`);
+          
+          diagnostics.addVerboseRecord({
+            operation: 'assignUserRetryFailure',
+            itemType: itemInfo.type,
+            itemNumber: itemInfo.number,
+            repository: itemInfo.repoName,
+            projectItemId,
+            contentId: itemInfo.contentId,
+            userId,
+            result: 'error',
+            originalErrorMessage: apiErr.message,
+            retryErrorMessage: retryErr.message,
+            errorStatus: retryErr.status,
+            errorResponse: retryErr.response?.data,
+            url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
+          });
+          
+          // Return false to indicate failure after retry
+          return false;
+        }
+      }
+      
+      // For other errors (not rate limit/transient), log and return false
       diagnostics.errors.push(`Failed to assign user ${userId} to ${itemInfo.type} #${itemInfo.number} via GitHub API: ${apiErr.message}`);
       
       // Add more detailed error information
@@ -127,6 +245,7 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
       });
       
+      // Return false to indicate failure
       return false;
     }
   } catch (err) {
@@ -621,7 +740,7 @@ async function main() {
     console.log('- PRs authored by user will be moved to Active (if open) or Done (if closed)');
     console.log('- Issues linked to PRs will inherit status from PR only if PR is merged or open');
     console.log('- New issues in monitored repos will be added to New column');
-    console.log('- Issues already in the project will be left unchanged');
+    console.log('- Existing issues in Next/Active columns will have sprint maintained');
     console.log('- Items in Next/Active/Done columns will be assigned to current Sprint');
     
     // Load configuration
@@ -735,24 +854,95 @@ async function main() {
         // 1. For PRs: Only author's PRs get automatic status updates 
         // 2. For issues: Only new issues get added to "New" column; existing issues stay as they are
         
-        // Skip further processing for issues that were already in the project
+        // For existing issues in project
         if (item.type === 'Issue' && !wasAdded) {
-          diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
+          // Map status name to option ID for comparison
+          const currentStatusId = Object.entries(STATUS_OPTIONS).find(([key, value]) => 
+            key.toLowerCase() === (currentStatus || '').toLowerCase()
+          )?.[1];
+
+          // Check if existing issue is in Next or Active column (needs sprint assignment per requirements)
+          const isInNextOrActiveColumn = 
+            currentStatusId === STATUS_OPTIONS.next || 
+            currentStatusId === STATUS_OPTIONS.active;
           
-          // Add detailed record for skipped item
-          diagnostics.addVerboseRecord({
-            operation: 'skip',
-            itemType: item.type,
-            itemNumber: item.number,
-            repository: item.repoName,
-            projectItemId,
-            contentId: item.contentId,
-            currentStatus,
-            result: 'skipped',
-            url: `https://github.com/${item.repoName}/issues/${item.number}`,
-            reason: 'Issue already exists in project board, not updating per requirements'
-          });
-          return;
+          if (!isInNextOrActiveColumn) {
+            // Skip further processing for issues not in Next or Active columns
+            diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
+            
+            // Add detailed record for skipped item
+            diagnostics.addVerboseRecord({
+              operation: 'skip',
+              itemType: item.type,
+              itemNumber: item.number,
+              repository: item.repoName,
+              projectItemId,
+              contentId: item.contentId,
+              currentStatus,
+              result: 'skipped',
+              url: `https://github.com/${item.repoName}/issues/${item.number}`,
+              reason: 'Issue already exists in project board, not updating per requirements'
+            });
+            return;
+          } else {
+            // For Next/Active issues, continue processing for sprint assignment
+            diagnostics.infos.push(`Checking sprint for ${item.type} #${item.number} [${item.repoName}] in ${currentStatus} column`);
+            
+            // Store the current status as the target status to preserve it
+            item.targetStatus = currentStatusId;
+            
+            // Skip status update steps since we're keeping the current status
+            diagnostics.addVerboseRecord({
+              operation: 'processForSprint',
+              itemType: item.type,
+              itemNumber: item.number,
+              repository: item.repoName,
+              projectItemId,
+              contentId: item.contentId,
+              currentStatus,
+              result: 'processing',
+              url: `https://github.com/${item.repoName}/issues/${item.number}`,
+              reason: 'Issue in Next/Active column needs sprint assignment per requirements'
+            });
+            
+            // Skip to sprint assignment step
+            // The code will continue to the sprint assignment below
+          }
+        }
+        
+        // For PRs that are already in the project, check if they are already in the correct state
+        if (item.type === 'PR' && !wasAdded) {
+          // Map status name to option ID for comparison
+          const currentStatusId = Object.entries(STATUS_OPTIONS).find(([key, value]) => 
+            key.toLowerCase() === (currentStatus || '').toLowerCase()
+          )?.[1];
+          
+          // Check if the status already matches the target status
+          const statusMatchesTarget = currentStatusId === item.targetStatus;
+          
+          if (statusMatchesTarget) {
+            // For closed PRs, we only need to check if they're in the correct column
+            if (item.state === 'CLOSED') {
+              diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in correct column '${currentStatus}')`);
+              
+              // Add detailed record for skipped item
+              diagnostics.addVerboseRecord({
+                operation: 'skipFullyConfigured',
+                itemType: item.type,
+                itemNumber: item.number,
+                repository: item.repoName,
+                projectItemId,
+                contentId: item.contentId,
+                currentStatus,
+                state: item.state,
+                result: 'skipped',
+                url: `https://github.com/${item.repoName}/issues/${item.number}`,
+                reason: 'PR already in correct column, skip further processing'
+              });
+              return;
+            }
+            // For open PRs, we'd still want to check user assignment later
+          }
         }
         
         // Skip status updates for PRs not authored by the specified user
@@ -776,13 +966,44 @@ async function main() {
           return;
         }
         
-        // Step 2: Update the status
-        const statusUpdated = await updateItemStatus(projectItemId, item.targetStatus, diagnostics, item);
-        if (statusUpdated) summary.changed++;
+        // Step 2: Update the status (only if needed)
+        // Map status name to option ID for comparison
+        const currentStatusId = Object.entries(STATUS_OPTIONS).find(([key, value]) => 
+          key.toLowerCase() === (currentStatus || '').toLowerCase()
+        )?.[1];
+          
+        // Check if the status already matches the target status
+        const statusMatchesTarget = currentStatusId === item.targetStatus;
+        
+        if (!statusMatchesTarget) {
+          // Only update status if it doesn't match the target
+          const statusUpdated = await updateItemStatus(projectItemId, item.targetStatus, diagnostics, item);
+          if (statusUpdated) summary.changed++;
+        } else {
+          diagnostics.infos.push(`Status for ${item.type} #${item.number} [${item.repoName}] already set to '${currentStatus}', skipping update`);
+          
+          // Add verbose record for skipped status update
+          diagnostics.addVerboseRecord({
+            operation: 'skipStatusUpdate',
+            itemType: item.type,
+            itemNumber: item.number,
+            repository: item.repoName,
+            projectItemId,
+            contentId: item.contentId,
+            currentStatus,
+            targetStatus: Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === item.targetStatus),
+            result: 'skipped',
+            url: `https://github.com/${item.repoName}/issues/${item.number}`,
+            reason: 'Item already in correct status/column'
+          });
+        }
         
         // Step 2a: If it's a PR authored by the user and opened (in Active column), assign to user
         if (item.type === 'PR' && item.author === GITHUB_AUTHOR && item.state === 'OPEN') {
-          await assignUserToProjectItem(projectItemId, GITHUB_AUTHOR, diagnostics, item);
+          const assignmentResult = await assignUserToProjectItem(projectItemId, GITHUB_AUTHOR, diagnostics, item);
+          if (!assignmentResult) {
+            diagnostics.warnings.push(`Failed to assign user ${GITHUB_AUTHOR} to PR #${item.number} [${item.repoName}], continuing with other operations`);
+          }
         }
         
         // Step 3: Apply the sprint field rules
@@ -805,16 +1026,23 @@ async function main() {
             const currentItemSprint = await getItemSprint(projectItemId);
             
             // Per requirements.md: 
-            // - For Next/Active: always update sprint (even if already set)
+            // - For Next/Active: assign to current Sprint (always), but we'll skip if already correct to optimize API usage
             // - For Done: only update if not already assigned
+            const alreadyHasCorrectSprint = currentItemSprint === iterationIdStr;
+            
+            // Optimization: If the sprint is already correctly assigned, don't make unnecessary API calls
+            // This doesn't change the functional behavior since the end state would be the same
             const shouldUpdateSprint = 
-              currentStatusOption === STATUS_OPTIONS.next ||
-              currentStatusOption === STATUS_OPTIONS.active ||
-              (currentStatusOption === STATUS_OPTIONS.done && (!currentItemSprint || currentItemSprint !== iterationIdStr));
+              !alreadyHasCorrectSprint && (
+                currentStatusOption === STATUS_OPTIONS.next ||
+                currentStatusOption === STATUS_OPTIONS.active ||
+                (currentStatusOption === STATUS_OPTIONS.done && !currentItemSprint)
+              );
             
             // Determine reason based on status and current sprint
             const sprintAssignReason = 
-              !shouldUpdateSprint ? `Item already assigned to current Sprint, no update needed` :
+              alreadyHasCorrectSprint ? `Item already assigned to current Sprint (${currentItemSprint}), skipping update` :
+              !shouldUpdateSprint ? `Item already assigned to a Sprint, no update needed per requirements` :
               currentStatusOption === STATUS_OPTIONS.next ? 'Item in Next column assigned to current Sprint' :
               currentStatusOption === STATUS_OPTIONS.active ? 'Item in Active column assigned to current Sprint' :
               'Item in Done column assigned to current Sprint';
@@ -907,13 +1135,16 @@ async function main() {
               });
               
               // Assign the same user as the PR (as per requirements)
-              await assignUserToProjectItem(issueItemId, GITHUB_AUTHOR, diagnostics, {
+              const linkedAssignmentResult = await assignUserToProjectItem(issueItemId, GITHUB_AUTHOR, diagnostics, {
                 type: 'Issue',
                 number: linkedIssue.number,
                 repoName: linkedIssue.repository.nameWithOwner,
                 contentId: linkedIssue.id,
                 reason: `Inheriting user assignment from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
               });
+              if (!linkedAssignmentResult) {
+                diagnostics.warnings.push(`Failed to assign user ${GITHUB_AUTHOR} to linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}], continuing with other operations`);
+              }
               
               // Update sprint to match PR
               try {
@@ -921,7 +1152,17 @@ async function main() {
                 
                 // Check if the issue already has the correct sprint assigned
                 const currentIssueSprint = await getItemSprint(issueItemId);
-                const shouldUpdateSprint = !currentIssueSprint || currentIssueSprint !== iterationIdStr;
+                
+                // If the linked issue is going to the Done column, only assign sprint if none exists
+                // Otherwise follow the regular rules for Next/Active columns
+                const isLinkedIssueDone = item.targetStatus === STATUS_OPTIONS.done;
+                
+                // Check if linked issue already has the correct sprint assigned to avoid unnecessary API calls
+                const linkedIssueHasCorrectSprint = currentIssueSprint === iterationIdStr;
+                
+                const shouldUpdateSprint = isLinkedIssueDone
+                  ? !currentIssueSprint  // For Done items: update only if no sprint assigned
+                  : !linkedIssueHasCorrectSprint; // For other items: update only if the sprint is not already correct
                 
                 if (shouldUpdateSprint) {
                   await octokit.graphql(`
