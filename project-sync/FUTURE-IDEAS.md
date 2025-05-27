@@ -21,6 +21,7 @@ This file tracks potential improvements and future work for the project-sync aut
   - `inheritAssigneesForLinkedIssues`: Whether linked issues inherit PR assignees
   - `preserveExistingAssignees`: Whether to keep existing assignees when updating
   - `defaultAssignee`: The default user to assign when no specific user is determined
+    - Examples: Fallback user for PRs with no author, default maintainer for new issues, or a team account for workflow automation
 
 ## 1. Dry-Run Mode
 - Add a command-line or config option to run the script in "dry run" mode, where no changes are made to GitHub, but all actions are logged as if they would be performed.
