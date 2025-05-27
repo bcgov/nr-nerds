@@ -991,7 +991,7 @@ async function main() {
               !alreadyHasCorrectSprint && (
                 currentStatusOption === STATUS_OPTIONS.next ||
                 currentStatusOption === STATUS_OPTIONS.active ||
-                (currentStatusOption === STATUS_OPTIONS.done && !currentItemSprint)
+                (currentStatusOption === STATUS_OPTIONS.done && (!currentItemSprint || currentItemSprint !== iterationIdStr))
               );
             
             // Determine reason based on status and current sprint
@@ -1112,7 +1112,7 @@ async function main() {
                 // Otherwise follow the regular rules for Next/Active columns
                 const isLinkedIssueDone = item.targetStatus === STATUS_OPTIONS.done;
                 const shouldUpdateSprint = isLinkedIssueDone
-                  ? !currentIssueSprint  // For Done items: only update if no sprint is assigned
+                  ? !currentIssueSprint || currentIssueSprint !== iterationIdStr  // For Done items: update if no sprint or different sprint
                   : !currentIssueSprint || currentIssueSprint !== iterationIdStr; // For other items: update if sprint is missing or different
                 
                 if (shouldUpdateSprint) {

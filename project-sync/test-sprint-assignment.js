@@ -226,7 +226,7 @@ async function testSprintAssignment() {
       const alreadyHasCorrectSprint = currentSprint === targetSprint;
       
       if (isInDoneColumn) {
-        return !alreadyHasCorrectSprint && !currentSprint;
+        return !alreadyHasCorrectSprint && (!currentSprint || currentSprint !== targetSprint);
       } else {
         return !alreadyHasCorrectSprint;
       }
@@ -250,7 +250,7 @@ async function testSprintAssignment() {
         name: "Done column, has different sprint", 
         currentSprint: "some-other-sprint-id",
         isInDoneColumn: true,
-        expected: false
+        expected: true
       },
       { 
         name: "Active column, no sprint assigned", 
