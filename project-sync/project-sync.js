@@ -335,16 +335,14 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
 async function getItemSprint(projectItemId) {
   try {
     const res = await octokit.graphql(`
-      query($projectId:ID!, $itemId:ID!) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            item(id: $itemId) {
-              fieldValues(first: 20) {
-                nodes {
-                  ... on ProjectV2ItemFieldIterationValue {
-                    iterationId
-                    field { ... on ProjectV2IterationField { name } }
-                  }
+      query getItemFieldValues($itemId: ID!) {
+        node(id: $itemId) {
+          ... on ProjectV2Item {
+            fieldValues(first: 20) {
+              nodes {
+                ... on ProjectV2ItemFieldIterationValue {
+                  iterationId
+                  field { ... on ProjectV2IterationField { name } }
                 }
               }
             }
@@ -352,13 +350,12 @@ async function getItemSprint(projectItemId) {
         }
       }
     `, { 
-      projectId: PROJECT_ID,
       itemId: projectItemId
     });
     
-    if (!res.node?.item?.fieldValues?.nodes) return null;
+    if (!res.node?.fieldValues?.nodes) return null;
     
-    const sprintField = res.node.item.fieldValues.nodes.find(
+    const sprintField = res.node.fieldValues.nodes.find(
       fv => fv.field && fv.field.name === 'Sprint'
     );
 
