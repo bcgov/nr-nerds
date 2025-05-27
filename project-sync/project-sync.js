@@ -1,6 +1,11 @@
 // SCOPE: This script manages issues and PRs across all bcgov repositories and a single GitHub Projects v2 board, 
 // strictly following the automation rules defined in requirements.md.
 // All logic is requirements-driven; any changes to automation must be made in requirements.md and reflected here.
+//
+// USAGE:
+// - Run with VERBOSE=true to enable detailed JSON logging of all operations
+// - Example: VERBOSE=true node project-sync.js
+// - Verbose JSON logs will be written to project-sync-log-[timestamp].json
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
 const path = require("path");
@@ -8,6 +13,7 @@ const path = require("path");
 // Environment variables
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
+const VERBOSE = process.env.VERBOSE === 'true' || process.env.VERBOSE === '1';
 const octokit = new Octokit({ auth: GH_TOKEN });
 
 // Project configuration
@@ -34,6 +40,19 @@ class DiagnosticsContext {
     this.errors = [];
     this.warnings = [];
     this.infos = [];
+    this.verboseData = []; // For storing detailed JSON records
+  }
+
+  /**
+   * Add a detailed verbose record for troubleshooting
+   * @param {Object} data - Structured data about the operation
+   */
+  addVerboseRecord(data) {
+    // Ensure timestamp is added to each record
+    this.verboseData.push({
+      timestamp: new Date().toISOString(),
+      ...data
+    });
   }
 }
 
@@ -133,11 +152,12 @@ function getMonitoredRepos() {
 /**
  * Find or add an item to the project and return its project item ID
  */
-async function findOrAddItemToProject(contentId) {
+async function findOrAddItemToProject(contentId, itemInfo = {}, diagnostics = null) {
   // First try to find the item in the project
   let endCursor = null;
   let projectItemId = null;
   let found = false;
+  let currentStatus = null;
   
   do {
     const res = await octokit.graphql(`
@@ -148,8 +168,16 @@ async function findOrAddItemToProject(contentId) {
               nodes { 
                 id 
                 content { 
-                  ... on PullRequest { id } 
+                  ... on PullRequest { id }
                   ... on Issue { id } 
+                }
+                fieldValues(first: 8) {
+                  nodes {
+                    ... on ProjectV2ItemFieldSingleSelectValue {
+                      name
+                      field { ... on ProjectV2SingleSelectField { name } }
+                    }
+                  }
                 }
               }
               pageInfo { hasNextPage endCursor }
@@ -165,6 +193,16 @@ async function findOrAddItemToProject(contentId) {
     if (match) {
       projectItemId = match.id;
       found = true;
+
+      // Try to extract the current status
+      if (match.fieldValues && match.fieldValues.nodes) {
+        const statusField = match.fieldValues.nodes.find(
+          fv => fv.field && fv.field.name === 'Status'
+        );
+        if (statusField) {
+          currentStatus = statusField.name;
+        }
+      }
       break;
     }
     
@@ -184,11 +222,40 @@ async function findOrAddItemToProject(contentId) {
         }
       }
     `, { projectId: PROJECT_ID, contentId });
-    
+
     projectItemId = addResult.addProjectV2ItemById.item.id;
+
+    // Log verbose data if diagnostics is provided
+    if (diagnostics && itemInfo.type) {
+      diagnostics.addVerboseRecord({
+        operation: 'addToProject',
+        itemType: itemInfo.type,
+        itemNumber: itemInfo.number,
+        repository: itemInfo.repoName,
+        projectItemId,
+        contentId,
+        result: 'success',
+        url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+        reason: itemInfo.reason || (itemInfo.type === 'Issue' ? 'New issue added to project board' : 'New PR added to project board')
+      });
+    }
+  } else if (diagnostics && itemInfo.type) {
+    // Log that we found the item if verbose data tracking is enabled
+    diagnostics.addVerboseRecord({
+      operation: 'findInProject',
+      itemType: itemInfo.type,
+      itemNumber: itemInfo.number,
+      repository: itemInfo.repoName,
+      projectItemId,
+      contentId,
+      currentStatus,
+      result: 'success',
+      url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+      reason: 'Item found in project board'
+    });
   }
   
-  return { projectItemId, wasAdded: !found };
+  return { projectItemId, wasAdded: !found, currentStatus };
 }
 
 /**
@@ -196,6 +263,23 @@ async function findOrAddItemToProject(contentId) {
  */
 async function updateItemStatus(projectItemId, statusOption, diagnostics, itemInfo) {
   try {
+    // Create a record of the operation we're about to perform
+    const columnName = Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === statusOption) || "unknown";
+    const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+    const operationData = {
+      operation: 'updateStatus',
+      itemType: itemInfo.type,
+      itemNumber: itemInfo.number,
+      repository: itemInfo.repoName,
+      toStatus: columnName,
+      fromStatus: itemInfo.currentStatus || 'unknown',
+      projectItemId: projectItemId,
+      itemId: itemInfo.contentId,
+      url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`,
+      reason: itemInfo.reason || `Item status updated based on requirements.md rules`
+    };
+    
+    // Perform the GraphQL mutation
     await octokit.graphql(`
       mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
         updateProjectV2ItemFieldValue(input: {
@@ -212,14 +296,76 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
       optionId: statusOption
     });
     
-    const columnName = Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === statusOption) || "unknown";
-    const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
+    // Log the regular info message
     diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number}${repoInfo} to column "${columnName}"`);
     
+    // Add detailed record
+    diagnostics.addVerboseRecord({
+      ...operationData,
+      result: 'success'
+    });
+
     return true;
   } catch (err) {
+    // Log the error
     diagnostics.errors.push(`Failed to update status for ${itemInfo.type} #${itemInfo.number}: ${err.message}`);
+    
+    // Add detailed error record
+    diagnostics.addVerboseRecord({
+      operation: 'updateStatus',
+      itemType: itemInfo.type,
+      itemNumber: itemInfo.number,
+      repository: itemInfo.repoName,
+      result: 'error',
+      error: err.message,
+      projectItemId: projectItemId,
+      itemId: itemInfo.contentId,
+      url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
+    });
+
     return false;
+  }
+}
+
+/**
+ * Get the current Sprint field value for a project item
+ * @param {string} projectItemId - The project item ID
+ * @returns {Promise<string|null>} The current sprint iteration ID, or null if not found/set
+ */
+async function getItemSprint(projectItemId) {
+  try {
+    const res = await octokit.graphql(`
+      query($projectId:ID!, $itemId:ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            item(id: $itemId) {
+              fieldValues(first: 20) {
+                nodes {
+                  ... on ProjectV2ItemFieldIterationValue {
+                    iterationId
+                    field { ... on ProjectV2IterationField { name } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    `, { 
+      projectId: PROJECT_ID,
+      itemId: projectItemId
+    });
+    
+    if (!res.node?.item?.fieldValues?.nodes) return null;
+    
+    const sprintField = res.node.item.fieldValues.nodes.find(
+      fv => fv.field && fv.field.name === 'Sprint'
+    );
+
+    return sprintField ? sprintField.iterationId : null;
+  } catch (err) {
+    console.error(`Error getting sprint field for item ${projectItemId}: ${err.message}`);
+    return null;
   }
 }
 
@@ -251,7 +397,7 @@ async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
   let prs = [];
   let hasNextPage = true;
   let endCursor = null;
-  
+
   while (hasNextPage) {
     const res = await octokit.graphql(`
       query($owner: String!, $repo: String!, $after: String) {
@@ -293,7 +439,7 @@ async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
         }
       }
     `, { owner, repo, after: endCursor });
-    
+
     // Only include items updated since the cutoff date
     const cutoffDateIso = cutoffDate.toISOString();
     const filteredIssues = res.repository.issues.nodes
@@ -340,6 +486,28 @@ function logDiagnostics(diagnostics) {
   if (diagnostics.infos.length) {
     console.info('Info:');
     diagnostics.infos.forEach(i => console.info(`- ${i}`));
+  }
+  
+  // Output detailed JSON data if verbose mode is enabled
+  if (VERBOSE && diagnostics.verboseData.length > 0) {
+    console.info('\n===== VERBOSE OUTPUT =====');
+    console.info('Detailed operations data (JSON format):');
+    // Pretty print the JSON with 2 space indentation
+    console.info(JSON.stringify(diagnostics.verboseData, null, 2));
+    console.info('===== END VERBOSE OUTPUT =====\n');
+    
+    // Also write the verbose data to a log file for later analysis
+    try {
+      const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
+      const logFileName = `project-sync-log-${timestamp}.json`;
+      fs.writeFileSync(
+        path.join(__dirname, logFileName), 
+        JSON.stringify(diagnostics.verboseData, null, 2)
+      );
+      console.info(`Verbose log written to ${logFileName}`);
+    } catch (err) {
+      console.error(`Failed to write verbose log file: ${err.message}`);
+    }
   }
 }
 
@@ -403,6 +571,13 @@ async function main() {
         // Track whether the PR is merged or just closed
         const isMerged = pr.merged === true;
         
+        // Add a reason based on PR state
+        const reason = pr.state === 'OPEN' 
+          ? `User-authored PR moved to Active column` 
+          : (isMerged 
+              ? `User-authored PR was merged, moved to Done column`
+              : `User-authored PR was closed, moved to Done column`);
+        
         itemsToProcess.push({
           contentId: pr.id,
           type: 'PR',
@@ -413,7 +588,8 @@ async function main() {
           state: pr.state,
           merged: isMerged,
           closedAt: pr.closedAt,
-          author: pr.author?.login
+          author: pr.author?.login,
+          reason
         });
       }
     }
@@ -437,7 +613,8 @@ async function main() {
           targetStatus: STATUS_OPTIONS.new, // Only applied for new issues added to board
           state: issue.state,
           closedAt: issue.closedAt,
-          author: issue.author?.login
+          author: issue.author?.login,
+          reason: 'New issue from monitored repository added to New column'
         });
       }
     }
@@ -450,7 +627,14 @@ async function main() {
       
       try {
         // Step 1: Find or add the item to the project
-        const { projectItemId, wasAdded } = await findOrAddItemToProject(item.contentId);
+        const { projectItemId, wasAdded, currentStatus } = await findOrAddItemToProject(
+          item.contentId,
+          item, 
+          diagnostics
+        );
+        
+        // Update item with current status for more detailed tracking
+        item.currentStatus = currentStatus;
         
         if (wasAdded) {
           diagnostics.infos.push(`Added ${item.type} #${item.number} from ${item.repoName} to project`);
@@ -463,12 +647,41 @@ async function main() {
         // Skip further processing for issues that were already in the project
         if (item.type === 'Issue' && !wasAdded) {
           diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
+          
+          // Add detailed record for skipped item
+          diagnostics.addVerboseRecord({
+            operation: 'skip',
+            itemType: item.type,
+            itemNumber: item.number,
+            repository: item.repoName,
+            projectItemId,
+            contentId: item.contentId,
+            currentStatus,
+            result: 'skipped',
+            url: `https://github.com/${item.repoName}/issues/${item.number}`,
+            reason: 'Issue already exists in project board, not updating per requirements'
+          });
           return;
         }
         
         // Skip status updates for PRs not authored by the specified user
         if (item.type === 'PR' && item.author !== GITHUB_AUTHOR) {
           diagnostics.infos.push(`Skipping PR #${item.number} [${item.repoName}] status update (not authored by ${GITHUB_AUTHOR})`);
+          
+          // Add detailed record for skipped PR
+          diagnostics.addVerboseRecord({
+            operation: 'skip',
+            itemType: item.type,
+            itemNumber: item.number,
+            repository: item.repoName,
+            projectItemId,
+            contentId: item.contentId,
+            currentStatus,
+            result: 'skipped',
+            author: item.author,
+            url: `https://github.com/${item.repoName}/pull/${item.number}`,
+            reason: `PR not authored by configured user (${GITHUB_AUTHOR})`
+          });
           return;
         }
         
@@ -492,27 +705,66 @@ async function main() {
             // For GraphQL, we need to convert the iteration ID to a string
             const iterationIdStr = String(currentSprintId);
             
-            await octokit.graphql(`
-              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-                updateProjectV2ItemFieldValue(input: {
-                  projectId: $projectId,
-                  itemId: $itemId,
-                  fieldId: $fieldId,
-                  value: { iterationId: $iterationId }
-                }) { 
-                  projectV2Item { 
-                    id 
-                  } 
-                }
-              }
-            `, {
-              projectId: PROJECT_ID,
-              itemId: projectItemId,
-              fieldId: SPRINT_FIELD_ID,
-              iterationId: iterationIdStr
-            });
+            // First check if the item already has the current sprint assigned
+            const currentItemSprint = await getItemSprint(projectItemId);
             
-            diagnostics.infos.push(`Updated ${item.type} #${item.number} [${item.repoName}] sprint field`);
+            // Per requirements.md: 
+            // - For Next/Active: always update sprint (even if already set)
+            // - For Done: only update if not already assigned
+            const shouldUpdateSprint = 
+              currentStatusOption === STATUS_OPTIONS.next ||
+              currentStatusOption === STATUS_OPTIONS.active ||
+              (currentStatusOption === STATUS_OPTIONS.done && (!currentItemSprint || currentItemSprint !== iterationIdStr));
+            
+            // Determine reason based on status and current sprint
+            const sprintAssignReason = 
+              !shouldUpdateSprint ? `Item already assigned to current Sprint, no update needed` :
+              currentStatusOption === STATUS_OPTIONS.next ? 'Item in Next column assigned to current Sprint' :
+              currentStatusOption === STATUS_OPTIONS.active ? 'Item in Active column assigned to current Sprint' :
+              'Item in Done column assigned to current Sprint';
+              
+            // Only update if needed
+            if (shouldUpdateSprint) {
+              await octokit.graphql(`
+                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { iterationId: $iterationId }
+                  }) { 
+                    projectV2Item { 
+                      id 
+                    } 
+                  }
+                }
+              `, {
+                projectId: PROJECT_ID,
+                itemId: projectItemId,
+                fieldId: SPRINT_FIELD_ID,
+                iterationId: iterationIdStr
+              });
+              
+              // Log standard info message
+              diagnostics.infos.push(`Updated ${item.type} #${item.number} [${item.repoName}] sprint field`);
+            } else {
+              diagnostics.infos.push(`Skipped sprint update for ${item.type} #${item.number} [${item.repoName}] - already has correct sprint`);
+            }
+            
+            // Add verbose record with reason
+            diagnostics.addVerboseRecord({
+              operation: shouldUpdateSprint ? 'updateSprint' : 'skipSprint',
+              itemType: item.type,
+              itemNumber: item.number,
+              repository: item.repoName,
+              projectItemId,
+              contentId: item.contentId,
+              sprintId: currentSprintId,
+              currentSprintId: currentItemSprint,
+              result: shouldUpdateSprint ? 'success' : 'skipped',
+              url: `https://github.com/${item.repoName}/issues/${item.number}`,
+              reason: sprintAssignReason
+            });
           } catch (err) {
             diagnostics.errors.push(`Failed to update sprint for ${item.type} #${item.number} [${item.repoName}]: ${err.message}`);
           }
@@ -532,46 +784,114 @@ async function main() {
               processedNodeIds.add(linkedIssue.id);
               
               // Find the linked issue in the project
-              const { projectItemId: issueItemId } = await findOrAddItemToProject(linkedIssue.id);
+              const linkedIssueInfo = {
+                type: 'Issue',
+                number: linkedIssue.number,
+                repoName: linkedIssue.repository.nameWithOwner,
+                contentId: linkedIssue.id,
+                reason: `Linked to PR #${item.number} (${item.merged ? 'merged' : 'open'})`
+              };
+              const { projectItemId: issueItemId, currentStatus } = await findOrAddItemToProject(
+                linkedIssue.id,
+                linkedIssueInfo,
+                diagnostics
+              );
+              
+              // Store the current status for the detailed output
+              linkedIssueInfo.currentStatus = currentStatus;
               
               // Update status to match PR
               await updateItemStatus(issueItemId, item.targetStatus, diagnostics, {
                 type: 'Issue',
                 number: linkedIssue.number,
-                repoName: linkedIssue.repository.nameWithOwner
+                repoName: linkedIssue.repository.nameWithOwner,
+                contentId: linkedIssue.id,
+                currentStatus: linkedIssueInfo.currentStatus,
+                reason: `Inheriting status from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
               });
               
               // Update sprint to match PR
               try {
                 const iterationIdStr = String(currentSprintId);
                 
-                await octokit.graphql(`
-                  mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-                    updateProjectV2ItemFieldValue(input: {
-                      projectId: $projectId,
-                      itemId: $itemId,
-                      fieldId: $fieldId,
-                      value: { iterationId: $iterationId }
-                    }) { 
-                      projectV2Item { 
-                        id 
-                      } 
-                    }
-                  }
-                `, {
-                  projectId: PROJECT_ID,
-                  itemId: issueItemId,
-                  fieldId: SPRINT_FIELD_ID,
-                  iterationId: iterationIdStr
-                });
+                // Check if the issue already has the correct sprint assigned
+                const currentIssueSprint = await getItemSprint(issueItemId);
+                const shouldUpdateSprint = !currentIssueSprint || currentIssueSprint !== iterationIdStr;
                 
-                diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] sprint field`);
+                if (shouldUpdateSprint) {
+                  await octokit.graphql(`
+                    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+                      updateProjectV2ItemFieldValue(input: {
+                        projectId: $projectId,
+                        itemId: $itemId,
+                        fieldId: $fieldId,
+                        value: { iterationId: $iterationId }
+                      }) { 
+                        projectV2Item { 
+                          id 
+                        } 
+                      }
+                    }
+                  `, {
+                    projectId: PROJECT_ID,
+                    itemId: issueItemId,
+                    fieldId: SPRINT_FIELD_ID,
+                    iterationId: iterationIdStr
+                  });
+                  
+                  // Log standard message
+                  diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] sprint field`);
+                } else {
+                  diagnostics.infos.push(`Skipped sprint update for linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] - already has correct sprint`);
+                }
+                
+                // Add verbose record with reason
+                diagnostics.addVerboseRecord({
+                  operation: shouldUpdateSprint ? 'updateSprint' : 'skipSprint',
+                  itemType: 'Issue',
+                  itemNumber: linkedIssue.number,
+                  repository: linkedIssue.repository.nameWithOwner,
+                  projectItemId: issueItemId,
+                  contentId: linkedIssue.id,
+                  sprintId: currentSprintId,
+                  currentSprintId: currentIssueSprint,
+                  result: shouldUpdateSprint ? 'success' : 'skipped',
+                  linkedFrom: {
+                    type: 'PR',
+                    number: item.number,
+                    repository: item.repoName,
+                    state: item.state,
+                    merged: item.merged
+                  },
+                  url: `https://github.com/${linkedIssue.repository.nameWithOwner}/issues/${linkedIssue.number}`,
+                  reason: shouldUpdateSprint
+                    ? `Issue inheriting sprint field from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
+                    : `Issue already has current sprint assigned, no update needed`
+                });
               } catch (err) {
                 diagnostics.errors.push(`Failed to update sprint for linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}]: ${err.message}`);
               }
             }
           } else {
+            // Human-friendly message
             diagnostics.infos.push(`Skipping linked issues for PR #${item.number} [${item.repoName}] (merged=${item.merged}, state=${item.state}; only update linked issues for open or merged PRs)`);
+            
+            // Detailed verbose record
+            diagnostics.addVerboseRecord({
+              operation: 'skipLinkedIssues',
+              itemType: 'PR',
+              itemNumber: item.number,
+              repository: item.repoName,
+              projectItemId,
+              contentId: item.contentId,
+              author: item.author,
+              state: item.state, 
+              merged: item.merged,
+              linkedIssuesCount: item.linkedIssues.length,
+              result: 'skipped',
+              url: `https://github.com/${item.repoName}/pull/${item.number}`,
+              reason: `PR is closed but not merged, linked issues are not updated per requirements`
+            });
           }
         }
       } catch (error) {
