@@ -43,9 +43,11 @@ To change automation, simply edit this file and request a sync—no coding requi
 
 ### 4. Repository Monitoring Rules
 
-| Issue State | Project Board Action |
-|------------|---------------------|
-| New issue not in project | Add to **"New"** column |
+| Issue State | Project Board Action | Additional Actions |
+|------------|---------------------|-------------------|
+| New issue not in project | Add to **"New"** column | None |
+| Existing issue in "Next" or "Active" column | No column change | Apply sprint rules per section 1 |
+| Other existing issues | No change | None |
 
 ## Monitored Repositories
 - nr-nerds

@@ -732,7 +732,7 @@ async function main() {
     console.log('- PRs authored by user will be moved to Active (if open) or Done (if closed)');
     console.log('- Issues linked to PRs will inherit status from PR only if PR is merged or open');
     console.log('- New issues in monitored repos will be added to New column');
-    console.log('- Issues already in the project will be left unchanged');
+    console.log('- Existing issues in Next/Active columns will have sprint maintained');
     console.log('- Items in Next/Active/Done columns will be assigned to current Sprint');
     
     // Load configuration
@@ -846,24 +846,60 @@ async function main() {
         // 1. For PRs: Only author's PRs get automatic status updates 
         // 2. For issues: Only new issues get added to "New" column; existing issues stay as they are
         
-        // Skip further processing for issues that were already in the project
+        // For existing issues in project
         if (item.type === 'Issue' && !wasAdded) {
-          diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
+          // Map status name to option ID for comparison
+          const currentStatusId = Object.entries(STATUS_OPTIONS).find(([key, value]) => 
+            key.toLowerCase() === (currentStatus || '').toLowerCase()
+          )?.[1];
+
+          // Check if existing issue is in Next or Active column (needs sprint assignment per requirements)
+          const isInNextOrActiveColumn = 
+            currentStatusId === STATUS_OPTIONS.next || 
+            currentStatusId === STATUS_OPTIONS.active;
           
-          // Add detailed record for skipped item
-          diagnostics.addVerboseRecord({
-            operation: 'skip',
-            itemType: item.type,
-            itemNumber: item.number,
-            repository: item.repoName,
-            projectItemId,
-            contentId: item.contentId,
-            currentStatus,
-            result: 'skipped',
-            url: `https://github.com/${item.repoName}/issues/${item.number}`,
-            reason: 'Issue already exists in project board, not updating per requirements'
-          });
-          return;
+          if (!isInNextOrActiveColumn) {
+            // Skip further processing for issues not in Next or Active columns
+            diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
+            
+            // Add detailed record for skipped item
+            diagnostics.addVerboseRecord({
+              operation: 'skip',
+              itemType: item.type,
+              itemNumber: item.number,
+              repository: item.repoName,
+              projectItemId,
+              contentId: item.contentId,
+              currentStatus,
+              result: 'skipped',
+              url: `https://github.com/${item.repoName}/issues/${item.number}`,
+              reason: 'Issue already exists in project board, not updating per requirements'
+            });
+            return;
+          } else {
+            // For Next/Active issues, continue processing for sprint assignment
+            diagnostics.infos.push(`Checking sprint for ${item.type} #${item.number} [${item.repoName}] in ${currentStatus} column`);
+            
+            // Store the current status as the target status to preserve it
+            item.targetStatus = currentStatusId;
+            
+            // Skip status update steps since we're keeping the current status
+            diagnostics.addVerboseRecord({
+              operation: 'processForSprint',
+              itemType: item.type,
+              itemNumber: item.number,
+              repository: item.repoName,
+              projectItemId,
+              contentId: item.contentId,
+              currentStatus,
+              result: 'processing',
+              url: `https://github.com/${item.repoName}/issues/${item.number}`,
+              reason: 'Issue in Next/Active column needs sprint assignment per requirements'
+            });
+            
+            // Skip to sprint assignment step
+            // The code will continue to the sprint assignment below
+          }
         }
         
         // For PRs that are already in the project, check if they are already in the correct state
