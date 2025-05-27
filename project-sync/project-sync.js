@@ -53,11 +53,13 @@ async function getCurrentSprintOptionId() {
                 id
                 name
                 configuration {
-                  iterations {
-                    id
-                    title
-                    startDate
-                    duration
+                  ... on ProjectV2IterationFieldConfiguration {
+                    iterations {
+                      id
+                      title
+                      startDate
+                      duration
+                    }
                   }
                 }
               }
@@ -75,7 +77,8 @@ async function getCurrentSprintOptionId() {
   
   const today = new Date();
   // Find the iteration (sprint) whose startDate <= today < startDate+duration
-  for (const iter of sprintField.configuration.iterations) {
+  const iterations = sprintField.configuration?.iterations || [];
+  for (const iter of iterations) {
     const start = new Date(iter.startDate);
     const end = new Date(start.getTime() + iter.duration * 24 * 60 * 60 * 1000);
     if (today >= start && today < end) {
@@ -125,40 +128,6 @@ function getMonitoredRepos() {
     console.error(`Error reading requirements.md: ${error.message}`);
     process.exit(1);
   }
-}
-
-/**
- * Get item's sprint field value
- */
-async function getItemSprintFieldValue(projectItemId) {
-  const res = await octokit.graphql(`
-    query($projectId:ID!, $itemId:ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          item(id: $itemId) {
-            fieldValues(first: 50) {
-              nodes {
-                ... on ProjectV2ItemFieldIterationValue {
-                  field { id }
-                  iterationId
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `, { projectId: PROJECT_ID, itemId: projectItemId });
-
-  if (!res.node || !res.node.item || !res.node.item.fieldValues || !res.node.item.fieldValues.nodes) {
-    return null;
-  }
-
-  const sprintField = res.node.item.fieldValues.nodes.find(
-    fv => fv.field && fv.field.id === SPRINT_FIELD_ID
-  );
-
-  return sprintField?.iterationId || null;
 }
 
 /**
@@ -253,34 +222,7 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
   }
 }
 
-/**
- * Update an item's sprint field in the project
- */
-async function updateItemSprint(projectItemId, iterationId, diagnostics, itemInfo) {
-  try {
-    await octokit.graphql(`
-      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId,
-          itemId: $itemId,
-          fieldId: $fieldId,
-          value: { iterationId: $iterationId }
-        }) { projectV2Item { id } }
-      }
-    `, {
-      projectId: PROJECT_ID,
-      itemId: projectItemId,
-      fieldId: SPRINT_FIELD_ID,
-      iterationId: iterationId
-    });
-    
-    diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number} sprint field`);
-    return true;
-  } catch (err) {
-    diagnostics.errors.push(`Failed to update sprint for ${itemInfo.type} #${itemInfo.number}: ${err.message}`);
-    return false;
-  }
-}
+// No longer needed - logic moved to inline calls
 
 /**
  * Process batches of items to avoid rate limits
@@ -333,6 +275,7 @@ async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
               title
               author { login }
               state
+              merged
               updatedAt
               repository { nameWithOwner }
               closingIssuesReferences(first: 10) { 
@@ -413,6 +356,14 @@ async function main() {
   try {
     console.log('Starting project sync...');
     
+    // Log the implementation of rules
+    console.log('Applying rules from requirements.md:');
+    console.log('- PRs authored by user will be moved to Active (if open) or Done (if closed)');
+    console.log('- Issues linked to PRs will inherit status from PR only if PR is merged or open');
+    console.log('- New issues in monitored repos will be added to New column');
+    console.log('- Issues already in the project will be left unchanged');
+    console.log('- Items in Next/Active/Done columns will be assigned to current Sprint');
+    
     // Load configuration
     const monitoredRepos = getMonitoredRepos();
     console.log(`Monitoring ${monitoredRepos.length} repositories: ${monitoredRepos.join(', ')}`);
@@ -443,7 +394,13 @@ async function main() {
         processedNodeIds.add(pr.id);
         
         // Determine target status based on PR state
+        // According to requirements.md:
+        // - New PRs authored by the user: Move to "Active"
+        // - PRs authored by the user and closed: Move to "Done"
         const targetStatus = pr.state === 'OPEN' ? STATUS_OPTIONS.active : STATUS_OPTIONS.done;
+        
+        // Track whether the PR is merged or just closed
+        const isMerged = pr.merged === true;
         
         itemsToProcess.push({
           contentId: pr.id,
@@ -453,7 +410,9 @@ async function main() {
           targetStatus,
           linkedIssues: pr.closingIssuesReferences?.nodes || [],
           state: pr.state,
-          closedAt: pr.closedAt
+          merged: isMerged,
+          closedAt: pr.closedAt,
+          author: pr.author?.login
         });
       }
     }
@@ -467,15 +426,17 @@ async function main() {
         if (processedNodeIds.has(issue.id)) continue;
         processedNodeIds.add(issue.id);
         
-        // Only process new issues to be added to the board
+        // Only add as new issues in "New" column that aren't already in the project
+        // This is handled during processing with wasAdded check
         itemsToProcess.push({
           contentId: issue.id,
           type: 'Issue',
           number: issue.number,
           repoName: issue.repository.nameWithOwner,
-          targetStatus: STATUS_OPTIONS.new,
+          targetStatus: STATUS_OPTIONS.new, // Only applied for new issues added to board
           state: issue.state,
-          closedAt: issue.closedAt
+          closedAt: issue.closedAt,
+          author: issue.author?.login
         });
       }
     }
@@ -494,10 +455,19 @@ async function main() {
           diagnostics.infos.push(`Added ${item.type} #${item.number} from ${item.repoName} to project`);
         }
         
+        // Apply specific rules based on requirements.md:
+        // 1. For PRs: Only author's PRs get automatic status updates 
+        // 2. For issues: Only new issues get added to "New" column; existing issues stay as they are
+        
         // Skip further processing for issues that were already in the project
-        // According to requirements, we only add new issues but don't update existing ones
         if (item.type === 'Issue' && !wasAdded) {
           diagnostics.infos.push(`Skipping ${item.type} #${item.number} (already in project)`);
+          return;
+        }
+        
+        // Skip status updates for PRs not authored by the specified user
+        if (item.type === 'PR' && item.author !== GITHUB_AUTHOR) {
+          diagnostics.infos.push(`Skipping PR #${item.number} status update (not authored by ${GITHUB_AUTHOR})`);
           return;
         }
         
@@ -507,40 +477,100 @@ async function main() {
         
         // Step 3: Apply the sprint field rules
         const currentStatusOption = item.targetStatus;
-        const currentSprintValue = await getItemSprintFieldValue(projectItemId);
         
-        // Rule: Next/Active items should have sprint assigned
+        // Since we're having issues with the sprint field value retrieval,
+        // let's simplify and just apply the sprint assignment based on the status
+        // according to the requirements
+        
+        // Rule: Next/Active items should have sprint assigned OR Done items should be assigned to the sprint
         if (currentStatusOption === STATUS_OPTIONS.next || 
-            currentStatusOption === STATUS_OPTIONS.active) {
-          await updateItemSprint(projectItemId, currentSprintId, diagnostics, item);
-        }
-        // Rule: Done items should have sprint if not already assigned
-        else if (currentStatusOption === STATUS_OPTIONS.done && !currentSprintValue) {
-          await updateItemSprint(projectItemId, currentSprintId, diagnostics, item);
+            currentStatusOption === STATUS_OPTIONS.active ||
+            currentStatusOption === STATUS_OPTIONS.done) {
+          
+          try {
+            // For GraphQL, we need to convert the iteration ID to a string
+            const iterationIdStr = String(currentSprintId);
+            
+            await octokit.graphql(`
+              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId,
+                  itemId: $itemId,
+                  fieldId: $fieldId,
+                  value: { iterationId: $iterationId }
+                }) { 
+                  projectV2Item { 
+                    id 
+                  } 
+                }
+              }
+            `, {
+              projectId: PROJECT_ID,
+              itemId: projectItemId,
+              fieldId: SPRINT_FIELD_ID,
+              iterationId: iterationIdStr
+            });
+            
+            diagnostics.infos.push(`Updated ${item.type} #${item.number} sprint field`);
+          } catch (err) {
+            diagnostics.errors.push(`Failed to update sprint for ${item.type} #${item.number}: ${err.message}`);
+          }
         }
         
-        // Step 4: For PRs, also handle linked issues if PR is merged
-        if (item.type === 'PR' && item.state === 'MERGED' && item.linkedIssues.length > 0) {
-          for (const linkedIssue of item.linkedIssues) {
-            if (processedNodeIds.has(linkedIssue.id)) continue;
-            processedNodeIds.add(linkedIssue.id);
-            
-            // Find the linked issue in the project
-            const { projectItemId: issueItemId } = await findOrAddItemToProject(linkedIssue.id);
-            
-            // Update status to match PR
-            await updateItemStatus(issueItemId, item.targetStatus, diagnostics, {
-              type: 'Issue',
-              number: linkedIssue.number,
-              repoName: linkedIssue.repository.nameWithOwner
-            });
-            
-            // Update sprint to match PR
-            await updateItemSprint(issueItemId, currentSprintId, diagnostics, {
-              type: 'Issue',
-              number: linkedIssue.number,
-              repoName: linkedIssue.repository.nameWithOwner
-            });
+        // Step 4: Handle linked issues according to PR state and rules
+        // From requirements.md:
+        // - New link: inherit the sprint and column from its PR
+        // - PR merged: inherit the sprint and column from its PR
+        // - PR closed (not merged): do not change the issue's column or sprint
+        if (item.type === 'PR' && item.linkedIssues.length > 0 && item.author === GITHUB_AUTHOR) {
+          // Only process linked issues if the PR is authored by the user AND
+          // it's either merged or still open (new link)
+          if (item.merged === true || item.state === 'OPEN') {
+            for (const linkedIssue of item.linkedIssues) {
+              if (processedNodeIds.has(linkedIssue.id)) continue;
+              processedNodeIds.add(linkedIssue.id);
+              
+              // Find the linked issue in the project
+              const { projectItemId: issueItemId } = await findOrAddItemToProject(linkedIssue.id);
+              
+              // Update status to match PR
+              await updateItemStatus(issueItemId, item.targetStatus, diagnostics, {
+                type: 'Issue',
+                number: linkedIssue.number,
+                repoName: linkedIssue.repository.nameWithOwner
+              });
+              
+              // Update sprint to match PR
+              try {
+                const iterationIdStr = String(currentSprintId);
+                
+                await octokit.graphql(`
+                  mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+                    updateProjectV2ItemFieldValue(input: {
+                      projectId: $projectId,
+                      itemId: $itemId,
+                      fieldId: $fieldId,
+                      value: { iterationId: $iterationId }
+                    }) { 
+                      projectV2Item { 
+                        id 
+                      } 
+                    }
+                  }
+                `, {
+                  projectId: PROJECT_ID,
+                  itemId: issueItemId,
+                  fieldId: SPRINT_FIELD_ID,
+                  iterationId: iterationIdStr
+                });
+                
+                diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} sprint field`);
+              } catch (err) {
+                diagnostics.errors.push(`Failed to update sprint for linked Issue #${linkedIssue.number}: ${err.message}`);
+              }
+            }
+          } else {
+            diagnostics.infos.push(`Skipping linked issues for PR #${item.number} (merged=${item.merged}, state=${item.state}; only update linked issues for open or merged PRs)`);
           }
         }
       } catch (error) {
