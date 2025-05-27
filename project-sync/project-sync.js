@@ -1085,7 +1085,13 @@ async function main() {
                 
                 // Check if the issue already has the correct sprint assigned
                 const currentIssueSprint = await getItemSprint(issueItemId);
-                const shouldUpdateSprint = !currentIssueSprint || currentIssueSprint !== iterationIdStr;
+                
+                // If the linked issue is going to the Done column, only assign sprint if none exists
+                // Otherwise follow the regular rules for Next/Active columns
+                const isLinkedIssueDone = item.targetStatus === STATUS_OPTIONS.done;
+                const shouldUpdateSprint = isLinkedIssueDone
+                  ? !currentIssueSprint  // For Done items: only update if no sprint is assigned
+                  : !currentIssueSprint || currentIssueSprint !== iterationIdStr; // For other items: update if sprint is missing or different
                 
                 if (shouldUpdateSprint) {
                   await octokit.graphql(`
