@@ -226,9 +226,9 @@ async function testSprintAssignment() {
       const alreadyHasCorrectSprint = currentSprint === targetSprint;
       
       if (isInDoneColumn) {
-        return !alreadyHasCorrectSprint && (!currentSprint || currentSprint !== targetSprint);
+        return !alreadyHasCorrectSprint && !currentSprint; // For Done: only update if no sprint
       } else {
-        return !alreadyHasCorrectSprint;
+        return !alreadyHasCorrectSprint; // For Next/Active: update if sprint doesn't match
       }
     }
     
@@ -250,7 +250,7 @@ async function testSprintAssignment() {
         name: "Done column, has different sprint", 
         currentSprint: "some-other-sprint-id",
         isInDoneColumn: true,
-        expected: true
+        expected: false // Changed from true to false - don't replace existing sprints
       },
       { 
         name: "Active column, no sprint assigned", 
