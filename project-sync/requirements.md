@@ -62,6 +62,7 @@ _All repositories listed above are under the `bcgov` GitHub organization unless 
 - Process changes in batches (default: 10 at a time, 1s delay between batches) to avoid GitHub secondary rate limits.
 - All issues and PRs should be deduplicated by node ID before processing.
 - Only process issues and PRs **updated in the last two days** (based on `updatedAt`). This rule applies to all automation logic above.
+- **Optimize API usage**: Skip unnecessary API calls when the target state already matches the current state (e.g., don't update a sprint assignment if it's already correctly assigned). This reduces API usage and improves performance.
 
 ---
 
