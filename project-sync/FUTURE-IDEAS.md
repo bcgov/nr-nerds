@@ -2,6 +2,26 @@
 
 This file tracks potential improvements and future work for the project-sync automation. Each item can be promoted to a GitHub issue or PR as needed.
 
+## User Assignment Enhancements
+
+### 1. Support for Multiple Assignees
+- Enhance the `assignUserToProjectItem` function to support multiple assignees
+- Add configuration for team assignments based on repository or PR/issue type
+- Useful for larger teams with specialized roles or for assigning both a primary and backup resource
+
+### 2. Content-Based User Assignment
+- Add logic to assign different users based on content of PR or issue
+- Examples: Assign security team members for security-related PRs, documentation team for doc changes
+- Could use labels, PR title keywords, or file paths to determine appropriate assignee
+
+### 3. User Assignment Configuration Options
+- Add configurable options for user assignment behavior in requirements.md
+- Options could include:
+  - `assignPRsToAuthor`: Whether to automatically assign PRs to their author
+  - `inheritAssigneesForLinkedIssues`: Whether linked issues inherit PR assignees
+  - `preserveExistingAssignees`: Whether to keep existing assignees when updating
+  - `defaultAssignee`: The default user to assign when no specific user is determined
+
 ## 1. Dry-Run Mode
 - Add a command-line or config option to run the script in "dry run" mode, where no changes are made to GitHub, but all actions are logged as if they would be performed.
 - Useful for testing changes to requirements or code without affecting the project board.
