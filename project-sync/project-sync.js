@@ -98,7 +98,7 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
           projectId: $projectId,
           itemId: $itemId,
           fieldId: $fieldId,
-          value: { assigneeIds: ["$userId"] }
+          value: { assigneeIds: [$userId] }
         }) { 
           projectV2Item { 
             id 
