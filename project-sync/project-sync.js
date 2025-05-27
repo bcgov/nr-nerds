@@ -335,7 +335,7 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
 async function getItemSprint(projectItemId) {
   try {
     const res = await octokit.graphql(`
-      query getItemFieldValues($projectId: ID!, $itemId: ID!) {
+      query getItemFieldValues($itemId: ID!) {
         node(id: $itemId) {
           ... on ProjectV2Item {
             fieldValues(first: 20) {
@@ -350,7 +350,6 @@ async function getItemSprint(projectItemId) {
         }
       }
     `, { 
-      projectId: PROJECT_ID,
       itemId: projectItemId
     });
     
