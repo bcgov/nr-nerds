@@ -1,15 +1,19 @@
-// SCOPE: This script manages issues and PRs across all bcgov repositories and a single GitHub Projects v2 board, strictly following the automation rules defined in requirements.md. All logic is requirements-driven; any changes to automation must be made in requirements.md and reflected here.
-// Script to manage GitHub Projects v2: assign issues/PRs to project columns based on rules
+// SCOPE: This script manages issues and PRs across all bcgov repositories and a single GitHub Projects v2 board, 
+// strictly following the automation rules defined in requirements.md.
+// All logic is requirements-driven; any changes to automation must be made in requirements.md and reflected here.
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
+const path = require("path");
 
+// Environment variables
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const octokit = new Octokit({ auth: GH_TOKEN });
 
+// Project configuration
 const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
 
-// --- CONFIGURATION ---
+// Column status option IDs
 const STATUS_OPTIONS = {
   parked: '5bc8cfd4',    // optionId for 'Parked' column
   new: 'f8e1e5a4',      // optionId for 'New' column
@@ -21,11 +25,24 @@ const STATUS_OPTIONS = {
 };
 
 // Sprint field configuration
-const SPRINT_FIELD_ID = 'PVTIF_lADOAA37OM4AFuzgzgDTbhE'; // Correct Sprint (Iteration) fieldId
+const SPRINT_FIELD_ID = 'PVTIF_lADOAA37OM4AFuzgzgDTbhE';
+const STATUS_FIELD_ID = 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA';
 
-// Helper: Get current sprint optionId
+// --- Helper Classes ---
+class DiagnosticsContext {
+  constructor() {
+    this.errors = [];
+    this.warnings = [];
+    this.infos = [];
+  }
+}
+
+// --- Helper Functions ---
+
+/**
+ * Gets the current Sprint iteration ID by finding the iteration that includes today's date
+ */
 async function getCurrentSprintOptionId() {
-  // Fetch project fields and options
   const res = await octokit.graphql(`
     query($projectId:ID!) {
       node(id: $projectId) {
@@ -50,10 +67,12 @@ async function getCurrentSprintOptionId() {
       }
     }
   `, { projectId: PROJECT_ID });
+  
   const sprintField = res.node.fields.nodes.find(f => f.id === SPRINT_FIELD_ID);
   if (!sprintField) {
     throw new Error('Sprint field not found in project configuration.');
   }
+  
   const today = new Date();
   // Find the iteration (sprint) whose startDate <= today < startDate+duration
   for (const iter of sprintField.configuration.iterations) {
@@ -63,125 +82,151 @@ async function getCurrentSprintOptionId() {
       return iter.id;
     }
   }
+  
   throw new Error(`No Sprint iteration with a date range including today (${today.toISOString().slice(0,10)}). Available iterations: [${sprintField.configuration.iterations.map(i => `'${i.title}' (${i.startDate}, ${i.duration}d)`).join(', ')}]`);
 }
 
-// --- Helper: Get issue-import repos from requirements.md ---
-function getIssueImportRepos() {
-  // Read requirements.md and extract the Monitored Repositories section
-  const reqText = fs.readFileSync("project-sync/requirements.md", "utf8");
-  const lines = reqText.split("\n");
-  const startIdx = lines.findIndex(l => l.trim().startsWith('## Monitored Repositories'));
-  if (startIdx === -1) return [];
-  const repos = [];
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line === '' || line.startsWith('(') || line.startsWith('_')) continue;
-    if (line.startsWith('- ')) {
-      // Only add if the line is a valid repo name (letters, numbers, dashes, underscores, dots, or org/repo)
-      const repo = line.replace('- ', '').trim();
-      if (/^[a-zA-Z0-9._/-]+$/.test(repo)) {
-        // If the repo name does not contain a slash, prepend 'bcgov/'
-        if (!repo.includes('/')) {
-          repos.push('bcgov/' + repo);
-        } else {
-          repos.push(repo);
-        }
-      }
-    } else {
-      // Stop if we've left the list
-      break;
-    }
-  }
-  return repos;
-}
-
-// --- Helper: Parse repo full name from URL or object ---
-function getRepoFullName(issueOrPr) {
-  if (issueOrPr.repository && issueOrPr.repository.full_name) return issueOrPr.repository.full_name;
-  if (issueOrPr.repository_url) return issueOrPr.repository_url.split('/').slice(-2).join('/');
-  return '';
-}
-
-// --- Helper: Deduplicate items by nodeId ---
-function dedupeItems(items) {
-  const map = new Map();
-  for (const item of items) {
-    if (!map.has(item.nodeId)) map.set(item.nodeId, item);
-  }
-  return Array.from(map.values());
-}
-
-// --- Add or update item in project ---
-async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOption, sprintField, diagnostics, reopenIfClosed, forceSprint }) {
+/**
+ * Extract monitored repositories from requirements.md
+ */
+function getMonitoredRepos() {
   try {
-    // If forceSprint is true, assign the item to the current sprint
-    if (forceSprint) {
-      const currentSprintOptionId = await getCurrentSprintOptionId();
-      sprintField = currentSprintOptionId;
-      diagnostics.infos.push(`Assigned item to the current sprint due to forceSprint flag.`);
-    }
-    // Optionally reopen closed issues if moving to Active
-    if (type === 'issue' && statusOption === STATUS_OPTIONS.active && reopenIfClosed) {
-      // Check if the issue is closed
-      const issueRes = await octokit.graphql(`
-        query($nodeId:ID!) {
-          node(id: $nodeId) { ... on Issue { state } }
+    // Use __dirname to ensure reliable path resolution
+    const reqText = fs.readFileSync(path.join(__dirname, "requirements.md"), "utf8");
+    const lines = reqText.split("\n");
+    const startIdx = lines.findIndex(l => l.trim().startsWith('## Monitored Repositories'));
+    
+    if (startIdx === -1) return [];
+    
+    const repos = [];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Skip empty lines, comments or notes
+      if (line === '' || line.startsWith('(') || line.startsWith('_')) continue;
+      
+      if (line.startsWith('- ')) {
+        const repo = line.replace('- ', '').trim();
+        if (/^[a-zA-Z0-9._/-]+$/.test(repo)) {
+          // If the repo name does not contain a slash, prepend 'bcgov/'
+          if (!repo.includes('/')) {
+            repos.push('bcgov/' + repo);
+          } else {
+            repos.push(repo);
+          }
         }
-      `, { nodeId });
-      if (issueRes.node && issueRes.node.state === 'CLOSED') {
-        // Reopen the issue
-        const repoParts = repoName.split('/');
-        await octokit.issues.update({
-          owner: repoParts[0],
-          repo: repoParts[1],
-          issue_number: number,
-          state: 'open'
-        });
-        diagnostics.infos.push(`Reopened issue #${number} in ${repoName} because it was moved to Active.`);
+      } else if (line.startsWith('#')) {
+        // Stop if we've hit another section
+        break;
       }
     }
-    // Find or add item to project
-    let projectItemId = null;
-    let endCursor = null;
-    let found = false;
-    do {
-      const res = await octokit.graphql(`
-        query($projectId:ID!, $after:String) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              items(first: 100, after: $after) {
-                nodes { id content { ... on PullRequest { id } ... on Issue { id } } }
-                pageInfo { hasNextPage endCursor }
+    return repos;
+  } catch (error) {
+    console.error(`Error reading requirements.md: ${error.message}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Get item's sprint field value
+ */
+async function getItemSprintFieldValue(projectItemId) {
+  const res = await octokit.graphql(`
+    query($projectId:ID!, $itemId:ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          item(id: $itemId) {
+            fieldValues(first: 50) {
+              nodes {
+                ... on ProjectV2ItemFieldIterationValue {
+                  field { id }
+                  iterationId
+                }
               }
             }
           }
-        }`, { projectId: PROJECT_ID, after: endCursor });
-      const items = res.node.items.nodes;
-      const match = items.find(item => item.content && item.content.id === nodeId);
-      if (match) {
-        projectItemId = match.id;
-        found = true;
-        break;
+        }
       }
-      endCursor = res.node.items.pageInfo.endCursor;
-    } while (endCursor);
-    if (!found) {
-      const addResult = await octokit.graphql(`
-        mutation($projectId:ID!, $contentId:ID!) {
-          addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-            item { id }
+    }
+  `, { projectId: PROJECT_ID, itemId: projectItemId });
+
+  if (!res.node || !res.node.item || !res.node.item.fieldValues || !res.node.item.fieldValues.nodes) {
+    return null;
+  }
+
+  const sprintField = res.node.item.fieldValues.nodes.find(
+    fv => fv.field && fv.field.id === SPRINT_FIELD_ID
+  );
+
+  return sprintField?.iterationId || null;
+}
+
+/**
+ * Find or add an item to the project and return its project item ID
+ */
+async function findOrAddItemToProject(contentId) {
+  // First try to find the item in the project
+  let endCursor = null;
+  let projectItemId = null;
+  let found = false;
+  
+  do {
+    const res = await octokit.graphql(`
+      query($projectId:ID!, $after:String) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100, after: $after) {
+              nodes { 
+                id 
+                content { 
+                  ... on PullRequest { id } 
+                  ... on Issue { id } 
+                }
+              }
+              pageInfo { hasNextPage endCursor }
+            }
           }
-        }`, { projectId: PROJECT_ID, contentId: nodeId });
-      projectItemId = addResult.addProjectV2ItemById.item.id;
+        }
+      }
+    `, { projectId: PROJECT_ID, after: endCursor });
+    
+    const items = res.node.items.nodes;
+    const match = items.find(item => item.content && item.content.id === contentId);
+    
+    if (match) {
+      projectItemId = match.id;
+      found = true;
+      break;
     }
-    // Defensive: Check required variables before GraphQL mutation
-    if (!projectItemId || !statusOption) {
-      throw new Error(`Missing required variable: projectItemId='${projectItemId}', statusOption='${statusOption}' for ${type} #${number} in ${repoName}`);
+    
+    if (!res.node.items.pageInfo.hasNextPage) {
+      break;
     }
-    // Log variables before mutation
-    console.log(`[DEBUG] Updating status for ${type} #${number} in ${repoName}: projectItemId=${projectItemId}, statusOption=${statusOption}`);
-    // Set status
+    
+    endCursor = res.node.items.pageInfo.endCursor;
+  } while (endCursor);
+
+  // If not found, add it to the project
+  if (!found) {
+    const addResult = await octokit.graphql(`
+      mutation($projectId:ID!, $contentId:ID!) {
+        addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+          item { id }
+        }
+      }
+    `, { projectId: PROJECT_ID, contentId });
+    
+    projectItemId = addResult.addProjectV2ItemById.item.id;
+  }
+  
+  return { projectItemId, wasAdded: !found };
+}
+
+/**
+ * Update an item's status in the project
+ */
+async function updateItemStatus(projectItemId, statusOption, diagnostics, itemInfo) {
+  try {
     await octokit.graphql(`
       mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
         updateProjectV2ItemFieldValue(input: {
@@ -190,223 +235,80 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
           fieldId: $fieldId,
           value: { singleSelectOptionId: $optionId }
         }) { projectV2Item { id } }
-      }`, {
+      }
+    `, {
       projectId: PROJECT_ID,
       itemId: projectItemId,
-      fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status fieldId
+      fieldId: STATUS_FIELD_ID,
       optionId: statusOption
     });
-    // Assign Sprint for Next/Active regardless of previous value
-    if (statusOption === STATUS_OPTIONS.next || statusOption === STATUS_OPTIONS.active) {
-      let sprintOptionId = sprintField;
-      if (!sprintOptionId) {
-        try {
-          sprintOptionId = await getCurrentSprintOptionId();
-        } catch (err) {
-          throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
-        }
-      }
-      if (sprintOptionId) {
-        try {
-          await octokit.graphql(`
-            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
-              updateProjectV2ItemFieldValue(input: {
-                projectId: $projectId,
-                itemId: $itemId,
-                fieldId: $fieldId,
-                value: { iterationId: $iterationId }
-              }) { projectV2Item { id } }
-            }`, {
-            projectId: PROJECT_ID,
-            itemId: projectItemId,
-            fieldId: SPRINT_FIELD_ID,
-            iterationId: sprintOptionId
-          });
-        } catch (err) {
-          throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
-        }
-      } else {
-        throw new Error(`No current Sprint option found for ${type} #${number} in ${repoName}`);
-      }
-    }
-    // Only assign Sprint for Done if not already assigned
-    if (statusOption === STATUS_OPTIONS.done) {
-      const sprintFieldRes = await octokit.graphql(`
-        query($projectId:ID!, $itemId:ID!) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              item(id: $itemId) {
-                fieldValues(first: 50) {
-                  nodes {
-                    ... on ProjectV2ItemFieldSingleSelectValue {
-                      field {
-                        ... on ProjectV2SingleSelectField { id }
-                      }
-                      optionId
-                    }
-                  }
-                }
-              }
-            }
-          }`, { projectId: PROJECT_ID, itemId: projectItemId });
-      // Find the Sprint field value
-      let sprintFieldValue = null;
-      if (sprintFieldRes.node && sprintFieldRes.node.item && sprintFieldRes.node.item.fieldValues) {
-        sprintFieldValue = sprintFieldRes.node.item.fieldValues.nodes.find(fv => fv.field && fv.field.id === SPRINT_FIELD_ID) || null;
-      }
-      const alreadyHasSprint = sprintFieldValue && sprintFieldValue.optionId;
-      if (!alreadyHasSprint) {
-        let sprintOptionId = sprintField;
-        if (!sprintOptionId) {
-          try {
-            sprintOptionId = await getCurrentSprintOptionId();
-          } catch (err) {
-            throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
-          }
-        }
-        if (sprintOptionId) {
-          try {
-            await octokit.graphql(`
-              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
-                updateProjectV2ItemFieldValue(input: {
-                  projectId: $projectId,
-                  itemId: $itemId,
-                  fieldId: $fieldId,
-                  value: { iterationId: $iterationId }
-                }) { projectV2Item { id } }
-              }`, {
-              projectId: PROJECT_ID,
-              itemId: projectItemId,
-              fieldId: SPRINT_FIELD_ID,
-              iterationId: sprintOptionId
-            });
-          } catch (err) {
-            throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
-          }
-        } else {
-          throw new Error(`No current Sprint option found for ${type} #${number} in ${repoName} (Done)`);
-        }
-      }
-    }
+    
+    const columnName = Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === statusOption) || "unknown";
+    diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number} to column "${columnName}"`);
+    
+    return true;
   } catch (err) {
-    diagnostics.errors.push(`Error adding/updating ${type} #${number} in project: ${err.message}`);
+    diagnostics.errors.push(`Failed to update status for ${itemInfo.type} #${itemInfo.number}: ${err.message}`);
+    return false;
   }
 }
 
-// --- Wrapper: Add or update item and log to summary.changed if changed ---
-async function addOrUpdateProjectItemWithSummary(item) {
-  await addOrUpdateProjectItem(item);
-  summary.changed.push({
-    type: item.type,
-    number: item.number,
-    repoName: item.repoName,
-    action: `moved to ${Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === item.statusOption) || 'updated'}`,
-    url: `https://github.com/${item.repoName}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`
-  });
-}
-
-// --- DiagnosticsContext helper ---
-class DiagnosticsContext {
-  constructor() {
-    this.errors = [];
-    this.warnings = [];
-    this.infos = [];
-  }
-}
-
-// --- LOOP BREAKER CONFIGURATION ---
-const errorCounts = new Map();
-const ERROR_LOOP_THRESHOLD = 3;
-const USER_PREF_LOOP_BREAK = process.env.LOOP_BREAK_ON_REPEAT === 'true';
-
-function handleErrorLoop(errorMsg) {
-  errorCounts.set(errorMsg, (errorCounts.get(errorMsg) || 0) + 1);
-  if (USER_PREF_LOOP_BREAK && errorCounts.get(errorMsg) >= ERROR_LOOP_THRESHOLD) {
-    console.error(`[LOOP BREAKER] The same error has occurred ${ERROR_LOOP_THRESHOLD} times: "${errorMsg}"`);
-    console.error('Halting further attempts to prevent an infinite loop. Please check your query or schema.');
-    process.exit(1);
-  }
-}
-
-function logDiagnostics(diagnostics) {
-  if (diagnostics.errors.length) {
-    console.error('Errors:');
-    diagnostics.errors.forEach(e => {
-      console.error(e);
-      handleErrorLoop(e);
+/**
+ * Update an item's sprint field in the project
+ */
+async function updateItemSprint(projectItemId, iterationId, diagnostics, itemInfo) {
+  try {
+    await octokit.graphql(`
+      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId,
+          itemId: $itemId,
+          fieldId: $fieldId,
+          value: { iterationId: $iterationId }
+        }) { projectV2Item { id } }
+      }
+    `, {
+      projectId: PROJECT_ID,
+      itemId: projectItemId,
+      fieldId: SPRINT_FIELD_ID,
+      iterationId: iterationId
     });
-  }
-  if (diagnostics.warnings.length) {
-    console.warn('Warnings:');
-    diagnostics.warnings.forEach(w => console.warn(w));
-  }
-  if (diagnostics.infos.length) {
-    console.info('Info:');
-    diagnostics.infos.forEach(i => console.info(i));
+    
+    diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number} sprint field`);
+    return true;
+  } catch (err) {
+    diagnostics.errors.push(`Failed to update sprint for ${itemInfo.type} #${itemInfo.number}: ${err.message}`);
+    return false;
   }
 }
 
-// --- Helper: Throttle async operations in batches ---
+/**
+ * Process batches of items to avoid rate limits
+ */
 async function processInBatches(items, batchSize, delayMs, fn) {
+  const results = [];
   for (let i = 0; i < items.length; i += batchSize) {
     const batch = items.slice(i, i + batchSize);
-    await Promise.allSettled(batch.map(fn));
+    const batchPromises = batch.map(item => fn(item));
+    const batchResults = await Promise.allSettled(batchPromises);
+    results.push(...batchResults);
+    
     if (i + batchSize < items.length) {
-      await new Promise(res => setTimeout(res, delayMs));
+      await new Promise(resolve => setTimeout(resolve, delayMs));
     }
   }
+  return results;
 }
 
-// --- Helper: Fetch all open issues and PRs for a repo using GraphQL ---
-async function fetchOpenIssuesAndPRsGraphQL(owner, repo) {
+/**
+ * Fetch recently updated items from a repository 
+ */
+async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
   let issues = [];
   let prs = [];
   let hasNextPage = true;
   let endCursor = null;
-  // Fetch all open issues and PRs for a repo using GraphQL
-  while (hasNextPage) {
-    const res = await octokit.graphql(`
-      query($owner: String!, $repo: String!, $after: String) {
-        repository(owner: $owner, name: $repo) {
-          issues(first: 50, states: OPEN, after: $after) {
-            nodes {
-              id
-              number
-              title
-              assignees(first: 10) { nodes { login } }
-              author { login }
-            }
-            pageInfo { hasNextPage endCursor }
-          }
-          pullRequests(first: 50, states: OPEN, after: $after) {
-            nodes {
-              id
-              number
-              title
-              assignees(first: 10) { nodes { login } }
-              author { login }
-            }
-            pageInfo { hasNextPage endCursor }
-          }
-        }
-      }
-    `, { owner, repo, after: endCursor });
-    const repoData = res.repository;
-    issues = issues.concat(repoData.issues.nodes);
-    prs = prs.concat(repoData.pullRequests.nodes);
-    hasNextPage = repoData.issues.pageInfo.hasNextPage || repoData.pullRequests.pageInfo.hasNextPage;
-    endCursor = repoData.issues.pageInfo.endCursor || repoData.pullRequests.pageInfo.endCursor;
-  }
-  return { issues, prs };
-}
-
-// --- Helper: Fetch all issues and PRs (open and closed) for a repo using GraphQL ---
-async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
-  let issues = [];
-  let prs = [];
-  let hasNextPage = true;
-  let endCursor = null;
-  // Fetch all issues and PRs (open and closed) for a repo using GraphQL
+  
   while (hasNextPage) {
     const res = await octokit.graphql(`
       query($owner: String!, $repo: String!, $after: String) {
@@ -416,10 +318,11 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
               id
               number
               title
-              assignees(first: 10) { nodes { login } }
               author { login }
               state
               updatedAt
+              repository { nameWithOwner }
+              closedAt
             }
             pageInfo { hasNextPage endCursor }
           }
@@ -428,483 +331,254 @@ async function fetchRecentIssuesAndPRsGraphQL(owner, repo, sinceIso) {
               id
               number
               title
-              assignees(first: 10) { nodes { login } }
               author { login }
               state
               updatedAt
+              repository { nameWithOwner }
+              closingIssuesReferences(first: 10) { 
+                nodes { 
+                  id 
+                  number
+                  repository { nameWithOwner } 
+                } 
+              }
+              closedAt
             }
             pageInfo { hasNextPage endCursor }
           }
         }
       }
     `, { owner, repo, after: endCursor });
-    const repoData = res.repository;
-    // Only include issues/PRs updated in the last two days
-    issues = issues.concat(repoData.issues.nodes.filter(i => i.updatedAt && i.updatedAt >= sinceIso));
-    prs = prs.concat(repoData.pullRequests.nodes.filter(pr => pr.updatedAt && pr.updatedAt >= sinceIso));
-    hasNextPage = repoData.issues.pageInfo.hasNextPage || repoData.pullRequests.pageInfo.hasNextPage;
-    endCursor = repoData.issues.pageInfo.endCursor || repoData.pullRequests.pageInfo.endCursor;
+    
+    // Only include items updated since the cutoff date
+    const cutoffDateIso = cutoffDate.toISOString();
+    const filteredIssues = res.repository.issues.nodes
+      .filter(issue => new Date(issue.updatedAt) >= cutoffDate);
+    
+    const filteredPRs = res.repository.pullRequests.nodes
+      .filter(pr => new Date(pr.updatedAt) >= cutoffDate);
+    
+    issues.push(...filteredIssues);
+    prs.push(...filteredPRs);
+    
+    // Check if we need to paginate for more results
+    const issuesPagination = res.repository.issues.pageInfo;
+    const prsPagination = res.repository.pullRequests.pageInfo;
+    
+    hasNextPage = issuesPagination.hasNextPage || prsPagination.hasNextPage;
+    endCursor = issuesPagination.hasNextPage ? issuesPagination.endCursor : prsPagination.endCursor;
+    
+    // If we've got a lot of old items (before cutoff date), we can stop paginating
+    const oldItemsCount = res.repository.issues.nodes.length - filteredIssues.length +
+                          res.repository.pullRequests.nodes.length - filteredPRs.length;
+    if (oldItemsCount > 40) {
+      break; // Most items are old, unlikely to find newer ones by paginating further
+    }
   }
+  
   return { issues, prs };
 }
 
-// --- Helper: Print all project field IDs and their options (for admin/debug) ---
-async function printProjectFieldsAndOptions() {
-  const res = await octokit.graphql(`
-    query($projectId:ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          fields(first: 50) {
-            nodes {
-              ... on ProjectV2IterationField {
-                id
-                name
-                configuration {
-                  iterations {
-                    id
-                    title
-                    startDate
-                    duration
-                  }
-                }
-              }
-              ... on ProjectV2SingleSelectField {
-                id
-                name
-                options { id name }
-              }
-              ... on ProjectV2FieldCommon {
-                id
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  `, { projectId: PROJECT_ID });
-  console.log('--- Project Fields and Options ---');
-  for (const field of res.node.fields.nodes) {
-    console.log(`Field: ${field.name} (id: ${field.id}, type: ${field.__typename})`);
-    if (field.options) {
-      for (const opt of field.options) {
-        console.log(`  Option: ${opt.name} (id: ${opt.id})`);
-      }
-    }
-    if (field.configuration && field.configuration.iterations) {
-      for (const iter of field.configuration.iterations) {
-        console.log(`  Iteration: ${iter.title} (id: ${iter.id}, start: ${iter.startDate}, duration: ${iter.duration}d)`);
-      }
-    } else if (field.configuration) {
-      console.log('  [DEBUG] configuration:', JSON.stringify(field.configuration));
-    }
+/**
+ * Log diagnostics to console
+ */
+function logDiagnostics(diagnostics) {
+  if (diagnostics.errors.length) {
+    console.error('Errors:');
+    diagnostics.errors.forEach(e => console.error(`- ${e}`));
   }
-  console.log('--- End Project Fields ---');
+  
+  if (diagnostics.warnings.length) {
+    console.warn('Warnings:');
+    diagnostics.warnings.forEach(w => console.warn(`- ${w}`));
+  }
+  
+  if (diagnostics.infos.length) {
+    console.info('Info:');
+    diagnostics.infos.forEach(i => console.info(`- ${i}`));
+  }
 }
 
-// Uncomment to print field IDs and options for debugging
-printProjectFieldsAndOptions();
-
-// --- Main logic ---
-(async () => {
+/**
+ * Process recently updated items (PRs and Issues) according to the requirements
+ */
+async function main() {
   const diagnostics = new DiagnosticsContext();
-  // Use monitoredRepos for all logic
-  const monitoredRepos = getIssueImportRepos();
-  // Calculate date string for two days ago (YYYY-MM-DD)
-  const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const itemsToProcess = [];
-  const seenNodeIds = new Set();
   const summary = {
-    processed: [],
-    changed: []
+    processed: 0,
+    changed: 0,
+    errors: 0
   };
-
-  // 1. Any PR authored by the user
-  let endCursor = null;
-  while (true) {
-    const res = await octokit.graphql(`
-      query($login: String!, $after: String) {
-        search(query: $login, type: ISSUE, first: 50, after: $after) {
-          nodes {
-            ... on PullRequest {
-              id
-              number
-              title
-              repository { nameWithOwner }
-              author { login }
-              state
-              closingIssuesReferences(first: 10) { nodes { id number repository { nameWithOwner } } }
-              updatedAt
-            }
-          }
-          pageInfo { hasNextPage endCursor }
+  
+  try {
+    console.log('Starting project sync...');
+    
+    // Load configuration
+    const monitoredRepos = getMonitoredRepos();
+    console.log(`Monitoring ${monitoredRepos.length} repositories: ${monitoredRepos.join(', ')}`);
+    
+    // Calculate cutoff date (2 days ago)
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    console.log(`Processing items updated since: ${twoDaysAgo.toISOString()}`);
+    
+    // Get current sprint ID
+    const currentSprintId = await getCurrentSprintOptionId();
+    console.log(`Current sprint ID: ${currentSprintId}`);
+    
+    // Track processed items to avoid duplicates
+    const processedNodeIds = new Set();
+    const itemsToProcess = [];
+    
+    // --- 1. Find user's PRs from all monitored repos ---
+    for (const repoFullName of monitoredRepos) {
+      const [owner, repo] = repoFullName.split('/');
+      const { prs } = await fetchRecentItemsFromRepo(owner, repo, twoDaysAgo);
+      
+      // Get PRs authored by the specified user
+      const userPRs = prs.filter(pr => pr.author && pr.author.login === GITHUB_AUTHOR);
+      
+      for (const pr of userPRs) {
+        if (processedNodeIds.has(pr.id)) continue;
+        processedNodeIds.add(pr.id);
+        
+        // Determine target status based on PR state
+        const targetStatus = pr.state === 'OPEN' ? STATUS_OPTIONS.active : STATUS_OPTIONS.done;
+        
+        itemsToProcess.push({
+          contentId: pr.id,
+          type: 'PR',
+          number: pr.number,
+          repoName: pr.repository.nameWithOwner,
+          targetStatus,
+          linkedIssues: pr.closingIssuesReferences?.nodes || [],
+          state: pr.state,
+          closedAt: pr.closedAt
+        });
+      }
+    }
+    
+    // --- 2. Find new issues in monitored repos ---
+    for (const repoFullName of monitoredRepos) {
+      const [owner, repo] = repoFullName.split('/');
+      const { issues } = await fetchRecentItemsFromRepo(owner, repo, twoDaysAgo);
+      
+      for (const issue of issues) {
+        if (processedNodeIds.has(issue.id)) continue;
+        processedNodeIds.add(issue.id);
+        
+        // Only process new issues to be added to the board
+        itemsToProcess.push({
+          contentId: issue.id,
+          type: 'Issue',
+          number: issue.number,
+          repoName: issue.repository.nameWithOwner,
+          targetStatus: STATUS_OPTIONS.new,
+          state: issue.state,
+          closedAt: issue.closedAt
+        });
+      }
+    }
+    
+    console.log(`Processing ${itemsToProcess.length} items...`);
+    
+    // Process all items
+    await processInBatches(itemsToProcess, 10, 1000, async (item) => {
+      summary.processed++;
+      
+      try {
+        // Step 1: Find or add the item to the project
+        const { projectItemId, wasAdded } = await findOrAddItemToProject(item.contentId);
+        
+        if (wasAdded) {
+          diagnostics.infos.push(`Added ${item.type} #${item.number} from ${item.repoName} to project`);
         }
-      }
-    `, { login: `author:${GITHUB_AUTHOR} user:bcgov is:pr updated:>=${twoDaysAgo}`, after: endCursor });
-    const prs = res.search.nodes;
-    for (const pr of prs) {
-      if (!pr.repository.nameWithOwner.startsWith('bcgov/')) continue;
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      if (pr.state === 'OPEN') {
-        // New PR: Move to Active
-        itemsToProcess.push({
-          nodeId: pr.id,
-          type: 'pr',
-          number: pr.number,
-          repoName: pr.repository.nameWithOwner,
-          statusOption: STATUS_OPTIONS.active,
-          sprintField: null,
-          diagnostics
-        });
-      } else {
-        // PR closed (merged or not): Move to Done
-        itemsToProcess.push({
-          nodeId: pr.id,
-          type: 'pr',
-          number: pr.number,
-          repoName: pr.repository.nameWithOwner,
-          statusOption: STATUS_OPTIONS.done,
-          sprintField: null,
-          diagnostics
-        });
-      }
-      // Linked issues
-      if (pr.closingIssuesReferences && pr.closingIssuesReferences.nodes) {
-        for (const linkedIssue of pr.closingIssuesReferences.nodes) {
-          if (!linkedIssue.repository.nameWithOwner.startsWith('bcgov/')) continue;
-          if (seenNodeIds.has(linkedIssue.id)) continue;
-          // Only update linked issues if PR is merged
-          if (pr.state === 'MERGED') {
-            seenNodeIds.add(linkedIssue.id);
-            itemsToProcess.push({
-              nodeId: linkedIssue.id,
-              type: 'issue',
+        
+        // Skip further processing for issues that were already in the project
+        // According to requirements, we only add new issues but don't update existing ones
+        if (item.type === 'Issue' && !wasAdded) {
+          diagnostics.infos.push(`Skipping ${item.type} #${item.number} (already in project)`);
+          return;
+        }
+        
+        // Step 2: Update the status
+        const statusUpdated = await updateItemStatus(projectItemId, item.targetStatus, diagnostics, item);
+        if (statusUpdated) summary.changed++;
+        
+        // Step 3: Apply the sprint field rules
+        const currentStatusOption = item.targetStatus;
+        const currentSprintValue = await getItemSprintFieldValue(projectItemId);
+        
+        // Rule: Next/Active items should have sprint assigned
+        if (currentStatusOption === STATUS_OPTIONS.next || 
+            currentStatusOption === STATUS_OPTIONS.active) {
+          await updateItemSprint(projectItemId, currentSprintId, diagnostics, item);
+        }
+        // Rule: Done items should have sprint if not already assigned
+        else if (currentStatusOption === STATUS_OPTIONS.done && !currentSprintValue) {
+          await updateItemSprint(projectItemId, currentSprintId, diagnostics, item);
+        }
+        
+        // Step 4: For PRs, also handle linked issues if PR is merged
+        if (item.type === 'PR' && item.state === 'MERGED' && item.linkedIssues.length > 0) {
+          for (const linkedIssue of item.linkedIssues) {
+            if (processedNodeIds.has(linkedIssue.id)) continue;
+            processedNodeIds.add(linkedIssue.id);
+            
+            // Find the linked issue in the project
+            const { projectItemId: issueItemId } = await findOrAddItemToProject(linkedIssue.id);
+            
+            // Update status to match PR
+            await updateItemStatus(issueItemId, item.targetStatus, diagnostics, {
+              type: 'Issue',
               number: linkedIssue.number,
-              repoName: linkedIssue.repository.nameWithOwner,
-              statusOption: STATUS_OPTIONS.done,
-              sprintField: null,
-              diagnostics
+              repoName: linkedIssue.repository.nameWithOwner
+            });
+            
+            // Update sprint to match PR
+            await updateItemSprint(issueItemId, currentSprintId, diagnostics, {
+              type: 'Issue',
+              number: linkedIssue.number,
+              repoName: linkedIssue.repository.nameWithOwner
             });
           }
         }
+      } catch (error) {
+        diagnostics.errors.push(`Error processing ${item.type} #${item.number}: ${error.message}`);
+        summary.errors++;
       }
+    });
+    
+    // Output final summary
+    console.log(`\nSummary:`);
+    console.log(`- Items processed: ${summary.processed}`);
+    console.log(`- Items changed: ${summary.changed}`);
+    console.log(`- Errors encountered: ${summary.errors}`);
+    
+    logDiagnostics(diagnostics);
+    
+    // Exit with error code if any errors occurred
+    if (summary.errors > 0) {
+      process.exit(1);
     }
-    if (!res.search.pageInfo.hasNextPage) break;
-    endCursor = res.search.pageInfo.endCursor;
-  }
-
-  // 2. Any open issues in the user's repos
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues } = await fetchOpenIssuesAndPRsGraphQL(owner, name);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.active,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 3. Any new issue in monitored repos
-  const myRepos = monitoredRepos.filter(repo => repo.startsWith('bcgov/'));
-  for (const repo of myRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues } = await fetchOpenIssuesAndPRsGraphQL(owner, name);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.active,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 4. Any closed issues/PRs in the last two days in the user's repos
-  const sinceIso = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, sinceIso);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.done,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      if (pr.state === 'OPEN') {
-        itemsToProcess.push({
-          nodeId: pr.id,
-          type: 'pr',
-          number: pr.number,
-          repoName: repo,
-          statusOption: STATUS_OPTIONS.active,
-          sprintField: null,
-          diagnostics
-        });
-      } else {
-        itemsToProcess.push({
-          nodeId: pr.id,
-          type: 'pr',
-          number: pr.number,
-          repoName: repo,
-          statusOption: STATUS_OPTIONS.done,
-          sprintField: null,
-          diagnostics
-        });
-      }
-    }
-  }
-
-  // 5. Any issues/PRs in the parked column for more than 2 days
-  const parkedThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, parkedThresholdDate);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.backlog,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.backlog,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 6. Any issues/PRs in the backlog column for more than 2 days
-  const backlogThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, backlogThresholdDate);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.next,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.next,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 7. Any issues/PRs in the active column for more than 2 days
-  const activeThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, activeThresholdDate);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.waiting,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.waiting,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 8. Any issues/PRs in the waiting column for more than 2 days
-  const waitingThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, waitingThresholdDate);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.parked,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.parked,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 9. Any issues/PRs in the done column for more than 2 days
-  const doneThresholdDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchRecentIssuesAndPRsGraphQL(owner, name, doneThresholdDate);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.parked,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.parked,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // 10. Any issues/PRs not in any project
-  for (const repo of monitoredRepos) {
-    const [owner, name] = repo.split('/');
-    const { issues, prs } = await fetchOpenIssuesAndPRsGraphQL(owner, name);
-    for (const issue of issues) {
-      if (seenNodeIds.has(issue.id)) continue;
-      seenNodeIds.add(issue.id);
-      itemsToProcess.push({
-        nodeId: issue.id,
-        type: 'issue',
-        number: issue.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.parked,
-        sprintField: null,
-        diagnostics
-      });
-    }
-    for (const pr of prs) {
-      if (seenNodeIds.has(pr.id)) continue;
-      seenNodeIds.add(pr.id);
-      itemsToProcess.push({
-        nodeId: pr.id,
-        type: 'pr',
-        number: pr.number,
-        repoName: repo,
-        statusOption: STATUS_OPTIONS.parked,
-        sprintField: null,
-        diagnostics
-      });
-    }
-  }
-
-  // Process all items in parallel
-  await processInBatches(itemsToProcess, 10, 1000, async (item) => {
-    if (item.type === 'issue') {
-      await addOrUpdateProjectItemWithSummary(item);
-    } else if (item.type === 'pr') {
-      await addOrUpdateProjectItemWithSummary(item);
-    }
-  });
-
-  // Log diagnostics
-  logDiagnostics(diagnostics);
-
-  // Output summary
-  console.log(`Processed ${summary.processed.length} items, changed ${summary.changed.length} items.`);
-  if (summary.changed.length) {
-    console.log('Changed items:');
-    summary.changed.forEach(c => console.log(`- ${c.type} #${c.number} in ${c.repoName}: ${c.action} (${c.url})`));
-  }
-
-  // Fail the workflow if any errors occurred
-  if (diagnostics.errors.length > 0) {
-    console.error('One or more errors occurred. Failing the workflow.');
+  } catch (error) {
+    console.error(`Fatal error: ${error.message}`);
     process.exit(1);
   }
-})();
+}
 
+// --- Run the program ---
+main().catch(err => {
+  console.error('Unhandled error:', err);
+  process.exit(1);
+});
+
+// Error handlers
 process.on('unhandledRejection', (reason) => {
   console.error('Unhandled Rejection:', reason);
   process.exit(1);
 });
+
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
   process.exit(1);
