@@ -213,8 +213,8 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
             url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
           });
           
-          // Throw to outer catch to ensure workflow failure on retry failure
-          throw new Error(`Assignment failed after retry: ${retryErr.message}`);
+          // Return false to indicate failure after retry
+          return false;
         }
       }
       
@@ -237,8 +237,8 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         url: itemInfo.url || `https://github.com/${itemInfo.repoName}/issues/${itemInfo.number}`
       });
       
-      // Throw to outer catch to ensure workflow failure
-      throw new Error(`Failed to assign user: ${apiErr.message}`);
+      // Return false to indicate failure
+      return false;
     }
   } catch (err) {
     // Log the error
@@ -956,7 +956,10 @@ async function main() {
         
         // Step 2a: If it's a PR authored by the user and opened (in Active column), assign to user
         if (item.type === 'PR' && item.author === GITHUB_AUTHOR && item.state === 'OPEN') {
-          await assignUserToProjectItem(projectItemId, GITHUB_AUTHOR, diagnostics, item);
+          const assignmentResult = await assignUserToProjectItem(projectItemId, GITHUB_AUTHOR, diagnostics, item);
+          if (!assignmentResult) {
+            diagnostics.warnings.push(`Failed to assign user ${GITHUB_AUTHOR} to PR #${item.number} [${item.repoName}], continuing with other operations`);
+          }
         }
         
         // Step 3: Apply the sprint field rules
@@ -1087,13 +1090,16 @@ async function main() {
               });
               
               // Assign the same user as the PR (as per requirements)
-              await assignUserToProjectItem(issueItemId, GITHUB_AUTHOR, diagnostics, {
+              const linkedAssignmentResult = await assignUserToProjectItem(issueItemId, GITHUB_AUTHOR, diagnostics, {
                 type: 'Issue',
                 number: linkedIssue.number,
                 repoName: linkedIssue.repository.nameWithOwner,
                 contentId: linkedIssue.id,
                 reason: `Inheriting user assignment from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
               });
+              if (!linkedAssignmentResult) {
+                diagnostics.warnings.push(`Failed to assign user ${GITHUB_AUTHOR} to linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}], continuing with other operations`);
+              }
               
               // Update sprint to match PR
               try {
