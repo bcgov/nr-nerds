@@ -20,6 +20,18 @@ jobs:
       - name: Install dependencies
         run: npm install @octokit/rest
 
+      - name: Run Sprint Assignment Tests
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+        run: |
+          echo "Running sprint assignment validation tests..."
+          node project-sync/test-sprint-assignment.js
+          if [ $? -ne 0 ]; then
+            echo "::error::Sprint assignment tests failed! Fix the sprint assignment logic before continuing."
+            exit 1
+          fi
+          echo "Sprint assignment tests passed successfully ✅"
+        
       - name: Run GH Project Assigner
         env:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
