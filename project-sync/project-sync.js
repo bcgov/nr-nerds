@@ -65,13 +65,6 @@ class DiagnosticsContext {
  * @param {Object} diagnostics - Diagnostics context for logging
  * @param {Object} itemInfo - Information about the item being processed
  */
-/**
- * Assign a user to a project item
- * @param {string} projectItemId - The project item ID
- * @param {string} userId - GitHub user ID to assign
- * @param {Object} diagnostics - Diagnostics context for logging
- * @param {Object} itemInfo - Information about the item being processed
- */
 async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemInfo) {
   try {
     // We need to extract the repo name and issue/PR number
