@@ -15,40 +15,23 @@ To change automation, simply edit this file and request a sync—no coding requi
 - Project Board: `ProjectV2` with ID `PVT_kwDOAA37OM4AFuzg`
 - User: `GITHUB_AUTHOR` (set by the environment variable)
 
-## Project Board Rules
-- Any item in the **"Next"** or **"Active"** columns should be assigned to the current Sprint, even if a Sprint is already assigned.
-- Any item moved to the **"Done"** column should be assigned to the current Sprint if not already assigned.
+## Project Automation Rules
 
-## User Rules
-_Note: These rules apply only to PRs and issues authored by the user specified in the Scope section._
-- **Any PR authored by the user**:
-  - New PR: Move to **"Active"**.
-  - PR closed: Move to **"Done"**.
-- **Any issue linked to a PR**:
-  - New link: inherit the sprint and column from its PR.
-  - PR merged: inherit the sprint and column from its PR.
-  - PR closed: do not change the issue's column or sprint.
+| Rule # | Trigger/Condition | Item Type | Action/Status | Sprint Assignment | Notes/Reasoning |
+|--------|------------------|-----------|---------------|------------------|-----------------|
+| 1 | PR authored by `${GITHUB_AUTHOR}` is opened | PR | Move to **Active** | Assign to current Sprint | Only for monitored repos |
+| 2 | PR authored by `${GITHUB_AUTHOR}` is merged or closed | PR | Move to **Done** | Assign to current Sprint (if not already set) | Merged or closed PRs only |
+| 3 | Issue is newly created in monitored repo | Issue | Add to **New** | _None_ | Only if not already in project |
+| 4 | Issue already exists in project | Issue | _No change_ | _No change_ | Skipped by automation |
+| 5 | PR (open or merged) has linked issues | Issue (linked) | Inherit PR status (**Active** or **Done**) | Inherit PR's Sprint (assign if not already set) | Only for PRs authored by `${GITHUB_AUTHOR}` |
+| 6 | PR is closed but not merged | Issue (linked) | _No change_ | _No change_ | Linked issues not updated |
+| 7 | Item in **Next** or **Active** | Any | Ensure assigned to current Sprint | Always update | |
+| 8 | Item in **Done** | Any | Ensure assigned to current Sprint | Only if not already set | |
 
-## Monitored Repository Rules
-- For repositories listed below:
-  - **Any new issue not in the project** is added to the **"New"** column.
-  - **Any issue already in the project** is unaffected.
-
-## Monitored Repositories
-- nr-nerds
-- quickstart-openshift
-- quickstart-openshift-backends
-- quickstart-openshift-helpers
-
-_All repositories listed above are under the `bcgov` GitHub organization unless otherwise specified._
-
-## Technical Details
-- The sync automation runs every 30 minutes via a scheduled GitHub Actions workflow.
-- Project column and field IDs are set in the script configuration. This is expected to become dynamic in the future.
-- All errors, warnings, and info should be logged at the end of the run.
-- Process changes in batches (default: 10 at a time, 1s delay between batches) to avoid GitHub secondary rate limits.
-- All issues and PRs should be deduplicated by node ID before processing.
-- Only process issues and PRs **updated in the last two days** (based on `updatedAt`). This rule applies to all automation logic above.
+**Legend:**  
+- "Inherit" means the linked issue gets the same status/sprint as its PR.  
+- "Assign to current Sprint" means set the Sprint field to the current iteration.  
+- `${GITHUB_AUTHOR}` is the configured GitHub username for automation.
 
 ---
 
