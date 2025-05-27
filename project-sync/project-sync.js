@@ -209,18 +209,18 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
       if (sprintOptionId) {
         try {
           await octokit.graphql(`
-            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+            mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
               updateProjectV2ItemFieldValue(input: {
                 projectId: $projectId,
                 itemId: $itemId,
                 fieldId: $fieldId,
-                value: { iterationId: $optionId }
+                value: { iterationId: $iterationId }
               }) { projectV2Item { id } }
             }`, {
             projectId: PROJECT_ID,
             itemId: projectItemId,
             fieldId: SPRINT_FIELD_ID,
-            optionId: sprintOptionId
+            iterationId: sprintOptionId
           });
         } catch (err) {
           throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName}: ${err.message}`);
@@ -267,18 +267,18 @@ async function addOrUpdateProjectItem({ nodeId, type, number, repoName, statusOp
         if (sprintOptionId) {
           try {
             await octokit.graphql(`
-              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+              mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:ID!) {
                 updateProjectV2ItemFieldValue(input: {
                   projectId: $projectId,
                   itemId: $itemId,
                   fieldId: $fieldId,
-                  value: { iterationId: $optionId }
+                  value: { iterationId: $iterationId }
                 }) { projectV2Item { id } }
               }`, {
               projectId: PROJECT_ID,
               itemId: projectItemId,
               fieldId: SPRINT_FIELD_ID,
-              optionId: sprintOptionId
+              iterationId: sprintOptionId
             });
           } catch (err) {
             throw new Error(`Failed to assign Sprint for ${type} #${number} in ${repoName} (Done): ${err.message}`);
