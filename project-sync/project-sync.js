@@ -16,6 +16,9 @@ const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const VERBOSE = process.env.VERBOSE === 'true' || process.env.VERBOSE === '1';
 const octokit = new Octokit({ auth: GH_TOKEN });
 
+// Cache for issue details to reduce API calls
+const issueDetailsCache = {};
+
 // Project configuration
 const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
 
@@ -80,11 +83,20 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
     
     try {
       // First, check if the user is already assigned to avoid duplicate assignments
-      const issueDetails = await octokit.issues.get({
-        owner,
-        repo,
-        issue_number: itemNumber
-      });
+      // Check cache for issue details to reduce API calls
+      const cacheKey = `${repoName}/${itemNumber}`;
+      let issueDetails = issueDetailsCache[cacheKey];
+      
+      if (!issueDetails) {
+        // Fetch issue details from GitHub API if not in cache
+        issueDetails = await octokit.issues.get({
+          owner,
+          repo,
+          issue_number: itemNumber
+        });
+        // Store the result in the cache
+        issueDetailsCache[cacheKey] = issueDetails;
+      }
       
       // Get current assignees
       const currentAssignees = issueDetails.data.assignees.map(a => a.login);
@@ -120,6 +132,10 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
         assignees: [userId]
       });
       
+      
+      // Invalidate cache after assignment to keep data fresh
+      issueDetailsCache[cacheKey] = response;
+      
       // Log the success
       const repoInfo = itemInfo.repoName ? ` [${itemInfo.repoName}]` : '';
       diagnostics.infos.push(`Assigned ${itemInfo.type} #${itemInfo.number}${repoInfo} to user ${userId}`);
@@ -143,7 +159,7 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
       return true;
     } catch (apiErr) {
       // If we hit a rate limit or transient error, try again after a short delay
-      if (apiErr.status === 403 || apiErr.status === 429 || apiErr.status === 502 || apiErr.status === 503) {
+      if (apiErr.status === 403 || apiErr.status === 429 || apiErr.status === 502 || apiErr.status === 503 || apiErr.status === 504) {
         diagnostics.warnings.push(`Rate limit or transient error when assigning user ${userId} to ${itemInfo.type} #${itemInfo.number}. Retrying in 2 seconds...`);
         
         // Wait 2 seconds
