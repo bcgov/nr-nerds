@@ -51,7 +51,7 @@ To change automation, simply edit this file and request a sync—no coding requi
 > Note: These rules apply to issues and pull requests assigned to the listed users or existing in the monitored repositories.
 
 **Monitored Users**:
-- User`GITHUB_AUTHOR` (set by the environment variable)
+- User: `GITHUB_AUTHOR` (set by the environment variable)
 
 **Monitored Repositories**: The following repositories are monitored for issues and pull requests:
 - nr-nerds

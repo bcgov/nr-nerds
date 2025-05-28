@@ -603,11 +603,23 @@ async function processInBatches(items, batchSize, delayMs, fn) {
  * Fetch recently updated items from a repository 
  */
 async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
+  // Use separate pagination for issues and PRs to ensure we get all relevant items
+  const issues = await fetchAllIssues(owner, repo, cutoffDate);
+  const prs = await fetchAllPRs(owner, repo, cutoffDate);
+  return { issues, prs };
+}
+
+/**
+ * Fetch all issues from a repository with proper pagination
+ */
+async function fetchAllIssues(owner, repo, cutoffDate) {
   let issues = [];
-  let prs = [];
   let hasNextPage = true;
   let endCursor = null;
-
+  const cutoffDateIso = cutoffDate.toISOString();
+  
+  console.log(`Fetching all issues from ${owner}/${repo} updated since ${cutoffDateIso}`);
+  
   while (hasNextPage) {
     const res = await octokit.graphql(`
       query($owner: String!, $repo: String!, $after: String) {
@@ -625,6 +637,47 @@ async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
             }
             pageInfo { hasNextPage endCursor }
           }
+        }
+      }
+    `, { owner, repo, after: endCursor });
+    
+    // Filter issues by cutoff date
+    const filteredIssues = res.repository.issues.nodes
+      .filter(issue => new Date(issue.updatedAt) >= cutoffDate);
+    
+    issues.push(...filteredIssues);
+    
+    // Check if we should continue pagination
+    const pageInfo = res.repository.issues.pageInfo;
+    hasNextPage = pageInfo.hasNextPage;
+    endCursor = pageInfo.endCursor;
+    
+    // Stop if we're getting too many old items
+    const oldItemsCount = res.repository.issues.nodes.length - filteredIssues.length;
+    if (oldItemsCount > 40) {
+      console.log(`Stopping issues pagination for ${owner}/${repo} due to too many old items`);
+      break;
+    }
+  }
+  
+  return issues;
+}
+
+/**
+ * Fetch all PRs from a repository with proper pagination
+ */
+async function fetchAllPRs(owner, repo, cutoffDate) {
+  let prs = [];
+  let hasNextPage = true;
+  let endCursor = null;
+  const cutoffDateIso = cutoffDate.toISOString();
+  
+  console.log(`Fetching all PRs from ${owner}/${repo} updated since ${cutoffDateIso}`);
+  
+  while (hasNextPage) {
+    const res = await octokit.graphql(`
+      query($owner: String!, $repo: String!, $after: String) {
+        repository(owner: $owner, name: $repo) {
           pullRequests(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
             nodes {
               id
@@ -650,33 +703,35 @@ async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
       }
     `, { owner, repo, after: endCursor });
 
-    // Only include items updated since the cutoff date
-    const cutoffDateIso = cutoffDate.toISOString();
-    const filteredIssues = res.repository.issues.nodes
-      .filter(issue => new Date(issue.updatedAt) >= cutoffDate);
-    
+    // Filter PRs by cutoff date
     const filteredPRs = res.repository.pullRequests.nodes
       .filter(pr => new Date(pr.updatedAt) >= cutoffDate);
     
-    issues.push(...filteredIssues);
+    // Special debug for PR #78
+    const pr78 = res.repository.pullRequests.nodes.find(pr => pr.number === 78);
+    if (pr78) {
+      console.log(`FOUND PR #78: updatedAt=${pr78.updatedAt}, author=${pr78.author?.login}, included=${new Date(pr78.updatedAt) >= cutoffDate}`);
+    }
+    
     prs.push(...filteredPRs);
     
-    // Check if we need to paginate for more results
-    const issuesPagination = res.repository.issues.pageInfo;
-    const prsPagination = res.repository.pullRequests.pageInfo;
+    // Check if we should continue pagination
+    const pageInfo = res.repository.pullRequests.pageInfo;
+    hasNextPage = pageInfo.hasNextPage;
+    endCursor = pageInfo.endCursor;
     
-    hasNextPage = issuesPagination.hasNextPage || prsPagination.hasNextPage;
-    endCursor = issuesPagination.hasNextPage ? issuesPagination.endCursor : prsPagination.endCursor;
+    // For debugging
+    console.log(`Repository ${owner}/${repo} - Got ${res.repository.pullRequests.nodes.length} PRs, ${filteredPRs.length} meet cutoff date ${cutoffDateIso}`);
     
-    // If we've got a lot of old items (before cutoff date), we can stop paginating
-    const oldItemsCount = res.repository.issues.nodes.length - filteredIssues.length +
-                          res.repository.pullRequests.nodes.length - filteredPRs.length;
+    // Stop if we're getting too many old items
+    const oldItemsCount = res.repository.pullRequests.nodes.length - filteredPRs.length;
     if (oldItemsCount > 40) {
-      break; // Most items are old, unlikely to find newer ones by paginating further
+      console.log(`Stopping PRs pagination for ${owner}/${repo} due to too many old items`);
+      break;
     }
   }
   
-  return { issues, prs };
+  return prs;
 }
 
 /**
@@ -766,7 +821,14 @@ async function main() {
       const { prs } = await fetchRecentItemsFromRepo(owner, repo, twoDaysAgo);
       
       // Get PRs authored by the specified user
+      // Debug: Log all PRs before filtering
+      console.log(`Found ${prs.length} PRs in repository ${owner}/${repo}`);
+      prs.forEach(pr => {
+        console.log(`PR #${pr.number} by ${pr.author?.login || 'unknown'}, updated: ${pr.updatedAt}, ID: ${pr.id}`);
+      });
+      
       const userPRs = prs.filter(pr => pr.author && pr.author.login === GITHUB_AUTHOR);
+      console.log(`Found ${userPRs.length} user PRs in repository ${owner}/${repo} for author ${GITHUB_AUTHOR}`);
       
       for (const pr of userPRs) {
         if (processedNodeIds.has(pr.id)) continue;
