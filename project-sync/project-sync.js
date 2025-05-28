@@ -775,7 +775,10 @@ async function fetchAllIssues(owner, repo, cutoffDate, diagnostics = null) {
           }
         }
       }
-    `, { owner, repo, after: endCursor });
+      `,
+      { owner, repo, after: endCursor }),
+      { operation: 'fetchPRs', owner, repo }
+    );
 
     // Filter PRs by cutoff date
     const filteredPRs = res.repository.pullRequests.nodes
@@ -1803,8 +1806,9 @@ process.on('uncaughtException', (err) => {
 // Export functions for testing
 if (typeof module !== 'undefined') {
   // Export functions for testing
-module.exports = {
-  runPreflightChecks,
-  getCurrentSprintOptionId,
-  getMonitoredRepos
-};
+  module.exports = {
+    runPreflightChecks,
+    getCurrentSprintOptionId,
+    getMonitoredRepos
+  };
+}
