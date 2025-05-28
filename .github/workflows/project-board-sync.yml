@@ -1,4 +1,4 @@
-name: GH Project Assigner
+name: GH Project Project Sync
 
 on:
   pull_request:
