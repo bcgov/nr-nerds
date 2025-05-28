@@ -329,9 +329,16 @@ function getMonitoredRepos() {
     // Use __dirname to ensure reliable path resolution
     const reqText = fs.readFileSync(path.join(__dirname, "requirements.md"), "utf8");
     const lines = reqText.split("\n");
-    const startIdx = lines.findIndex(l => l.trim().startsWith('## Monitored Repositories'));
     
-    if (startIdx === -1) return [];
+    // Look for the Monitored Repositories section which is now marked with bold and a colon
+    const startIdx = lines.findIndex(l => l.trim().includes('**Monitored Repositories**:'));
+    
+    if (startIdx === -1) {
+      console.error('Could not find Monitored Repositories section in requirements.md');
+      return [];
+    }
+    
+    console.log(`Found repository section at line ${startIdx + 1}`);
     
     const repos = [];
     for (let i = startIdx + 1; i < lines.length; i++) {

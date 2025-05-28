@@ -41,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
-        run: node project-sync/project-sync.js
+        run: node project-sync/project-sync.js  
 
       - name: Notify Microsoft Teams on failure
         if: failure() && github.event_name != 'pull_request'
