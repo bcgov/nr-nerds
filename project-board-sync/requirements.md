@@ -15,41 +15,50 @@ To change automation, simply edit this file and request a sync—no coding requi
 - Project Board: `ProjectV2` with ID `PVT_kwDOAA37OM4AFuzg`
 - User: `GITHUB_AUTHOR` (set by the environment variable)
 
-## Automation Rules
+## Automation Rules for Projects
 
-### 1. Project Board Column Rules
+### 1. New Items - Set Column
 
-| Item Location/Action | Sprint Assignment | User Assignment |
-|---------------------|------------------|----------------|
-| Item in **"Next"** column | Assign to current Sprint (always) | No change |
-| Item in **"Active"** column | Assign to current Sprint (always) | No change |
-| Item moved to **"Done"** column | Assign to current Sprint (only if not already assigned) | No change |
+| Item Type | From Column | To Column |
+|-----------|-------------|-----------|
+| PR        | None        | Active    |
+| Issue     | None        | New       |
 
-### 2. User-Authored PR Rules
+### 2. Column Rules - Set Sprint
 
-| PR State | Column Action | Sprint Assignment | User Assignment |
-|----------|--------------|------------------|----------------|
-| New PR | Move to **"Active"** | Assign to current Sprint | Assign to PR author |
-| PR closed (not merged) | Move to **"Done"** | Assign to current Sprint (if not assigned) | No change |
-| PR merged | Move to **"Done"** | Assign to current Sprint (if not assigned) | No change |
+| Item Type            | Column       | From Sprint | To Sprint      |
+|----------------------|--------------|-------------|----------------|
+| PR, Issue            | Next, Active | Any         | Current sprint |
+| PR, Issue            | Done         | None        | Current sprint |
 
-### 3. Linked Issue Inheritance Rules
+> Note: To optimize API usage, sprint updates will be skipped if the item already has the correct sprint assigned.
 
-| PR State | Linked Issue Column | Linked Issue Sprint | Linked Issue User |
-|----------|-------------------|-------------------|------------------|
-| PR is open | Inherit from PR | Inherit from PR | Inherit from PR |
-| PR is merged | Inherit from PR | Inherit from PR | Inherit from PR |
-| PR is closed (not merged) | No change | No change | No change |
+### 3. Linked Issue Rules - Set Column and Sprint
 
-### 4. Repository Monitoring Rules
+| Item Type    | Column  | PR Status     | To Column       |
+|--------------|---------|---------------|-----------------|
+| Linked Issue | Done    | Unmerged      | Unchanged       |
+| Linked Issue | Any     | Anything else | Inherit from PR |
 
-| Issue State | Project Board Action | Additional Actions |
-|------------|---------------------|-------------------|
-| New issue not in project | Add to **"New"** column | None |
-| Existing issue in "Next" or "Active" column | No column change | Apply sprint rules per section 1 |
-| Other existing issues | No change | None |
+> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub.
 
-## Monitored Repositories
+## Automation Rules for Monitored Users and Repositories
+
+### 4. Monitored Users and Repositories
+
+| Type       | From Project            | To Project      |
+|------------|-------------------------|-----------------|
+| PR, Issue  | None, different Project | Current Project |
+
+> Note: These rules apply to issues and pull requests assigned to the listed users or existing in the monitored repositories.
+
+**Monitored Users**:
+- User: `GITHUB_AUTHOR` (set by the environment variable)
+  - All issues and PRs assigned to this user will be added to the project board
+  - Issues assigned to this user will be placed in the "New" column
+  - PRs assigned to this user will follow the standard PR column rules
+
+**Monitored Repositories**: The following repositories are monitored for issues and pull requests:
 - nr-nerds
 - quickstart-openshift
 - quickstart-openshift-backends

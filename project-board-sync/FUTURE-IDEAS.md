@@ -67,8 +67,9 @@ This file tracks potential improvements and future work for the project-sync aut
 ## 12. Proposed Rule Changes
 - Anything moved to the **New, Parked, or Backlog** columns should not have a Sprint assigned.
 
-## 13. Add Issues and PRs assigned to User to the Project
-- Anything assigned to a user should be added to the project board, even if it is not in the "New" column.
+## 13. Add Issues and PRs assigned to User to the Project (COMPLETED)
+- ✅ Anything assigned to a user should be added to the project board, even if it is not in the "New" column.
+- Implementation added in May 2025 to fix issue with PRs and assigned items not being properly added to the board.
 
 ## 14. Batch Processing for Linked Issues
 
