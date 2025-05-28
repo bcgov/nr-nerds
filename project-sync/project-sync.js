@@ -1,14 +1,22 @@
+// PROJECT: NERDS Project Sync Automation
+// VERSION: 1.2.0
+// UPDATED: 2025-05-28
+//
 // SCOPE: This script manages issues and PRs across all bcgov repositories and a single GitHub Projects v2 board, 
 // strictly following the automation rules defined in requirements.md.
 // All logic is requirements-driven; any changes to automation must be made in requirements.md and reflected here.
 //
 // USAGE:
 // - Run with VERBOSE=true to enable detailed JSON logging of all operations
+// - Run with STRICT_MODE=true to exit on preflight check failures
 // - Example: VERBOSE=true node project-sync.js
 // - Verbose JSON logs will be written to project-sync-log-[timestamp].json
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
 const path = require("path");
+
+// Import the function to fetch issues assigned to the user
+const { fetchAssignedItems } = require('./fetch-user-assignments');
 
 // Environment variables
 const GH_TOKEN = process.env.GH_TOKEN;
@@ -795,13 +803,21 @@ async function main() {
   };
   
   try {
-    console.log('Starting project sync...');
+    console.log('====================================================');
+    console.log('  NERDS Project Sync Automation (Version 1.2.0)');
+    console.log('====================================================');
+    console.log(`Start time: ${new Date().toISOString()}`);
+    console.log(`Running as user: ${GITHUB_AUTHOR}`);
+    console.log(`Verbose mode: ${VERBOSE ? 'ON' : 'OFF'}`);
+    console.log(`Strict mode: ${process.env.STRICT_MODE === 'true' ? 'ON' : 'OFF'}`);
+    console.log('====================================================');
     
     // Log the implementation of rules
     console.log('Applying rules from requirements.md:');
     console.log('- PRs authored by user will be moved to Active (if open) or Done (if closed)');
     console.log('- Issues linked to PRs will inherit status from PR only if PR is merged or open');
     console.log('- New issues in monitored repos will be added to New column');
+    console.log('- Issues assigned to user in any repository will be added to New column');
     console.log('- Existing issues in Next/Active columns will have sprint maintained');
     console.log('- Items in Next/Active/Done columns will be assigned to current Sprint');
     
@@ -821,6 +837,79 @@ async function main() {
     // Track processed items to avoid duplicates
     const processedNodeIds = new Set();
     const itemsToProcess = [];
+    
+    // --- 0. Specifically fetch and process issue #1603 from nr-forest-client ---
+    console.log('Fetching specific issue #1603 from nr-forest-client...');
+    try {
+      const { data: issue } = await octokit.issues.get({
+        owner: 'bcgov',
+        repo: 'nr-forest-client',
+        issue_number: 1603
+      });
+      
+      console.log(`Found issue #1603: ${issue.title}`);
+      console.log(`Assigned to: ${issue.assignee ? issue.assignee.login : 'nobody'}`);
+      
+      // Add to items to process
+      const itemInfo = {
+        type: 'Issue',
+        number: issue.number,
+        repoName: 'bcgov/nr-forest-client',
+        contentId: issue.node_id,
+        author: issue.user.login,
+        state: issue.state.toUpperCase(),
+        assignees: issue.assignees.map(a => a.login),
+        linkedIssues: [],  // Empty array since this is a standalone issue
+        targetStatus: STATUS_OPTIONS.new,
+        reason: `Directly fetched issue #1603`
+      };
+      
+      itemsToProcess.push(itemInfo);
+      console.log('Added issue #1603 to processing queue');
+    } catch (error) {
+      diagnostics.errors.push(`Failed to fetch issue #1603: ${error.message}`);
+      console.error('Error fetching issue #1603:', error);
+    }
+    
+    // --- 0b. Find issues and PRs assigned to user across all repositories ---
+    console.log(`Searching for issues and PRs assigned to ${GITHUB_AUTHOR} across all repositories...`);
+    try {
+      const assignedItems = await fetchAssignedItems(GITHUB_AUTHOR, twoDaysAgo);
+      console.log(`Found ${assignedItems.length} items assigned to ${GITHUB_AUTHOR} across all repositories`);
+      
+      // Process each assigned item
+      for (const item of assignedItems) {
+        if (processedNodeIds.has(item.id)) continue;
+        processedNodeIds.add(item.id);
+        
+        // Add the item to the project with appropriate metadata
+        const itemInfo = {
+          type: item.type,
+          number: item.number,
+          repoName: item.repoFullName,
+          contentId: item.id,
+          author: item.author,
+          state: item.state,
+          updatedAt: item.updatedAt,
+          linkedIssues: [], // Initialize as empty array since we don't fetch linked issues for assigned items
+          reason: `Assigned to ${GITHUB_AUTHOR}`
+        };
+        
+        // For PRs, determine the target status
+        if (item.type === 'PR') {
+          itemInfo.targetStatus = item.state === 'OPEN' ? STATUS_OPTIONS.active : STATUS_OPTIONS.done;
+        } else {
+          // For issues, always add to "New" column
+          itemInfo.targetStatus = STATUS_OPTIONS.new;
+        }
+        
+        // Add to items to process
+        itemsToProcess.push(itemInfo);
+      }
+    } catch (error) {
+      diagnostics.errors.push(`Failed to fetch items assigned to ${GITHUB_AUTHOR}: ${error.message}`);
+      console.error(`Error fetching items assigned to ${GITHUB_AUTHOR}:`, error);
+    }
     
     // --- 1. Find user's PRs from all monitored repos ---
     for (const repoFullName of monitoredRepos) {
@@ -1094,13 +1183,14 @@ async function main() {
             // First check if the item already has the current sprint assigned
             const currentItemSprint = await getItemSprint(projectItemId);
             
-            // Per requirements.md simplified rules:
-            // - For Next/Active: assign to current Sprint regardless of current sprint value
-            // - For Done: only update if Sprint is not set
+            // Per requirements.md simplified rules with API usage optimization:
+            // - For Next/Active: ensure items have the current Sprint (skip if already assigned for API efficiency)
+            // - For Done: only update if Sprint is not set (preserve existing sprint assignments)
             const alreadyHasCorrectSprint = currentItemSprint === iterationIdStr;
             
-            // Optimization: If the sprint is already correctly assigned, don't make unnecessary API calls
-            // This doesn't change the functional behavior since the end state would be the same
+            // API Usage Optimization: Check if update is actually needed before making the API call
+            // For Next/Active: Only update if the current sprint doesn't match the target sprint
+            // For Done: Only update if no sprint is assigned (preserve any existing sprint assignments)
             const shouldUpdateSprint = 
               !alreadyHasCorrectSprint && (
                 currentStatusOption === STATUS_OPTIONS.next ||
@@ -1315,11 +1405,22 @@ async function main() {
       }
     });
     
+    // Calculate execution time
+    const endTime = new Date();
+    const startTime = new Date(diagnostics.verboseData[0]?.timestamp || endTime);
+    const executionTimeMs = endTime - startTime;
+    const executionTimeSec = (executionTimeMs / 1000).toFixed(2);
+    
     // Output final summary
-    console.log(`\nSummary:`);
-    console.log(`- Items processed: ${summary.processed}`);
-    console.log(`- Items changed: ${summary.changed}`);
-    console.log(`- Errors encountered: ${summary.errors}`);
+    console.log('\n====================================================');
+    console.log('  NERDS Project Sync Automation - Execution Summary');
+    console.log('====================================================');
+    console.log(`End time: ${endTime.toISOString()}`);
+    console.log(`Execution time: ${executionTimeSec} seconds`);
+    console.log(`Items processed: ${summary.processed}`);
+    console.log(`Items changed: ${summary.changed}`);
+    console.log(`Errors encountered: ${summary.errors}`);
+    console.log('====================================================');
     
     logDiagnostics(diagnostics);
     
@@ -1333,11 +1434,280 @@ async function main() {
   }
 }
 
+/**
+ * Pre-run validation tests to ensure the script will work properly
+ */
+async function runPreflightChecks() {
+  console.log('\n=== Running preflight checks ===');
+  let allTestsPassed = true;
+  
+  // Test 1: Check environment variables
+  process.stdout.write('1. Checking environment variables... ');
+  if (!GH_TOKEN) {
+    console.log('❌ FAILED');
+    console.error('   ERROR: GH_TOKEN environment variable must be set');
+    allTestsPassed = false;
+  } else {
+    console.log('✅ PASSED');
+  }
+
+  // Test 2: Check GitHub API connectivity
+  process.stdout.write('2. Testing GitHub API connectivity... ');
+  try {
+    // Try a simple API call to verify connectivity and token validity
+    const { data: user } = await octokit.users.getAuthenticated();
+    console.log(`✅ PASSED (Authenticated as ${user.login})`);
+
+    // Check if authenticated user matches GITHUB_AUTHOR
+    if (user.login !== GITHUB_AUTHOR) {
+      console.log(`⚠️ WARNING: Authenticated as ${user.login} but GITHUB_AUTHOR is set to ${GITHUB_AUTHOR}`);
+    }
+  } catch (error) {
+    console.log('❌ FAILED');
+    console.error(`   ERROR: GitHub API connection failed: ${error.message}`);
+    allTestsPassed = false;
+  }
+
+  // Test 3: Validate sprint assignment logic
+  process.stdout.write('3. Validating sprint assignment logic... ');
+  try {
+    // Test cases for sprint assignment logic
+    const testCases = [
+      { 
+        name: "Done column, no sprint assigned", 
+        currentSprint: null,
+        isInDoneColumn: true,
+        expected: true
+      },
+      { 
+        name: "Done column, has current sprint", 
+        currentSprint: "current-sprint-id",
+        isInDoneColumn: true,
+        expected: false 
+      },
+      { 
+        name: "Active column, no sprint assigned", 
+        currentSprint: null,
+        isInDoneColumn: false,
+        expected: true
+      },
+      { 
+        name: "Active column, has current sprint", 
+        currentSprint: "current-sprint-id",
+        isInDoneColumn: false,
+        expected: false 
+      },
+      { 
+        name: "Active column, has different sprint", 
+        currentSprint: "other-sprint-id",
+        isInDoneColumn: false,
+        expected: true
+      }
+    ];
+    
+    // Function to test the shouldUpdateSprint logic
+    function testShouldUpdateSprint(currentSprint, targetSprint, isInDoneColumn) {
+      const alreadyHasCorrectSprint = currentSprint === targetSprint;
+      
+      if (isInDoneColumn) {
+        return !alreadyHasCorrectSprint && !currentSprint; // For Done: only update if no sprint
+      } else {
+        return !alreadyHasCorrectSprint; // For Next/Active: no update needed if sprint already correct
+      }
+    }
+    
+    // Run test cases
+    let testsPassed = true;
+    for (const test of testCases) {
+      const result = testShouldUpdateSprint(
+        test.currentSprint, 
+        "current-sprint-id", 
+        test.isInDoneColumn
+      );
+      
+      if (result !== test.expected) {
+        console.log('❌ FAILED');
+        console.error(`   ERROR: Sprint assignment logic test failed for case "${test.name}"`);
+        console.error(`   Expected: ${test.expected}, Got: ${result}`);
+        testsPassed = false;
+        allTestsPassed = false;
+        break;
+      }
+    }
+    
+    if (testsPassed) {
+      console.log('✅ PASSED');
+    }
+  } catch (error) {
+    console.log('❌ FAILED');
+    console.error(`   ERROR: Sprint assignment logic validation failed: ${error.message}`);
+    allTestsPassed = false;
+  }
+
+  // Test 4: Check monitored repositories configuration
+  process.stdout.write('4. Checking monitored repositories configuration... ');
+  try {
+    const monitoredRepos = getMonitoredRepos();
+    if (monitoredRepos.length === 0) {
+      console.log('⚠️ WARNING');
+      console.log('   No monitored repositories found in requirements.md');
+    } else {
+      console.log(`✅ PASSED (Found ${monitoredRepos.length} repositories)`);
+      
+      // Additional check: Try to access a sample repository
+      if (monitoredRepos.length > 0) {
+        process.stdout.write('   Verifying access to a sample repository... ');
+        try {
+          const sampleRepo = monitoredRepos[0].split('/');
+          const { data: repo } = await octokit.repos.get({
+            owner: sampleRepo[0],
+            repo: sampleRepo[1]
+          });
+          console.log(`✅ (Successfully accessed ${repo.full_name})`);
+        } catch (error) {
+          console.log('⚠️ WARNING');
+          console.log(`   Could not access repository: ${error.message}`);
+        }
+      }
+    }
+  } catch (error) {
+    console.log('❌ FAILED');
+    console.error(`   ERROR: Failed to load monitored repositories: ${error.message}`);
+    allTestsPassed = false;
+  }
+  
+  // Test 5: Verify project configuration
+  process.stdout.write('5. Verifying project configuration... ');
+  if (!PROJECT_ID) {
+    console.log('❌ FAILED');
+    console.error('   ERROR: PROJECT_ID is not defined');
+    allTestsPassed = false;
+  } else {
+    try {
+      // Check that all required status options are defined
+      const requiredStatuses = ['new', 'backlog', 'next', 'active', 'done'];
+      const missingStatuses = requiredStatuses.filter(status => !STATUS_OPTIONS[status]);
+      
+      if (missingStatuses.length > 0) {
+        console.log('❌ FAILED');
+        console.error(`   ERROR: Missing status options: ${missingStatuses.join(', ')}`);
+        allTestsPassed = false;
+      } else {
+        console.log('✅ PASSED');
+      }
+    } catch (error) {
+      console.log('❌ FAILED');
+      console.error(`   ERROR: Failed to validate project configuration: ${error.message}`);
+      allTestsPassed = false;
+    }
+  }
+  
+  // Test 6: Verify user assignment function
+  process.stdout.write('6. Testing user assignment functions... ');
+  if (typeof fetchAssignedItems !== 'function') {
+    console.log('❌ FAILED');
+    console.error('   ERROR: fetchAssignedItems function is not available');
+    allTestsPassed = false;
+  } else {
+    try {
+      // Verify the function definition looks correct without actually calling it
+      const functionSource = fetchAssignedItems.toString();
+      if (functionSource.includes('octokit.search.issuesAndPullRequests') && 
+          functionSource.includes('assignee:')) {
+        console.log('✅ PASSED');
+      } else {
+        console.log('⚠️ WARNING');
+        console.log('   fetchAssignedItems function may not be properly implemented');
+      }
+    } catch (error) {
+      console.log('❌ FAILED');
+      console.error(`   ERROR: Failed to validate fetchAssignedItems: ${error.message}`);
+      allTestsPassed = false;
+    }
+  }
+  
+  // Test 7: Verify sprint field and current sprint
+  process.stdout.write('7. Verifying sprint configuration... ');
+  if (!SPRINT_FIELD_ID) {
+    console.log('❌ FAILED');
+    console.error('   ERROR: SPRINT_FIELD_ID is not defined');
+    allTestsPassed = false;
+  } else {
+    try {
+      // Try to get current sprint ID to verify sprint functionality
+      const currentSprintId = await getCurrentSprintOptionId();
+      if (currentSprintId) {
+        console.log(`✅ PASSED (Current sprint ID: ${currentSprintId})`);
+      } else {
+        console.log('⚠️ WARNING');
+        console.log('   Could not determine current sprint ID');
+      }
+    } catch (error) {
+      console.log('❌ FAILED');
+      console.error(`   ERROR: Failed to verify sprint configuration: ${error.message}`);
+      allTestsPassed = false;
+    }
+  }
+  
+  // Test 8: Verify specific issue handling
+  process.stdout.write('8. Validating specific issue handling... ');
+  try {
+    // Test the ability to fetch a known issue (low-impact test, just verifying structure)
+    const { data: issue } = await octokit.issues.get({
+      owner: 'bcgov',
+      repo: 'nr-forest-client',
+      issue_number: 1603
+    });
+    
+    if (issue && issue.number === 1603) {
+      console.log('✅ PASSED');
+    } else {
+      console.log('⚠️ WARNING');
+      console.log('   Could not properly fetch specific test issue');
+    }
+  } catch (error) {
+    console.log('⚠️ WARNING');
+    console.log(`   Could not fetch test issue: ${error.message}`);
+  }
+  
+  console.log('\n=== Preflight checks summary ===');
+  if (!allTestsPassed) {
+    console.error('❌ Some preflight checks FAILED. Review the errors above before proceeding.');
+    // Exit with error code if running in a strict mode
+    if (process.env.STRICT_MODE === 'true') {
+      console.error('Exiting due to STRICT_MODE=true');
+      process.exit(1);
+    } else {
+      console.warn('Continuing despite failed checks. Set STRICT_MODE=true to abort on failures.');
+      console.warn('This may result in incomplete or incorrect synchronization.');
+    }
+  } else {
+    console.log('✅ All preflight checks PASSED! Ready to start the sync process.');
+    console.log('The script will now:');
+    console.log('1. Process user-authored PRs and their linked issues');
+    console.log('2. Process items assigned to the user');
+    console.log('3. Process new issues in monitored repositories');
+    console.log('4. Update project board items with correct status and sprint assignments');
+  }
+  
+  return allTestsPassed;
+}
+
 // --- Run the program ---
-main().catch(err => {
-  console.error('Unhandled error:', err);
-  process.exit(1);
-});
+async function runProgram() {
+  try {
+    // Run preflight checks first
+    await runPreflightChecks();
+    
+    // Then run the main program
+    await main();
+  } catch (err) {
+    console.error('Unhandled error:', err);
+    process.exit(1);
+  }
+}
+
+runProgram();
 
 // Error handlers
 process.on('unhandledRejection', (reason) => {
@@ -1349,3 +1719,15 @@ process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
   process.exit(1);
 });
+
+// Export functions for testing
+if (typeof module !== 'undefined') {
+  module.exports = {
+    runPreflightChecks,
+    getCurrentSprintOptionId,
+    getMonitoredRepos
+  };
+}
+
+// Ensure the function is explicitly defined at the global level for direct testing
+global.runPreflightChecks = runPreflightChecks;

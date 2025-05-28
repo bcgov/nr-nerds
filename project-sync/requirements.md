@@ -31,6 +31,8 @@ To change automation, simply edit this file and request a sync—no coding requi
 | PR, Issue            | Next, Active | Any         | Current sprint |
 | PR, Issue            | Done         | None        | Current sprint |
 
+> Note: To optimize API usage, sprint updates will be skipped if the item already has the correct sprint assigned.
+
 ### 3. Linked Issue Rules - Set Column and Sprint
 
 | Item Type    | Column  | PR Status     | To Column       |
@@ -52,6 +54,9 @@ To change automation, simply edit this file and request a sync—no coding requi
 
 **Monitored Users**:
 - User: `GITHUB_AUTHOR` (set by the environment variable)
+  - All issues and PRs assigned to this user will be added to the project board
+  - Issues assigned to this user will be placed in the "New" column
+  - PRs assigned to this user will follow the standard PR column rules
 
 **Monitored Repositories**: The following repositories are monitored for issues and pull requests:
 - nr-nerds
