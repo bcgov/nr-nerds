@@ -26,15 +26,10 @@ To change automation, simply edit this file and request a sync—no coding requi
 
 ### 2. Column Rules - Set Sprint
 
-| Item Type             | Column             | From Sprint | To Sprint      |
-|-----------------------|--------------------|-------------|----------------|
-| Issue                 | Next, Active, Done | Any         | Current sprint |
-| PR (open or merged)   | Next, Active, Done | Any         | Current sprint |
-| PR (closed, unmerged) | Done               | Unset       | Current sprint |
-
-> Note:
-> - "PR (open or merged)" includes PRs that are currently open or have been merged (i.e., closed with a merge).
-> - "PR (not closed, unmerged)" means any PR that is not both closed and unmerged (i.e., includes open and merged PRs).
+| Item Type            | Column       | From Sprint | To Sprint      |
+|----------------------|--------------|-------------|----------------|
+| PR, Issue            | Next, Active | Any         | Current sprint |
+| PR, Issue            | Done         | None        | Current sprint |
 
 ### 3. Linked Issue Rules - Set Column and Sprint
 

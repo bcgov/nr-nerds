@@ -1025,9 +1025,9 @@ async function main() {
             // First check if the item already has the current sprint assigned
             const currentItemSprint = await getItemSprint(projectItemId);
             
-            // Per requirements.md: 
-            // - For Next/Active: assign to current Sprint (always), but we'll skip if already correct to optimize API usage
-            // - For Done: only update if not already assigned
+            // Per requirements.md simplified rules:
+            // - For Next/Active: assign to current Sprint regardless of current sprint value
+            // - For Done: only update if Sprint is not set
             const alreadyHasCorrectSprint = currentItemSprint === iterationIdStr;
             
             // Optimization: If the sprint is already correctly assigned, don't make unnecessary API calls
