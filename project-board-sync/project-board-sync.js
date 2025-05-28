@@ -9,7 +9,7 @@
 // USAGE:
 // - Run with VERBOSE=true to enable detailed JSON logging of all operations
 // - Run with STRICT_MODE=true to exit on preflight check failures
-// - Example: VERBOSE=true node project-sync.js
+// - Example: VERBOSE=true node project-board-sync.js
 // - Verbose JSON logs will be written to project-sync-log-[timestamp].json
 const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
@@ -842,7 +842,7 @@ function logDiagnostics(diagnostics) {
     // Also write the verbose data to a log file for later analysis
     try {
       const timestamp = new Date().toISOString().replace(/:/g, '-').replace(/\..+/, '');
-      const logFileName = `project-sync-log-${timestamp}.json`;
+      const logFileName = `project-board-sync-log-${timestamp}.json`;
       fs.writeFileSync(
         path.join(__dirname, logFileName), 
         JSON.stringify(diagnostics.verboseData, null, 2)

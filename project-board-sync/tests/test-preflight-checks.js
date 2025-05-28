@@ -29,10 +29,10 @@ console.log(`GH_TOKEN available: ${process.env.GH_TOKEN ? 'Yes' : 'No'}`);
 // Import the main script
 try {
   console.log('\nImporting project-sync modules...');
-  const { runPreflightChecks } = require('../project-sync.js');
+  const { runPreflightChecks } = require('../project-board-sync.js');
   
   if (!runPreflightChecks) {
-    console.error('ERROR: runPreflightChecks function not found in project-sync.js');
+    console.error('ERROR: runPreflightChecks function not found in project-board-sync.js');
     process.exit(1);
   }
   

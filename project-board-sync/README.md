@@ -14,7 +14,7 @@ This tool automates the management of GitHub Projects v2 boards based on rules d
 
 ## Files
 
-- `project-sync.js`: The main script that runs the automation
+- `project-board-sync.js`: The main script that runs the automation
 - `requirements.md`: The single source of truth for all automation rules
 - `FUTURE-IDEAS.md`: Ideas and plans for future enhancements
 - `fetch-user-assignments.js`: Utility to find issues and PRs assigned to users
@@ -58,7 +58,7 @@ export GH_TOKEN=your_github_token
 export GITHUB_AUTHOR=your_github_username
 
 # Run with verbose output (recommended for troubleshooting)
-VERBOSE=true node project-sync.js
+VERBOSE=true node project-board-sync.js
 
 # Run without verbose output (for production)
 node project-sync.js

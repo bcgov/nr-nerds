@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 name: GH Project Board Sync
+=======
+name: Project Board Sync
+>>>>>>> 5015007 (Renaming)
 
 on:
   pull_request:
@@ -6,11 +10,14 @@ on:
     - cron: '*/30 * * * *'  # every 30 minutes
   workflow_dispatch:
 
+<<<<<<< HEAD
 permissions:
   contents: read
   issues: write
   pull-requests: write
 
+=======
+>>>>>>> 5015007 (Renaming)
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -30,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
         run: |
           echo "Running sprint assignment validation tests..."
-          node project-sync/tests/test-sprint-assignment.js
+          node project-board-sync/tests/test-sprint-assignment.js
           if [ $? -ne 0 ]; then
             echo "::error::Sprint assignment tests failed! Fix the sprint assignment logic before continuing."
             exit 1
@@ -43,7 +50,7 @@ jobs:
           GITHUB_AUTHOR: "DerekRoberts"
         run: |
           echo "Running preflight validation checks..."
-          node project-sync/tests/test-preflight-checks.js
+          node project-board-sync/tests/test-preflight-checks.js
           if [ $? -ne 0 ]; then
             echo "::error::Preflight checks failed! Fix configuration issues before continuing."
             exit 1
@@ -55,7 +62,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
           SKIP_PREFLIGHT: true  # Skip preflight checks since they were already run in previous step
-        run: node project-sync/project-sync.js  
+        run: node project-board-sync/project-board-sync.js  
 
       - name: Notify Microsoft Teams on failure
         if: failure() && github.event_name != 'pull_request'
