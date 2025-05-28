@@ -690,25 +690,30 @@ async function fetchAllIssues(owner, repo, cutoffDate, diagnostics = null) {
   console.log(`Fetching all issues from ${owner}/${repo} updated since ${cutoffDateIso}`);
   
   while (hasNextPage) {
-    const res = await executeGitHubOperation(async () => octokit.graphql(`
-      query($owner: String!, $repo: String!, $after: String) {
-        repository(owner: $owner, name: $repo) {
-          issues(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
-            nodes {
-              id
-              number
-              title
-              author { login }
-              state
-              updatedAt
-              repository { nameWithOwner }
-              closedAt
+    const res = await executeGitHubOperation(
+      async () => octokit.graphql(`
+        query($owner: String!, $repo: String!, $after: String) {
+          repository(owner: $owner, name: $repo) {
+            issues(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
+              nodes {
+                id
+                number
+                title
+                author { login }
+                state
+                updatedAt
+                repository { nameWithOwner }
+                closedAt
+              }
+              pageInfo { hasNextPage endCursor }
             }
-            pageInfo { hasNextPage endCursor }
           }
         }
-      }
-    `, { owner, repo, after: endCursor });
+      `,
+      { owner, repo, after: endCursor }
+      ),
+      { operation: 'fetchIssues', owner, repo }
+    );
     
     // Filter issues by cutoff date
     const filteredIssues = res.repository.issues.nodes
