@@ -136,7 +136,7 @@ async function updateItemStatus(projectItemId, statusOption) {
     `, {
       projectId: PROJECT_ID,
       itemId: projectItemId,
-      fieldId: 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA', // Status field ID
+      fieldId: STATUS_FIELD_ID, // Status field ID from config
       optionId: statusOption
     });
     

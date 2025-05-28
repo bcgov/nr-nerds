@@ -16,6 +16,9 @@ if (!GH_TOKEN) {
 
 const octokit = new Octokit({ auth: GH_TOKEN });
 
+// Maximum number of pages to fetch (100 items per page)
+const MAX_PAGES = 10;
+
 /**
  * Search for issues and PRs assigned to a specific user across all repositories
  * @param {string} username - The GitHub username to search for
@@ -54,8 +57,8 @@ async function fetchAssignedItems(username, cutoffDate) {
       } else {
         // Extract relevant information from each item
         const processedItems = data.items.map(item => {
-          // Extract repository name from the url (format: https://api.github.com/repos/owner/repo/...)
-          const repoFullName = item.repository_url.replace('https://api.github.com/repos/', '');
+          // Extract repository name using the repository.full_name field for robustness
+          const repoFullName = item.repository?.full_name || item.repository_url.replace('https://api.github.com/repos/', '');
           const isPR = Boolean(item.pull_request);
           
           return {
@@ -75,9 +78,9 @@ async function fetchAssignedItems(username, cutoffDate) {
         });
         
         items.push(...processedItems);
-        
-        // Check if we've reached the last page (less than 100 items returned)
-        if (data.items.length < 100 || page >= 10) { // Limiting to 10 pages (1000 items) for safety
+
+        // Check if we've reached the last page
+        if (data.items.length < 100 || page >= MAX_PAGES) { // Stop fetching if the maximum page limit is reached
           hasNextPage = false;
         } else {
           page++;

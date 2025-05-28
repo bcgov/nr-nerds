@@ -1,8 +1,10 @@
-
 /**
  * Manages GitHub API rate limiting with retry logic and backoff
  */
 class RateLimitManager {
+  // Minimum number of remaining API calls before triggering rate limit wait
+  static RATE_LIMIT_THRESHOLD = 100;
+
   constructor(octokit, options = {}) {
     this.octokit = octokit;
     this.options = {
@@ -74,9 +76,9 @@ class RateLimitManager {
    */
   async waitForRateLimit() {
     const limits = await this.getRateLimits();
-    
+
     // If we're close to hitting the rate limit, wait until reset
-    if (limits.remaining < 100) {
+    if (limits.remaining < RateLimitManager.RATE_LIMIT_THRESHOLD) {
       const waitTime = (limits.reset * 1000) - Date.now() + 1000; // Add 1s buffer
       if (waitTime > 0) {
         console.warn(`Rate limit low (${limits.remaining}/${limits.limit}), waiting ${Math.round(waitTime/1000)}s until reset`);

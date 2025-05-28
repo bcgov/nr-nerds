@@ -2,10 +2,15 @@
 
 const { Octokit } = require("@octokit/rest");
 const GH_TOKEN = process.env.GH_TOKEN;
-const PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
+const PROJECT_ID = process.env.PROJECT_ID;
 
 if (!GH_TOKEN) {
   console.error("Error: GH_TOKEN environment variable must be set");
+  process.exit(1);
+}
+
+if (!PROJECT_ID) {
+  console.error("Error: PROJECT_ID environment variable must be set");
   process.exit(1);
 }
 

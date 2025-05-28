@@ -10,8 +10,8 @@ A simple script to test directly adding a specific issue to the project board. U
 ### fetch-specific-issue.js
 A utility script to fetch a specific issue (e.g., nr-forest-client #1603) and add it to the project board. Useful for manual testing.
 
-### test-assignment.js
-Tests the user assignment functionality by attempting to assign a user to a specific issue or PR.
+### test-sprint-assignment.js
+Tests the sprint assignment functionality by attempting to assign sprints to project items.
 
 ### test-sprint-assignment.js
 Tests the sprint assignment logic for various scenarios, especially for the "Done" column items. This test is also run as part of the GitHub Actions workflow before deploying changes.

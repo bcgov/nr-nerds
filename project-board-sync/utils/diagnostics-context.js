@@ -1,4 +1,3 @@
-
 /**
  * Helper class for managing diagnostics and rate limit information
  */
@@ -25,7 +24,13 @@ class DiagnosticsContext {
   }
 
   /**
-   * Update rate limit statistics
+   * Update rate limit statistics.
+   * 
+   * @param {Object} rateLimitManager - An object responsible for managing rate limits. 
+   *                                    It must have a `getRateLimits` method that returns 
+   *                                    the current rate limit information.
+   * @returns {Promise<void>} - Resolves when the rate limit stats are successfully updated.
+   *                            Logs warnings if the remaining rate limit is low or if an error occurs.
    */
   async updateRateLimitStats(rateLimitManager) {
     try {
