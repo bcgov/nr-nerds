@@ -1,4 +1,4 @@
-// PROJECT: NERDS Project Sync Automation
+// PROJECT: GitHub Project Board Sync
 // VERSION: 1.2.0
 // UPDATED: 2025-05-28
 //
@@ -867,7 +867,7 @@ async function main() {
   
   try {
     console.log('====================================================');
-    console.log('  NERDS Project Sync Automation (Version 1.2.0)');
+    console.log('  GitHub Project Board Sync (Version 1.2.0)');
     console.log('====================================================');
     console.log(`Start time: ${new Date().toISOString()}`);
     console.log(`Running as user: ${GITHUB_AUTHOR}`);

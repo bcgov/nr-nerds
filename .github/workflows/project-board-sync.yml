@@ -1,4 +1,4 @@
-name: GH Project Project Sync
+name: GH Project Board Sync
 
 on:
   pull_request:
@@ -50,7 +50,7 @@ jobs:
           fi
           echo "Preflight checks passed successfully ✅"
         
-      - name: Run GH Project Assigner
+      - name: Run Project Board Sync
         env:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
@@ -62,13 +62,13 @@ jobs:
         env:
           TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
         run: |
-          MESSAGE=":x: GH Project Assigner failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
+          MESSAGE=":x: Project Board Sync failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
           PAYLOAD=$(jq -nc \
             --arg type "MessageCard" \
             --arg context "http://schema.org/extensions" \
-            --arg summary "GH Project Assigner failed" \
+            --arg summary "Project Board Sync failed" \
             --arg themeColor "FF0000" \
-            --arg title "GH Project Assigner failed" \
+            --arg title "Project Board Sync failed" \
             --arg text "$MESSAGE" \
             '{ "@type": $type, "@context": $context, summary: $summary, themeColor: $themeColor, title: $title, text: $text }')
           curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
