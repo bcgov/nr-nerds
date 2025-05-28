@@ -7,6 +7,17 @@
 
 const path = require('path');
 
+// Set up error handlers for uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 // Display test header
 console.log('----------------------------------------------');
 console.log('  NERDS Project Sync Preflight Tests');
@@ -14,7 +25,6 @@ console.log('----------------------------------------------');
 console.log(`Testing environment: ${process.env.NODE_ENV || 'development'}`);
 console.log(`Time: ${new Date().toISOString()}`);
 console.log(`GH_TOKEN available: ${process.env.GH_TOKEN ? 'Yes' : 'No'}`);
-console.log(`GITHUB_AUTHOR: ${process.env.GITHUB_AUTHOR || 'Not set'}`);
 
 // Import the main script
 try {
@@ -29,12 +39,6 @@ try {
   console.log('Successfully imported modules, running preflight checks...\n');
   
   // Run just the preflight checks
-  // Check if the GH_TOKEN env variable is set
-  console.log('Checking environment:');
-  console.log(`- GH_TOKEN: ${process.env.GH_TOKEN ? 'Set ✓' : 'Not Set ✗'}`);
-  console.log(`- NODE_ENV: ${process.env.NODE_ENV || 'Not Set'}`);
-  console.log(`- GITHUB_AUTHOR: ${process.env.GITHUB_AUTHOR || 'Not Set'}`);
-  
   runPreflightChecks()
     .then(passed => {
       console.log('\n----------------------------------------------');
@@ -52,7 +56,6 @@ try {
     })
     .catch(error => {
       console.error('FATAL ERROR during preflight checks:', error);
-      console.error('Error stack:', error.stack);
       process.exit(1);
     });
 } catch (error) {

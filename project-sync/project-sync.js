@@ -15,14 +15,23 @@ const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
 const path = require("path");
 
-// Import the function to fetch issues assigned to the user
+// Import custom utilities
 const { fetchAssignedItems } = require('./fetch-user-assignments');
+const RateLimitManager = require('./utils/rate-limit-manager');
+const DiagnosticsContext = require('./utils/diagnostics-context');
 
 // Environment variables
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const VERBOSE = process.env.VERBOSE === 'true' || process.env.VERBOSE === '1';
 const octokit = new Octokit({ auth: GH_TOKEN });
+
+// Initialize rate limit manager
+const rateLimitManager = new RateLimitManager(octokit, {
+  maxRetries: 3,
+  initialRetryDelay: 1000,
+  maxRetryDelay: 10000
+});
 
 // Cache for issue details to reduce API calls
 const issueDetailsCache = {};
@@ -45,29 +54,42 @@ const STATUS_OPTIONS = {
 const SPRINT_FIELD_ID = 'PVTIF_lADOAA37OM4AFuzgzgDTbhE';
 const STATUS_FIELD_ID = 'PVTSSF_lADOAA37OM4AFuzgzgDTYuA';
 
-// --- Helper Classes ---
-class DiagnosticsContext {
-  constructor() {
-    this.errors = [];
-    this.warnings = [];
-    this.infos = [];
-    this.verboseData = []; // For storing detailed JSON records
-  }
+// --- Helper Functions ---
 
-  /**
-   * Add a detailed verbose record for troubleshooting
-   * @param {Object} data - Structured data about the operation
-   */
-  addVerboseRecord(data) {
-    // Ensure timestamp is added to each record
-    this.verboseData.push({
-      timestamp: new Date().toISOString(),
-      ...data
-    });
+/**
+ * Execute a GitHub API call with rate limit handling
+ * @param {Function} operation - The API operation to execute
+ * @param {Object} context - Additional context for the operation
+ * @param {DiagnosticsContext} diagnostics - Optional diagnostics context for logging
+ */
+async function executeGitHubOperation(operation, context = {}, diagnostics = null) {
+  try {
+    // Update rate limit stats if diagnostics is provided
+    if (diagnostics) {
+      await diagnostics.updateRateLimitStats(rateLimitManager);
+    }
+
+    // Execute the operation with retries
+    const result = await rateLimitManager.executeWithRetry(operation, context);
+
+    // Update rate limit stats again after the operation
+    if (diagnostics) {
+      await diagnostics.updateRateLimitStats(rateLimitManager);
+    }
+
+    return result;
+  } catch (error) {
+    // Log rate limit related errors if diagnostics is provided
+    if (diagnostics) {
+      if (error.status === 403 && error.message.includes('rate limit')) {
+        diagnostics.errors.push(`Rate limit exceeded: ${error.message}`);
+      } else if (error.status === 429) {
+        diagnostics.errors.push(`Secondary rate limit hit: ${error.message}`);
+      }
+    }
+    throw error;
   }
 }
-
-// --- Helper Functions ---
 
 /**
  * Assign a user to a project item
@@ -148,7 +170,7 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
       // Update cache with only the necessary assignee data to reduce memory usage
       issueDetailsCache[cacheKey] = {
         data: {
-          assignees: response.data.assignees ? response.data.assignees.map(a => a.login) : []
+          assignees: response.data.assignees ? response.data.assignees.map(a => a.login) : [userId]
         }
       };
       
@@ -283,22 +305,24 @@ async function assignUserToProjectItem(projectItemId, userId, diagnostics, itemI
  * Gets the current Sprint iteration ID by finding the iteration that includes today's date
  */
 async function getCurrentSprintOptionId() {
-  const res = await octokit.graphql(`
-    query($projectId:ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          fields(first: 50) {
-            nodes {
-              ... on ProjectV2IterationField {
-                id
-                name
-                configuration {
-                  ... on ProjectV2IterationFieldConfiguration {
-                    iterations {
-                      id
-                      title
-                      startDate
-                      duration
+  const res = await executeGitHubOperation(
+    async () => octokit.graphql(`
+      query($projectId:ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            fields(first: 50) {
+              nodes {
+                ... on ProjectV2IterationField {
+                  id
+                  name
+                  configuration {
+                    ... on ProjectV2IterationFieldConfiguration {
+                      iterations {
+                        id
+                        title
+                        startDate
+                        duration
+                      }
                     }
                   }
                 }
@@ -307,8 +331,9 @@ async function getCurrentSprintOptionId() {
           }
         }
       }
-    }
-  `, { projectId: PROJECT_ID });
+    `, { projectId: PROJECT_ID }),
+    { operation: 'getCurrentSprintOptionId' }
+  );
   
   const sprintField = res.node.fields.nodes.find(f => f.id === SPRINT_FIELD_ID);
   if (!sprintField) {
@@ -388,33 +413,42 @@ async function findOrAddItemToProject(contentId, itemInfo = {}, diagnostics = nu
   let currentStatus = null;
   
   do {
-    const res = await octokit.graphql(`
-      query($projectId:ID!, $after:String) {
-        node(id: $projectId) {
-          ... on ProjectV2 {
-            items(first: 100, after: $after) {
-              nodes { 
-                id 
-                content { 
-                  ... on PullRequest { id }
-                  ... on Issue { id } 
-                }
-                fieldValues(first: 8) {
-                  nodes {
-                    ... on ProjectV2ItemFieldSingleSelectValue {
-                      name
-                      field { ... on ProjectV2SingleSelectField { name } }
+    const res = await executeGitHubOperation(
+      async () => octokit.graphql(`
+        query($projectId:ID!, $after:String) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: 100, after: $after) {
+                nodes { 
+                  id 
+                  content { 
+                    ... on PullRequest { id }
+                    ... on Issue { id } 
+                  }
+                  fieldValues(first: 8) {
+                    nodes {
+                      ... on ProjectV2ItemFieldSingleSelectValue {
+                        name
+                        field { ... on ProjectV2SingleSelectField { name } }
+                      }
                     }
                   }
                 }
+                pageInfo { hasNextPage endCursor }
               }
-              pageInfo { hasNextPage endCursor }
             }
           }
         }
+      `, { projectId: PROJECT_ID, after: endCursor }), 
+      {
+        operation: 'findItemInProject',
+        contentId: contentId,
+        type: itemInfo.type,
+        itemNumber: itemInfo.number,
+        repository: itemInfo.repoName
       }
-    `, { projectId: PROJECT_ID, after: endCursor });
-    
+    );
+
     const items = res.node.items.nodes;
     const match = items.find(item => item.content && item.content.id === contentId);
     
@@ -443,13 +477,22 @@ async function findOrAddItemToProject(contentId, itemInfo = {}, diagnostics = nu
 
   // If not found, add it to the project
   if (!found) {
-    const addResult = await octokit.graphql(`
-      mutation($projectId:ID!, $contentId:ID!) {
-        addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-          item { id }
+    const addResult = await executeGitHubOperation(
+      async () => octokit.graphql(`
+        mutation($projectId:ID!, $contentId:ID!) {
+          addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+            item { id }
+          }
         }
+      `, { projectId: PROJECT_ID, contentId }),
+      {
+        operation: 'addItemToProject',
+        contentId: contentId,
+        type: itemInfo.type,
+        itemNumber: itemInfo.number,
+        repository: itemInfo.repoName
       }
-    `, { projectId: PROJECT_ID, contentId });
+    );
 
     projectItemId = addResult.addProjectV2ItemById.item.id;
 
@@ -508,21 +551,30 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
     };
     
     // Perform the GraphQL mutation
-    await octokit.graphql(`
-      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
-        updateProjectV2ItemFieldValue(input: {
-          projectId: $projectId,
-          itemId: $itemId,
-          fieldId: $fieldId,
-          value: { singleSelectOptionId: $optionId }
-        }) { projectV2Item { id } }
+    await executeGitHubOperation(
+      async () => octokit.graphql(`
+        mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $optionId:String!) {
+          updateProjectV2ItemFieldValue(input: {
+            projectId: $projectId,
+            itemId: $itemId,
+            fieldId: $fieldId,
+            value: { singleSelectOptionId: $optionId }
+          }) { projectV2Item { id } }
+        }
+      `, {
+        projectId: PROJECT_ID,
+        itemId: projectItemId,
+        fieldId: STATUS_FIELD_ID,
+        optionId: statusOption
+      }),
+      {
+        operation: 'updateItemStatus',
+        itemType: itemInfo.type,
+        itemNumber: itemInfo.number,
+        repository: itemInfo.repoName,
+        targetStatus: columnName
       }
-    `, {
-      projectId: PROJECT_ID,
-      itemId: projectItemId,
-      fieldId: STATUS_FIELD_ID,
-      optionId: statusOption
-    });
+    );
     
     // Log the regular info message
     diagnostics.infos.push(`Updated ${itemInfo.type} #${itemInfo.number}${repoInfo} to column "${columnName}"`);
@@ -562,24 +614,26 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
  */
 async function getItemSprint(projectItemId) {
   try {
-    const res = await octokit.graphql(`
-      query getItemFieldValues($itemId: ID!) {
-        node(id: $itemId) {
-          ... on ProjectV2Item {
-            fieldValues(first: 20) {
-              nodes {
-                ... on ProjectV2ItemFieldIterationValue {
-                  iterationId
-                  field { ... on ProjectV2IterationField { name } }
+    const res = await executeGitHubOperation(
+      async () => octokit.graphql(`
+        query getItemFieldValues($itemId: ID!) {
+          node(id: $itemId) {
+            ... on ProjectV2Item {
+              fieldValues(first: 20) {
+                nodes {
+                  ... on ProjectV2ItemFieldIterationValue {
+                    iterationId
+                    field { ... on ProjectV2IterationField { name } }
+                  }
                 }
               }
             }
           }
-        }
-      }
-    `, { 
-      itemId: projectItemId
-    });
+        }`, { 
+        itemId: projectItemId
+      }), 
+      { operation: 'getItemSprint', projectItemId }
+    );
     
     if (!res.node?.fieldValues?.nodes) return null;
     
@@ -627,7 +681,7 @@ async function fetchRecentItemsFromRepo(owner, repo, cutoffDate) {
 /**
  * Fetch all issues from a repository with proper pagination
  */
-async function fetchAllIssues(owner, repo, cutoffDate) {
+async function fetchAllIssues(owner, repo, cutoffDate, diagnostics = null) {
   let issues = [];
   let hasNextPage = true;
   let endCursor = null;
@@ -636,7 +690,7 @@ async function fetchAllIssues(owner, repo, cutoffDate) {
   console.log(`Fetching all issues from ${owner}/${repo} updated since ${cutoffDateIso}`);
   
   while (hasNextPage) {
-    const res = await octokit.graphql(`
+    const res = await executeGitHubOperation(async () => octokit.graphql(`
       query($owner: String!, $repo: String!, $after: String) {
         repository(owner: $owner, name: $repo) {
           issues(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -680,8 +734,7 @@ async function fetchAllIssues(owner, repo, cutoffDate) {
 
 /**
  * Fetch all PRs from a repository with proper pagination
- */
-async function fetchAllPRs(owner, repo, cutoffDate) {
+ */  async function fetchAllPRs(owner, repo, cutoffDate, diagnostics = null) {
   let prs = [];
   let hasNextPage = true;
   let endCursor = null;
@@ -690,7 +743,8 @@ async function fetchAllPRs(owner, repo, cutoffDate) {
   console.log(`Fetching all PRs from ${owner}/${repo} updated since ${cutoffDateIso}`);
   
   while (hasNextPage) {
-    const res = await octokit.graphql(`
+    const res = await executeGitHubOperation(
+      async () => octokit.graphql(`
       query($owner: String!, $repo: String!, $after: String) {
         repository(owner: $owner, name: $repo) {
           pullRequests(first: 50, after: $after, orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -1208,25 +1262,33 @@ async function main() {
               
             // Only update if needed
             if (shouldUpdateSprint) {
-              await octokit.graphql(`
-                mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-                  updateProjectV2ItemFieldValue(input: {
-                    projectId: $projectId,
-                    itemId: $itemId,
-                    fieldId: $fieldId,
-                    value: { iterationId: $iterationId }
-                  }) { 
-                    projectV2Item { 
-                      id 
-                    } 
+              await executeGitHubOperation(
+                async () => octokit.graphql(`
+                  mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+                    updateProjectV2ItemFieldValue(input: {
+                      projectId: $projectId,
+                      itemId: $itemId,
+                      fieldId: $fieldId,
+                      value: { iterationId: $iterationId }
+                    }) { 
+                      projectV2Item { 
+                        id 
+                      } 
+                    }
                   }
+                `, {
+                  projectId: PROJECT_ID,
+                  itemId: projectItemId,
+                  fieldId: SPRINT_FIELD_ID,
+                  iterationId: iterationIdStr
+                }),
+                {
+                  operation: 'updateItemSprint',
+                  itemType: item.type,
+                  itemNumber: item.number,
+                  repository: item.repoName
                 }
-              `, {
-                projectId: PROJECT_ID,
-                itemId: projectItemId,
-                fieldId: SPRINT_FIELD_ID,
-                iterationId: iterationIdStr
-              });
+              );
               
               // Log standard info message
               diagnostics.infos.push(`Updated ${item.type} #${item.number} [${item.repoName}] sprint field`);
@@ -1324,25 +1386,38 @@ async function main() {
                   : !linkedIssueHasCorrectSprint; // For other items: update only if the sprint is not already correct
                 
                 if (shouldUpdateSprint) {
-                  await octokit.graphql(`
-                    mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-                      updateProjectV2ItemFieldValue(input: {
-                        projectId: $projectId,
-                        itemId: $itemId,
-                        fieldId: $fieldId,
-                        value: { iterationId: $iterationId }
-                      }) { 
-                        projectV2Item { 
-                          id 
-                        } 
+                  await executeGitHubOperation(
+                    async () => octokit.graphql(`
+                      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: $projectId,
+                          itemId: $itemId,
+                          fieldId: $fieldId,
+                          value: { iterationId: $iterationId }
+                        }) { 
+                          projectV2Item { 
+                            id 
+                          } 
+                        }
+                      }
+                    `, {
+                      projectId: PROJECT_ID,
+                      itemId: issueItemId,
+                      fieldId: SPRINT_FIELD_ID,
+                      iterationId: iterationIdStr
+                    }),
+                    {
+                      operation: 'updateLinkedItemSprint',
+                      itemType: 'Issue',
+                      itemNumber: linkedIssue.number,
+                      repository: linkedIssue.repository.nameWithOwner,
+                      linkedFrom: {
+                        type: 'PR',
+                        number: item.number,
+                        repository: item.repoName
                       }
                     }
-                  `, {
-                    projectId: PROJECT_ID,
-                    itemId: issueItemId,
-                    fieldId: SPRINT_FIELD_ID,
-                    iterationId: iterationIdStr
-                  });
+                  );
                   
                   // Log standard message
                   diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] sprint field`);
@@ -1722,12 +1797,9 @@ process.on('uncaughtException', (err) => {
 
 // Export functions for testing
 if (typeof module !== 'undefined') {
-  module.exports = {
-    runPreflightChecks,
-    getCurrentSprintOptionId,
-    getMonitoredRepos
-  };
-}
-
-// Ensure the function is explicitly defined at the global level for direct testing
-global.runPreflightChecks = runPreflightChecks;
+  // Export functions for testing
+module.exports = {
+  runPreflightChecks,
+  getCurrentSprintOptionId,
+  getMonitoredRepos
+};
