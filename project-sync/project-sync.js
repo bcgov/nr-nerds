@@ -24,6 +24,7 @@ const DiagnosticsContext = require('./utils/diagnostics-context');
 const GH_TOKEN = process.env.GH_TOKEN;
 const GITHUB_AUTHOR = process.env.GITHUB_AUTHOR || "DerekRoberts";
 const VERBOSE = process.env.VERBOSE === 'true' || process.env.VERBOSE === '1';
+const SKIP_PREFLIGHT = process.env.SKIP_PREFLIGHT === 'true' || process.env.SKIP_PREFLIGHT === '1';
 const octokit = new Octokit({ auth: GH_TOKEN });
 
 // Initialize rate limit manager
@@ -1779,8 +1780,12 @@ async function runPreflightChecks() {
 // --- Run the program ---
 async function runProgram() {
   try {
-    // Run preflight checks first
-    await runPreflightChecks();
+    // Run preflight checks unless explicitly skipped
+    if (!SKIP_PREFLIGHT) {
+      await runPreflightChecks();
+    } else {
+      console.log('Skipping preflight checks (SKIP_PREFLIGHT=true)');
+    }
     
     // Then run the main program
     await main();

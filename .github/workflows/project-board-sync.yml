@@ -54,6 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
+          SKIP_PREFLIGHT: true  # Skip preflight checks since they were already run in previous step
         run: node project-sync/project-sync.js  
 
       - name: Notify Microsoft Teams on failure
