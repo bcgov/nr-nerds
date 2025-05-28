@@ -30,12 +30,25 @@ jobs:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
         run: |
           echo "Running sprint assignment validation tests..."
-          node project-sync/test-sprint-assignment.js
+          node project-sync/tests/test-sprint-assignment.js
           if [ $? -ne 0 ]; then
             echo "::error::Sprint assignment tests failed! Fix the sprint assignment logic before continuing."
             exit 1
           fi
           echo "Sprint assignment tests passed successfully ✅"
+      
+      - name: Run Preflight Checks
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_AUTHOR: "DerekRoberts"
+        run: |
+          echo "Running preflight validation checks..."
+          node project-sync/tests/test-preflight-checks.js
+          if [ $? -ne 0 ]; then
+            echo "::error::Preflight checks failed! Fix configuration issues before continuing."
+            exit 1
+          fi
+          echo "Preflight checks passed successfully ✅"
         
       - name: Run GH Project Assigner
         env:
