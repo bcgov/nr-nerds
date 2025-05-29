@@ -1125,11 +1125,6 @@ async function main() {
             currentStatusId === STATUS_OPTIONS.next || 
             currentStatusId === STATUS_OPTIONS.active;
           
-          // Check if this issue is linked from any PR we've seen
-          const isInNextOrActiveColumn = 
-            currentStatusId === STATUS_OPTIONS.next || 
-            currentStatusId === STATUS_OPTIONS.active;
-
           // Get all items we've processed so we can check for linked issues
           const linkedPRs = itemsToProcess.filter(pr => 
             pr.type === 'PR' && 
