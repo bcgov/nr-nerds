@@ -1,4 +1,4 @@
-name: GH Project Board Sync
+name: Project Board Sync
 
 on:
   pull_request:

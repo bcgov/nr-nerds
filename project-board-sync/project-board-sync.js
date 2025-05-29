@@ -855,6 +855,33 @@ function logDiagnostics(diagnostics) {
 }
 
 /**
+ * Determines if a PR is actually merged based on its properties
+ * @param {Object} pr - The pull request object
+ * @returns {boolean} - True if the PR is merged, false otherwise
+ */
+/**
+ * Determines if a pull request should be considered as "merged" for the purpose of automation
+ * A PR is considered merged if:
+ * 1. It has the merged flag set to true, OR
+ * 2. It is closed and has linked issues (via closingIssuesReferences)
+ * 
+ * @param {Object} pr - Pull Request object containing merged status, state and closing issues
+ * @returns {boolean} - Whether the PR should be treated as merged
+ */
+function isPRMerged(pr) {
+  // Check both the merged flag and whether the PR is closed with linked issues
+  const hasLinkedIssues = pr.closingIssuesReferences?.nodes?.length > 0;
+  const result = pr.merged === true || (pr.state === 'CLOSED' && hasLinkedIssues);
+  
+  // For debugging purposes
+  if (pr.state === 'CLOSED' && !pr.merged && hasLinkedIssues) {
+    console.log(`PR #${pr.number} considered merged because it's closed with ${pr.closingIssuesReferences.nodes.length} linked issues`);
+  }
+  
+  return result;
+}
+
+/**
  * Process recently updated items (PRs and Issues) according to the requirements
  */
 async function main() {
@@ -1000,7 +1027,8 @@ async function main() {
         const targetStatus = pr.state === 'OPEN' ? STATUS_OPTIONS.active : STATUS_OPTIONS.done;
         
         // Track whether the PR is merged or just closed
-        const isMerged = pr.merged === true;
+        // Using the isPRMerged helper for consistent behavior
+        const isMerged = isPRMerged(pr);
         
         // Add a reason based on PR state
         const reason = pr.state === 'OPEN' 
@@ -1329,10 +1357,11 @@ async function main() {
         // - New link: inherit the sprint and column from its PR
         // - PR merged: inherit the sprint and column from its PR
         // - PR closed (not merged): do not change the issue's column or sprint
-        if (item.type === 'PR' && item.linkedIssues.length > 0 && item.author === GITHUB_AUTHOR) {
-          // Only process linked issues if the PR is authored by the user AND
-          // it's either merged or still open (new link)
-          if (item.merged === true || item.state === 'OPEN') {
+        if (item.type === 'PR' && item.linkedIssues.length > 0) {
+          // Process linked issues if the PR is merged or still open (new link) 
+          // Using our helper function to properly determine if the PR is merged
+          const isMerged = isPRMerged(item);
+          if (isMerged || item.state === 'OPEN') {
             for (const linkedIssue of item.linkedIssues) {
               if (processedNodeIds.has(linkedIssue.id)) continue;
               processedNodeIds.add(linkedIssue.id);
@@ -1361,7 +1390,7 @@ async function main() {
                 repoName: linkedIssue.repository.nameWithOwner,
                 contentId: linkedIssue.id,
                 currentStatus: linkedIssueInfo.currentStatus,
-                reason: `Inheriting status from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
+                reason: `Inheriting status from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
               });
               
               // Assign the same user as the PR (as per requirements)
@@ -1370,7 +1399,7 @@ async function main() {
                 number: linkedIssue.number,
                 repoName: linkedIssue.repository.nameWithOwner,
                 contentId: linkedIssue.id,
-                reason: `Inheriting user assignment from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
+                reason: `Inheriting user assignment from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
               });
               if (!linkedAssignmentResult) {
                 diagnostics.warnings.push(`Failed to assign user ${GITHUB_AUTHOR} to linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}], continuing with other operations`);
@@ -1383,15 +1412,15 @@ async function main() {
                 // Check if the issue already has the correct sprint assigned
                 const currentIssueSprint = await getItemSprint(issueItemId);
                 
-                // If the linked issue is going to the Done column, only assign sprint if none exists
-                // Otherwise follow the regular rules for Next/Active columns
-                const isLinkedIssueDone = item.targetStatus === STATUS_OPTIONS.done;
+                // For linked issues of merged PRs, always assign the current sprint
+                // For other items, update only if the sprint doesn't match the current one
+                const isLinkedIssueMergedPR = item.targetStatus === STATUS_OPTIONS.done && isMerged;
                 
                 // Check if linked issue already has the correct sprint assigned to avoid unnecessary API calls
                 const linkedIssueHasCorrectSprint = currentIssueSprint === iterationIdStr;
                 
-                const shouldUpdateSprint = isLinkedIssueDone
-                  ? !currentIssueSprint  // For Done items: update only if no sprint assigned
+                const shouldUpdateSprint = isLinkedIssueMergedPR
+                  ? true  // For linked issues of merged PRs, always update sprint
                   : !linkedIssueHasCorrectSprint; // For other items: update only if the sprint is not already correct
                 
                 if (shouldUpdateSprint) {
@@ -1450,11 +1479,11 @@ async function main() {
                     number: item.number,
                     repository: item.repoName,
                     state: item.state,
-                    merged: item.merged
+                    merged: isMerged
                   },
                   url: `https://github.com/${linkedIssue.repository.nameWithOwner}/issues/${linkedIssue.number}`,
                   reason: shouldUpdateSprint
-                    ? `Issue inheriting sprint field from ${item.merged ? 'merged' : 'open'} PR #${item.number}`
+                    ? `Issue inheriting sprint field from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
                     : `Issue already has current sprint assigned, no update needed`
                 });
               } catch (err) {
@@ -1463,7 +1492,7 @@ async function main() {
             }
           } else {
             // Human-friendly message
-            diagnostics.infos.push(`Skipping linked issues for PR #${item.number} [${item.repoName}] (merged=${item.merged}, state=${item.state}; only update linked issues for open or merged PRs)`);
+            diagnostics.infos.push(`Skipping linked issues for PR #${item.number} [${item.repoName}] (merged=${isMerged}, state=${item.state}; only update linked issues for open or merged PRs)`);
             
             // Detailed verbose record
             diagnostics.addVerboseRecord({
@@ -1475,7 +1504,7 @@ async function main() {
               contentId: item.contentId,
               author: item.author,
               state: item.state, 
-              merged: item.merged,
+              merged: isMerged,
               linkedIssuesCount: item.linkedIssues.length,
               result: 'skipped',
               url: `https://github.com/${item.repoName}/pull/${item.number}`,
