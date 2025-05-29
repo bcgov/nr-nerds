@@ -1120,24 +1120,32 @@ async function main() {
             key.toLowerCase() === (currentStatus || '').toLowerCase()
           )?.[1];
 
-          // Check if existing issue is in Next or Active column (needs sprint assignment per requirements)
-          const isInNextOrActiveColumn = 
-            currentStatusId === STATUS_OPTIONS.next || 
-            currentStatusId === STATUS_OPTIONS.active;
-          
-          // Get all items we've processed so we can check for linked issues
+          // Get all linked PRs for this issue
           const linkedPRs = itemsToProcess.filter(pr => 
             pr.type === 'PR' && 
             pr.linkedIssues?.some(linked => linked.id === item.contentId)
           );
           
-          const isLinkedToMergedOrOpenPR = linkedPRs.some(pr => 
+          // Debugging info
+          if (linkedPRs.length > 0) {
+            console.log(`Found ${linkedPRs.length} linked PRs for Issue #${item.number}:`);
+            linkedPRs.forEach(pr => {
+              console.log(`- PR #${pr.number} (state: ${pr.state}, merged: ${isPRMerged(pr)})`);
+            });
+          }
+
+          // Check if any linked PR is open or merged (requiring inheritance)
+          const linkedOpenOrMergedPR = linkedPRs.find(pr => 
             pr.state === 'OPEN' || isPRMerged(pr)
           );
 
-          // Only skip if:
-          // 1. Not in Next/Active columns AND
-          // 2. Not linked to any merged/open PRs
+          // If we have a linked open/merged PR, we need to let it handle this issue
+          if (linkedOpenOrMergedPR) {
+            console.log(`Skipping Issue #${item.number} - will be processed via ${isPRMerged(linkedOpenOrMergedPR) ? 'merged' : 'open'} PR #${linkedOpenOrMergedPR.number}`);
+            return;
+          }
+
+          // Otherwise, only skip if not in Next/Active columns (standard behavior for standalone issues)
           if (!isInNextOrActiveColumn && !isLinkedToMergedOrOpenPR) {
             // Skip further processing for standalone issues not in Next or Active columns
             diagnostics.infos.push(`Skipping standalone Issue #${item.number} [${item.repoName}] (already in project)`);
