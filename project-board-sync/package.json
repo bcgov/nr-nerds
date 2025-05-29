@@ -1,0 +1,16 @@
+{
+  "name": "project-board-sync",
+  "version": "1.0.0",
+  "description": "GitHub project board automation based on requirements.md",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "test:add-items": "node tests/test-add-items.js",
+    "test:columns": "node tests/test-columns.js",
+    "test": "npm run test:add-items && npm run test:columns"
+  },
+  "dependencies": {
+    "@octokit/rest": "^19.0.0"
+  }
+}
+}
