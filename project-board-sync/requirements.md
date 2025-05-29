@@ -60,9 +60,9 @@ To change automation, simply edit this file and request a sync—no coding requi
 
 **Monitored Repositories**: The following repositories are monitored for issues and pull requests:
 - nr-nerds
-- quickstart-openshift
+<!-- - quickstart-openshift
 - quickstart-openshift-backends
-- quickstart-openshift-helpers
+- quickstart-openshift-helpers -->
 
 _All repositories listed above are under the `bcgov` GitHub organization unless otherwise specified._
 
