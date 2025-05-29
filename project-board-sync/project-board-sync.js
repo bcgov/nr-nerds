@@ -1366,71 +1366,64 @@ async function main() {
         
         // Step 4: Handle linked issues according to PR state and rules
         // From requirements.md:
-        // - New link: inherit the sprint, column, and assignees from its PR
-        // - PR merged: inherit the sprint, column, and assignees from its PR
-        // - PR closed (not merged): do not change the issue's column, sprint, or assignment
+        // - For merged/open PRs: linked issues inherit column status and assignees only
+        // - Sprint is determined by column rules, never inherited from PR
         if (item.type === 'PR' && item.linkedIssues.length > 0) {
-          // Process linked issues if the PR is merged or still open (new link)
-          // as per requirements.md section 3: Linked Issue Rules
           const isMerged = isPRMerged(item);
+          // Process linked issues if PR is merged or still open (per requirements.md section 3)
           if (isMerged || item.state === 'OPEN') {
             for (const linkedIssue of item.linkedIssues) {
               if (processedNodeIds.has(linkedIssue.id)) continue;
               processedNodeIds.add(linkedIssue.id);
               
-              // Find the linked issue in the project
+              // Find or add the linked issue to project
               const linkedIssueInfo = {
                 type: 'Issue',
                 number: linkedIssue.number,
                 repoName: linkedIssue.repository.nameWithOwner,
                 contentId: linkedIssue.id,
-                reason: `Linked to PR #${item.number} (${isMerged ? 'merged' : 'open'})`
+                author: item.author,
+                state: 'OPEN', // Issues stay OPEN when PR is merged, unless manually closed
+                reason: `Linked to ${isMerged ? 'merged' : 'open'} PR #${item.number}`
               };
-              const { projectItemId: issueItemId, currentStatus } = await findOrAddItemToProject(
+
+              const { projectItemId: issueItemId } = await findOrAddItemToProject(
                 linkedIssue.id,
                 linkedIssueInfo,
                 diagnostics
               );
-              
-              // Store the current status for the detailed output
-              linkedIssueInfo.currentStatus = currentStatus;
-              
-              // Update status to match PR
+
+              // 1. Inherit column status from PR
               await updateItemStatus(issueItemId, item.targetStatus, diagnostics, {
-                type: 'Issue',
-                number: linkedIssue.number,
-                repoName: linkedIssue.repository.nameWithOwner,
-                contentId: linkedIssue.id,
-                currentStatus: linkedIssueInfo.currentStatus,
+                ...linkedIssueInfo,
                 reason: `Inheriting status from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
               });
-              
-              // Get the PR assignees, falling back to PR author if no assignees
+
+              // 2. Inherit assignees from PR (use first assignee, or author as fallback)
               const assigneeLogins = item.assignees?.map(a => a.login) || [];
-              const assigneeToUse = assigneeLogins.length > 0 ? assigneeLogins[0] : (item.author || GITHUB_AUTHOR);
+              const assigneeToUse = assigneeLogins.length > 0 ? assigneeLogins[0] : item.author;
               
-              // Assign the first PR assignee (or author as fallback) to the linked issue
-              const linkedAssignmentResult = await assignUserToProjectItem(issueItemId, assigneeToUse, diagnostics, {
-                type: 'Issue',
-                number: linkedIssue.number,
-                repoName: linkedIssue.repository.nameWithOwner,
-                contentId: linkedIssue.id,
-                reason: `Inheriting assignee (${assigneeToUse}) from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
-              });
-              if (!linkedAssignmentResult) {
-                diagnostics.warnings.push(`Failed to assign user ${assigneeToUse} to linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}], continuing with other operations`);
+              if (assigneeToUse) {
+                const linkedAssignmentResult = await assignUserToProjectItem(issueItemId, assigneeToUse, diagnostics, {
+                  ...linkedIssueInfo,
+                  reason: `Inheriting assignee (${assigneeToUse}) from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
+                });
+
+                if (!linkedAssignmentResult) {
+                  diagnostics.warnings.push(`Failed to assign user ${assigneeToUse} to linked Issue #${linkedIssue.number}`);
+                }
+
+                // Log if multiple assignees were present but only first was used
+                if (assigneeLogins.length > 1) {
+                  diagnostics.infos.push(`PR #${item.number} has multiple assignees, transferred first one (${assigneeToUse}) to Issue #${linkedIssue.number}`);
+                }
               }
+
+              // 3. Sprint is determined by column rules, do not inherit from PR
+              // Add a clear log message about this behavior
+              diagnostics.infos.push(`Sprint for Issue #${linkedIssue.number} will be handled by column rules, not inherited from PR #${item.number}`);
               
-              // Log information about the assignees for debugging
-              if (assigneeLogins.length > 1) {
-                diagnostics.infos.push(`PR #${item.number} has ${assigneeLogins.length} assignees, only transferred the first one (${assigneeToUse}) to Issue #${linkedIssue.number}`);
-              }
-              
-              // Do not update sprint from PR - sprint is handled by column rules (requirements.md Rule #2)
-              // The linked issue will get its sprint assignment based on its column placement
-              diagnostics.infos.push(`Sprint for Issue #${linkedIssue.number} will be handled by column rules per requirements`);
-              
-              // Add detailed record for linked issue processing
+              // Record the processing of this linked issue
               diagnostics.addVerboseRecord({
                 operation: 'processLinkedIssue',
                 itemType: 'Issue',
@@ -1447,7 +1440,7 @@ async function main() {
                 },
                 result: 'success',
                 url: `https://github.com/${linkedIssue.repository.nameWithOwner}/issues/${linkedIssue.number}`,
-                reason: `Processing linked issue (inheriting column and assignee only per requirements)`
+                reason: 'Processing linked issue (inheriting column and assignee only per requirements)'
               });
             }
           } else {
