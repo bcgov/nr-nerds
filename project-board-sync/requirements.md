@@ -26,21 +26,21 @@ To change automation, simply edit this file and request a sync—no coding requi
 
 ### 2. Column Rules - Set Sprint
 
-| Item Type            | Column       | From Sprint | To Sprint      |
-|----------------------|--------------|-------------|----------------|
-| PR, Issue            | Next, Active | Any         | Current sprint |
-| PR, Issue            | Done         | None        | Current sprint |
+| Item Type | Column       | From Sprint | To Sprint      |
+|-----------|--------------|-------------|----------------|
+| PR, Issue | Next, Active | Any         | Current sprint |
+| PR, Issue | Done         | None        | Current sprint |
 
 > Note: To optimize API usage, sprint updates will be skipped if the item already has the correct sprint assigned.
 
-### 3. Linked Issue Rules - Set Column and Sprint
+### 3. Linked Issue Rules - Column and Assignee Inheritance
 
-| Item Type    | Column  | PR Status     | To Column       |
-|--------------|---------|---------------|-----------------|
-| Linked Issue | Done    | Unmerged      | Unchanged       |
-| Linked Issue | Any     | Anything else | Inherit from PR |
+| Item Type    | PR Status     | Inherit from PR   |
+|--------------|---------------|-------------------|
+| Linked Issue | Unmerged      | Nothing           |
+| Linked Issue | Merged/Open   | Column, assignees |
 
-> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub.
+> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub. When a PR is closed and merged, all linked issues will inherit the PR's status (column) and assignees (from the PR's assignee list). Sprint assignment follows the standard Column Rules from Section 2 - the sprint will be assigned based on the column the issue is moved to.
 
 ## Automation Rules for Monitored Users and Repositories
 

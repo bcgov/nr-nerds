@@ -26,8 +26,21 @@ Runs only the preflight validation checks from the main project-sync.js script t
 - User assignment functions are available and working
 - Sprint configuration is valid
 - Specific issue handling works correctly
+- Linked issues processing logic is valid
 
 This test is useful for quickly validating the environment and configuration before running the full sync process.
+
+### test-linked-issues-inheritance.js
+Tests the linked issues inheritance behavior from PRs. This test verifies that:
+- Merged PRs are correctly identified (even if the merged flag is false but the PR is closed with linked issues)
+- Linked issues are inheriting status from their associated PR
+- Linked issues are inheriting sprint assignments from their associated PR
+- Linked issues are assigned to the PR author (regardless of whether the PR author is GITHUB_AUTHOR)
+
+This test is particularly useful for verifying the fix for issue #76 and PR #78, where linked issues weren't inheriting the proper status and sprint from PRs that weren't authored by GITHUB_AUTHOR.
+
+### fetch-linked-issue-76-pr-78.js
+A diagnostic script specifically created to analyze the issue #76 and PR #78 situation, which uncovered the bug where linked issues weren't inheriting properties from PRs not authored by GITHUB_AUTHOR.
 
 ## Running Tests
 
