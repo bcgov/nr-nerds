@@ -784,6 +784,12 @@ async function fetchAllIssues(owner, repo, cutoffDate, diagnostics = null) {
                   login
                 }
               }
+              # Special debugging for linked issues and merge state
+              isDraft
+              closed
+              closedAt
+              mergedAt
+              mergedBy { login }
               closingIssuesReferences(first: 10) { 
                 nodes { 
                   id 
@@ -809,7 +815,18 @@ async function fetchAllIssues(owner, repo, cutoffDate, diagnostics = null) {
     // Special debug for PR #78
     const pr78 = res.repository.pullRequests.nodes.find(pr => pr.number === 78);
     if (pr78) {
-      console.log(`FOUND PR #78: updatedAt=${pr78.updatedAt}, author=${pr78.author?.login}, included=${new Date(pr78.updatedAt) >= cutoffDate}`);
+      console.log(`FOUND PR #78:
+  updatedAt: ${pr78.updatedAt}
+  author: ${pr78.author?.login}
+  state: ${pr78.state}
+  merged: ${pr78.merged}
+  isDraft: ${pr78.isDraft}
+  closed: ${pr78.closed}
+  closedAt: ${pr78.closedAt}
+  mergedAt: ${pr78.mergedAt}
+  mergedBy: ${pr78.mergedBy?.login}
+  included in processing: ${new Date(pr78.updatedAt) >= cutoffDate}
+  linked issues: ${JSON.stringify(pr78.closingIssuesReferences?.nodes || [])}`);
     }
     
     prs.push(...filteredPRs);
@@ -909,9 +926,9 @@ async function main() {
     const monitoredRepos = getMonitoredRepos();
     console.log(`Monitoring ${monitoredRepos.length} repositories: ${monitoredRepos.join(', ')}`);
     
-    // Calculate cutoff date (2 days ago)
+    // Calculate cutoff date (7 days ago to ensure we catch PR 78)
     const twoDaysAgo = new Date();
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 7);
     console.log(`Processing items updated since: ${twoDaysAgo.toISOString()}`);
     
     // Get current sprint ID
@@ -1409,90 +1426,29 @@ async function main() {
                 diagnostics.infos.push(`PR #${item.number} has ${assigneeLogins.length} assignees, only transferred the first one (${assigneeToUse}) to Issue #${linkedIssue.number}`);
               }
               
-              // Update sprint to match PR
-              try {
-                const iterationIdStr = String(currentSprintId);
-                
-                // Check if the issue already has the correct sprint assigned
-                const currentIssueSprint = await getItemSprint(issueItemId);
-                
-                // For linked issues of merged PRs, always assign the current sprint
-                // For other items, update only if the sprint doesn't match the current one
-                const isLinkedIssueMergedPR = item.targetStatus === STATUS_OPTIONS.done && isMerged;
-                
-                // Check if linked issue already has the correct sprint assigned to avoid unnecessary API calls
-                const linkedIssueHasCorrectSprint = currentIssueSprint === iterationIdStr;
-                
-                const shouldUpdateSprint = isLinkedIssueMergedPR
-                  ? true  // For linked issues of merged PRs, always update sprint
-                  : !linkedIssueHasCorrectSprint; // For other items: update only if the sprint is not already correct
-                
-                if (shouldUpdateSprint) {
-                  await executeGitHubOperation(
-                    async () => octokit.graphql(`
-                      mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $iterationId:String!) {
-                        updateProjectV2ItemFieldValue(input: {
-                          projectId: $projectId,
-                          itemId: $itemId,
-                          fieldId: $fieldId,
-                          value: { iterationId: $iterationId }
-                        }) { 
-                          projectV2Item { 
-                            id 
-                          } 
-                        }
-                      }
-                    `, {
-                      projectId: PROJECT_ID,
-                      itemId: issueItemId,
-                      fieldId: SPRINT_FIELD_ID,
-                      iterationId: iterationIdStr
-                    }),
-                    {
-                      operation: 'updateLinkedItemSprint',
-                      itemType: 'Issue',
-                      itemNumber: linkedIssue.number,
-                      repository: linkedIssue.repository.nameWithOwner,
-                      linkedFrom: {
-                        type: 'PR',
-                        number: item.number,
-                        repository: item.repoName
-                      }
-                    }
-                  );
-                  
-                  // Log standard message
-                  diagnostics.infos.push(`Updated linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] sprint field`);
-                } else {
-                  diagnostics.infos.push(`Skipped sprint update for linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}] - already has correct sprint`);
-                }
-                
-                // Add verbose record with reason
-                diagnostics.addVerboseRecord({
-                  operation: shouldUpdateSprint ? 'updateSprint' : 'skipSprint',
-                  itemType: 'Issue',
-                  itemNumber: linkedIssue.number,
-                  repository: linkedIssue.repository.nameWithOwner,
-                  projectItemId: issueItemId,
-                  contentId: linkedIssue.id,
-                  sprintId: currentSprintId,
-                  currentSprintId: currentIssueSprint,
-                  result: shouldUpdateSprint ? 'success' : 'skipped',
-                  linkedFrom: {
-                    type: 'PR',
-                    number: item.number,
-                    repository: item.repoName,
-                    state: item.state,
-                    merged: isMerged
-                  },
-                  url: `https://github.com/${linkedIssue.repository.nameWithOwner}/issues/${linkedIssue.number}`,
-                  reason: shouldUpdateSprint
-                    ? `Issue inheriting sprint field from ${isMerged ? 'merged' : 'open'} PR #${item.number}`
-                    : `Issue already has current sprint assigned, no update needed`
-                });
-              } catch (err) {
-                diagnostics.errors.push(`Failed to update sprint for linked Issue #${linkedIssue.number} [${linkedIssue.repository.nameWithOwner}]: ${err.message}`);
-              }
+              // Do not update sprint from PR - sprint is handled by column rules (requirements.md Rule #2)
+              // The linked issue will get its sprint assignment based on its column placement
+              diagnostics.infos.push(`Sprint for Issue #${linkedIssue.number} will be handled by column rules per requirements`);
+              
+              // Add detailed record for linked issue processing
+              diagnostics.addVerboseRecord({
+                operation: 'processLinkedIssue',
+                itemType: 'Issue',
+                itemNumber: linkedIssue.number,
+                repository: linkedIssue.repository.nameWithOwner,
+                projectItemId: issueItemId,
+                contentId: linkedIssue.id,
+                linkedFrom: {
+                  type: 'PR',
+                  number: item.number,
+                  repository: item.repoName,
+                  state: item.state,
+                  merged: isMerged
+                },
+                result: 'success',
+                url: `https://github.com/${linkedIssue.repository.nameWithOwner}/issues/${linkedIssue.number}`,
+                reason: `Processing linked issue (inheriting column and assignee only per requirements)`
+              });
             }
           } else {
             // Human-friendly message

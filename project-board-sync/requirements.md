@@ -10,7 +10,7 @@ To change automation, simply edit this file and request a sync—no coding requi
 - Ask Copilot: "Please update the automation based on requirements.md" or "Sync the code with the latest requirements."
 - Or, create a GitHub issue or pull request referencing requirements.md and request an update.
 
-## Scope
+## Snancope
 - Organization: `bcgov`
 - Project Board: `ProjectV2` with ID `PVT_kwDOAA37OM4AFuzg`
 - User: `GITHUB_AUTHOR` (set by the environment variable)
@@ -40,7 +40,7 @@ To change automation, simply edit this file and request a sync—no coding requi
 | Linked Issue | Unmerged      | Nothing           |
 | Linked Issue | Merged/Open   | Column, assignees |
 
-> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub. When a PR is closed and merged, all linked issues will inherit the PR's status (column) and assignees (from the PR's assignee list). Sprint assignment follows the standard Column Rules from Section 2 - the sprint will be assigned based on the column the issue is moved to.
+> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub.
 
 ## Automation Rules for Monitored Users and Repositories
 
