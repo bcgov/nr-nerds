@@ -612,16 +612,14 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
  * Determines if a pull request should be considered as "merged" for the purpose of automation
  * A PR is considered merged if:
  * 1. It has the merged flag set to true, OR
- * 2. It is closed and has linked issues (via closingIssuesReferences)
+ * 2. It has a mergedAt timestamp (GitHub API sometimes has false for merged but has mergedAt set)
  * 
- * @param {Object} pr - Pull Request object containing merged status, state and closing issues
+ * @param {Object} pr - Pull Request object containing merged status, state and mergedAt
  * @returns {boolean} - Whether the PR should be treated as merged
  */
 function isPRMerged(pr) {
-  // Only consider a PR as merged if it has the merged flag set to true
-  // This aligns with requirements.md where linked issues should inherit from PR
-  // only if it is merged OR open, not just closed with links
-  return pr.merged === true;
+  return pr.merged === true || // PR is marked as merged
+         (pr.state === 'CLOSED' && pr.mergedAt != null); // PR is closed and has a merge timestamp
 }
 
 /**
@@ -1127,12 +1125,25 @@ async function main() {
             currentStatusId === STATUS_OPTIONS.next || 
             currentStatusId === STATUS_OPTIONS.active;
           
-          // Check if this is a linked issue (either referenced from a PR or has linkedFrom set)
-          const isLinkedIssue = item.linkedFrom || (item.type === 'Issue' && item.linkedIssues?.length > 0);
+          // Check if this issue is linked from any PR we've seen
+          const isInNextOrActiveColumn = 
+            currentStatusId === STATUS_OPTIONS.next || 
+            currentStatusId === STATUS_OPTIONS.active;
 
-          // Only skip standalone issues that aren't in Next/Active columns
-          // Linked issues should be processed according to PR state, regardless of current column
-          if (!isInNextOrActiveColumn && !isLinkedIssue) {
+          // Get all items we've processed so we can check for linked issues
+          const linkedPRs = itemsToProcess.filter(pr => 
+            pr.type === 'PR' && 
+            pr.linkedIssues?.some(linked => linked.id === item.contentId)
+          );
+          
+          const isLinkedToMergedOrOpenPR = linkedPRs.some(pr => 
+            pr.state === 'OPEN' || isPRMerged(pr)
+          );
+
+          // Only skip if:
+          // 1. Not in Next/Active columns AND
+          // 2. Not linked to any merged/open PRs
+          if (!isInNextOrActiveColumn && !isLinkedToMergedOrOpenPR) {
             // Skip further processing for standalone issues not in Next or Active columns
             diagnostics.infos.push(`Skipping standalone Issue #${item.number} [${item.repoName}] (already in project)`);
             
