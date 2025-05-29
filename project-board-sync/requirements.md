@@ -1,74 +1,70 @@
 # Project Sync Requirements
 
-_Last updated: 2025-05-26_
+_Last updated: 2025-05-29_
 
 ## Overview
-This file is the single source of truth for all automation logic that manages issues and pull requests across monitored `bcgov` repositories using a GitHub Projects v2 board. The automation runs every 30 minutes via a scheduled GitHub Actions workflow.
+This file is the single source of truth for all project board automation logic.
 
 To change automation, simply edit this file and request a sync—no coding required. For example:
 - Edit the rules or repository list below.
 - Ask Copilot: "Please update the automation based on requirements.md" or "Sync the code with the latest requirements."
 - Or, create a GitHub issue or pull request referencing requirements.md and request an update.
 
-## Snancope
-- Organization: `bcgov`
-- Project Board: `ProjectV2` with ID `PVT_kwDOAA37OM4AFuzg`
-- User: `GITHUB_AUTHOR` (set by the environment variable)
+## Automation Rules for Projects Board Sync
 
-## Automation Rules for Projects
+### 1.  Which Items are Added to the Project Board?
 
-### 1. New Items - Set Column
+| Item Type | Trigger Condition             | Action               | Skip Condition     |
+|-----------|-------------------------------|----------------------|--------------------|
+| PR        | Authored by monitored user    | Add to project board | Already in project |
+| PR        | Assigned to monitored user    | Add to project board | Already in project |
+| PR        | Found in monitored repository | Add to project board | Already in project |
+| Issue     | Found in monitored repository | Add to project board | Already in project |
 
-| Item Type | From Column | To Column |
-|-----------|-------------|-----------|
-| PR        | None        | Active    |
-| Issue     | None        | New       |
-
-### 2. Column Rules - Set Sprint
-
-| Item Type | Column       | From Sprint | To Sprint      |
-|-----------|--------------|-------------|----------------|
-| PR, Issue | Next, Active | Any         | Current sprint |
-| PR, Issue | Done         | None        | Current sprint |
-
-> Note: To optimize API usage, sprint updates will be skipped if the item already has the correct sprint assigned.
-
-### 3. Linked Issue Rules - Column and Assignee Inheritance
-
-| Item Type    | PR Status     | Inherit from PR   |
-|--------------|---------------|-------------------|
-| Linked Issue | Unmerged      | Nothing           |
-| Linked Issue | Merged/Open   | Column, assignees |
-
-> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub.
-
-## Automation Rules for Monitored Users and Repositories
-
-### 4. Monitored Users and Repositories
-
-| Type       | From Project            | To Project      |
-|------------|-------------------------|-----------------|
-| PR, Issue  | None, different Project | Current Project |
-
-> Note: These rules apply to issues and pull requests assigned to the listed users or existing in the monitored repositories.
+**Project Board** (ProjectV2 only):
+- ID: `PVT_kwDOAA37OM4AFuzg` (will eventually be dynamic)
 
 **Monitored Users**:
-- User: `GITHUB_AUTHOR` (set by the environment variable)
-  - All issues and PRs assigned to this user will be added to the project board
-  - Issues assigned to this user will be placed in the "New" column
-  - PRs assigned to this user will follow the standard PR column rules
+- User: `GITHUB_AUTHOR` (environment variable)
 
-**Monitored Repositories**: The following repositories are monitored for issues and pull requests:
+**Monitored Repositories**:
 - nr-nerds
-<!-- - quickstart-openshift
+- quickstart-openshift
 - quickstart-openshift-backends
-- quickstart-openshift-helpers -->
+- quickstart-openshift-helpers
 
 _All repositories listed above are under the `bcgov` GitHub organization unless otherwise specified._
 
+### 2. Which Columns are Items Added To?
+
+| Item Type | Trigger Condition | Action        | Skip Condition         |
+|-----------|-------------------|---------------|------------------------|
+| PR        | Column=None       | Column=Active | Column=Any already set |
+| Issue     | Column=None       | Column=New    | Column=Any already set |
+
+### 3. Which Sprints are Items Assigned To?
+
+| Item Type | Trigger Condition   | Action         | Skip Condition             |
+|-----------|---------------------|----------------|----------------------------|
+| PR, Issue | Column=Next, Active | Sprint=current | Sprint=current already set |
+| PR, Issue | Column=Done         | Sprint=current | Sprint=any already set     |
+
+### 4. What About Issues Linked to Pull Requests?
+
+| Item Type    | Trigger Condition     | Action                    | Skip Condition           |
+|--------------|-----------------------|---------------------------|--------------------------|
+| Linked Issue | PR != closed+unmerged | Inherit column, assignees | Column, already match PR |
+
+> Note: Linked issues are associated with a pull request (PR) via the "Linked issues" feature in GitHub.
+
+### 5. What About Assignees?
+
+| Item Type | Trigger Condition     | Action                 | Skip Condition         |
+|-----------|-----------------------|------------------------|------------------------|
+| PR        | Author=monitored user | Add author as assignee | Assignee already set   |
+
 ## Technical Details
 - The sync automation runs every 30 minutes via a scheduled GitHub Actions workflow.
-- Project column and field IDs are set in the script configuration. This is expected to become dynamic in the future.
 - All errors, warnings, and info should be logged at the end of the run.
 - Process changes in batches (default: 10 at a time, 1s delay between batches) to avoid GitHub secondary rate limits.
 - All issues and PRs should be deduplicated by node ID before processing.
