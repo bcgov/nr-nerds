@@ -618,16 +618,10 @@ async function updateItemStatus(projectItemId, statusOption, diagnostics, itemIn
  * @returns {boolean} - Whether the PR should be treated as merged
  */
 function isPRMerged(pr) {
-  // Check both the merged flag and whether the PR is closed with linked issues
-  const hasLinkedIssues = pr.closingIssuesReferences?.nodes?.length > 0;
-  const result = pr.merged === true || (pr.state === 'CLOSED' && hasLinkedIssues);
-  
-  // For debugging purposes
-  if (pr.state === 'CLOSED' && !pr.merged && hasLinkedIssues) {
-    console.log(`PR #${pr.number} considered merged because it's closed with ${pr.closingIssuesReferences.nodes.length} linked issues`);
-  }
-  
-  return result;
+  // Only consider a PR as merged if it has the merged flag set to true
+  // This aligns with requirements.md where linked issues should inherit from PR
+  // only if it is merged OR open, not just closed with links
+  return pr.merged === true;
 }
 
 /**
@@ -1807,18 +1801,25 @@ async function runPreflightChecks() {
       linkedIssues: [{ number: 123, repository: { nameWithOwner: 'test/repo' } }]
     };
     
-    // Test isPRMerged function for merged PRs
-    const mergedResult = isPRMerged(mockPR);
+    // Test isPRMerged function for different PR states
+    const mergedPR = { ...mockPR, merged: true, state: 'CLOSED' };
+    const mergedResult = isPRMerged(mergedPR);
     
     // Test closed but unmerged PR
-    const unmergedPR = { ...mockPR, merged: false };
+    const unmergedPR = { ...mockPR, merged: false, state: 'CLOSED' };
     const unmergedResult = isPRMerged(unmergedPR);
     
-    if (mergedResult === true && (unmergedResult === true)) {
+    // Test open PR
+    const openPR = { ...mockPR, merged: false, state: 'OPEN' };
+    const openResult = isPRMerged(openPR);
+    
+    if (mergedResult === true && unmergedResult === false) {
       console.log('✅ PASSED');
     } else {
       console.log('❌ FAILED');
-      console.log(`   Merged PR detection returned ${mergedResult} for merged PR and ${unmergedResult} for closed PR with linked issues`);
+      console.log(`   Merged PR detection tests failed:`);
+      console.log(`   - Merged PR: expected true, got ${mergedResult}`);
+      console.log(`   - Unmerged closed PR: expected false, got ${unmergedResult}`);
       allTestsPassed = false;
     }
   } catch (error) {
