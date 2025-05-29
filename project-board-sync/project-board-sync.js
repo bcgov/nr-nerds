@@ -1127,9 +1127,14 @@ async function main() {
             currentStatusId === STATUS_OPTIONS.next || 
             currentStatusId === STATUS_OPTIONS.active;
           
-          if (!isInNextOrActiveColumn) {
-            // Skip further processing for issues not in Next or Active columns
-            diagnostics.infos.push(`Skipping ${item.type} #${item.number} [${item.repoName}] (already in project)`);
+          // Check if this is a linked issue (either referenced from a PR or has linkedFrom set)
+          const isLinkedIssue = item.linkedFrom || (item.type === 'Issue' && item.linkedIssues?.length > 0);
+
+          // Only skip standalone issues that aren't in Next/Active columns
+          // Linked issues should be processed according to PR state, regardless of current column
+          if (!isInNextOrActiveColumn && !isLinkedIssue) {
+            // Skip further processing for standalone issues not in Next or Active columns
+            diagnostics.infos.push(`Skipping standalone Issue #${item.number} [${item.repoName}] (already in project)`);
             
             // Add detailed record for skipped item
             diagnostics.addVerboseRecord({
@@ -1142,7 +1147,7 @@ async function main() {
               currentStatus,
               result: 'skipped',
               url: `https://github.com/${item.repoName}/issues/${item.number}`,
-              reason: 'Issue already exists in project board, not updating per requirements'
+              reason: 'Standalone issue already exists in project board, not updating per requirements'
             });
             return;
           } else {
