@@ -137,9 +137,14 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
  * - Linked issues inherit assignees from their linked PRs
  * 
  * @param {Object} item - The PR or Issue
+ * @param {string} item.id - The item's node ID
+ * @param {string} item.__typename - The type of item ('PullRequest' or 'Issue')
+ * @param {number} item.number - The PR or issue number
+ * @param {Object} item.author - The author information
+ * @param {string} item.author.login - The author's GitHub username
  * @param {string} projectId - The project board ID
  * @param {string} itemId - The project item ID
- * @returns {Promise<{changed: boolean, assignees: string[]}>}
+ * @returns {Promise<{changed: boolean, assignees: string[], reason: string}>}
  */
 async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
