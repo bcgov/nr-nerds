@@ -10,6 +10,18 @@ To change automation, simply edit this file and request a sync—no coding requi
 - Ask Copilot: "Please update the automation based on requirements.md" or "Sync the code with the latest requirements."
 - Or, create a GitHub issue or pull request referencing requirements.md and request an update.
 
+## Rule Adherence and Quality
+The following principles must be followed to maintain strict adherence to requirements:
+
+1. **Rules Are Explicit** - If something isn't in the rules tables above, it should not be implemented.
+2. **No Implicit Behavior** - All automation must map directly to a rule in this file.
+3. **Test Against Rules** - Tests must verify behavior against these requirements, not implementation.
+
+If you find yourself making assumptions about how something should work, stop and:
+1. Check if there's an explicit rule for it
+2. If not, propose an addition to this file first
+3. Only implement after the rule is documented
+
 ## Automation Rules for Projects Board Sync
 
 ### 1.  Which Items are Added to the Project Board?
