@@ -77,6 +77,14 @@ This file tracks potential improvements and future work for the project-sync aut
 
 ## 16. Additional Caching for Frequently Accessed Data
 
+## 17. Better Documentation of Linked Issue Inheritance (COMPLETED)
+- ✅ Fixed issue with linked issues not inheriting properties from PRs that weren't authored by GITHUB_AUTHOR
+- ✅ Updated requirements.md to clarify linked issue inheritance rules for status, sprint, and assignments
+- ✅ Added tests to verify correct inheritance behavior
+- ✅ Improved documentation in requirements.md regarding assignment inheritance for linked issues
+- ✅ Enhanced code to transfer PR assignees to linked issues (instead of just PR author)
+- Implementation completed in May 2025 to fix issue #76 not being properly moved to Done when PR #78 was merged
+
 ---
 
 If you want to work on any of these, create a GitHub issue and reference this file for details.

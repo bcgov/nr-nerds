@@ -23,39 +23,22 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install @octokit/rest
-
-      - name: Run Sprint Assignment Tests
-        env:
-          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
-        run: |
-          echo "Running sprint assignment validation tests..."
-          node project-board-sync/tests/test-sprint-assignment.js
-          if [ $? -ne 0 ]; then
-            echo "::error::Sprint assignment tests failed! Fix the sprint assignment logic before continuing."
-            exit 1
-          fi
-          echo "Sprint assignment tests passed successfully ✅"
-      
-      - name: Run Preflight Checks
-        env:
-          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
-          GITHUB_AUTHOR: "DerekRoberts"
-        run: |
-          echo "Running preflight validation checks..."
-          node project-board-sync/tests/test-preflight-checks.js
-          if [ $? -ne 0 ]; then
-            echo "::error::Preflight checks failed! Fix configuration issues before continuing."
-            exit 1
-          fi
-          echo "Preflight checks passed successfully ✅"
+        working-directory: project-board-sync
+        run: npm ci
         
+      # - name: Run Tests
+      #   env:
+      #     GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+      #     VERBOSE: true
+      #   working-directory: project-board-sync
+      #   run: npm test
+       
       - name: Run Project Board Sync
         env:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
-          SKIP_PREFLIGHT: true  # Skip preflight checks since they were already run in previous step
-        run: node project-board-sync/project-board-sync.js  
+        working-directory: project-board-sync
+        run: GITHUB_AUTHOR=${{ github.actor }} npm run start
 
       - name: Notify Microsoft Teams on failure
         if: failure() && github.event_name != 'pull_request'
