@@ -158,6 +158,29 @@ async function getItemDetails(projectItemId) {
 }
 
 /**
+ * Mock column options for the project
+ */  const mockColumnOptions = [
+  { id: 'col-1', name: 'New' },
+  { id: 'col-2', name: 'Active' },
+  { id: 'col-3', name: 'Done' },
+  { id: 'col-1-lower', name: 'new' },      // Lowercase variants
+  { id: 'col-2-lower', name: 'active' },
+  { id: 'col-3-lower', name: 'done' }
+];
+
+/**
+ * Mock getItemColumn implementation
+ */
+async function getItemColumn(projectId, itemId) {
+  // Return a mock column name based on state if available
+  const item = mockData.items.get(itemId);
+  if (item?.state === 'CLOSED' || item?.state === 'MERGED') {
+    return 'Done';
+  }
+  return mockData.itemColumns.get(itemId) || null;
+}
+
+/**
  * Mock graphql implementation
  */
 async function graphql(query, variables) {
@@ -278,6 +301,18 @@ async function graphql(query, variables) {
     };
   }
 
+  // Match specific known queries
+  if (query.includes('field(name: "Status")')) {
+    return {
+      node: {
+        field: {
+          options: mockColumnOptions
+        }
+      }
+    };
+  }
+
+  // If no match found, throw error with query for debugging
   throw new Error(`Mock API Error: Unhandled GraphQL query: ${query}`);
 }
 
@@ -291,5 +326,6 @@ module.exports = {
   resetMocks,
   mockData,
   graphql,
-  setMockFailure: (shouldFail) => { mockData.shouldFail = shouldFail; }
+  setMockFailure: (shouldFail) => { mockData.shouldFail = shouldFail; },
+  getItemColumn
 };

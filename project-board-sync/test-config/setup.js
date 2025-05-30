@@ -7,10 +7,10 @@ const TEST_ENV = {
 
 // Mock octokit
 jest.mock('../src/github/api', () => {
-  const { graphql, isItemInProject, addItemToProject, getRecentItems, setItemColumn } = require('./mocks/github-api');
+  const mockApi = require('./mocks/github-api');
   return {
     octokit: {
-      graphql,
+      graphql: mockApi.graphql,
       rest: {
         projects: {
           createCard: jest.fn(),
@@ -18,10 +18,12 @@ jest.mock('../src/github/api', () => {
         }
       }
     },
-    isItemInProject,
-    addItemToProject,
-    getRecentItems,
-    setItemColumn
+    graphqlWithAuth: mockApi.graphql,
+    isItemInProject: mockApi.isItemInProject,
+    addItemToProject: mockApi.addItemToProject,
+    getRecentItems: mockApi.getRecentItems,
+    setItemColumn: mockApi.setItemColumn,
+    getItemColumn: mockApi.getItemColumn
   };
 });
 

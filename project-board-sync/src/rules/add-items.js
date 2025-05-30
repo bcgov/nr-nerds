@@ -144,29 +144,25 @@ function shouldAddItemToProject(item, monitoredUser, monitoredRepos) {
   const repoFullName = item.repository.nameWithOwner;
   log.debug(`Checking ${item.__typename} #${item.number} from ${repoFullName}`);
 
-  // First check if it's in a monitored repository
-  if (monitoredRepos.has(repoFullName)) {
+  // Check if it's in a monitored repository - applies to both Issues and PRs
+  const isMonitoredRepo = monitoredRepos.has(repoFullName);
+  if (isMonitoredRepo) {
     log.debug(`${item.__typename} #${item.number} is in monitored repository ${repoFullName}`);
     return true;
   }
 
-  // For both PRs and Issues, check if assigned to monitored user
-  const isAssignee = item.assignees.nodes.some(a => a.login === monitoredUser);
-  if (isAssignee) {
-    log.debug(`${item.__typename} #${item.number} is assigned to monitored user ${monitoredUser}`);
-    return true;
-  }
-
-  // For PRs only, check author condition
+  // Additional PR-specific conditions
   if (item.__typename === 'PullRequest') {
     const isAuthor = item.author?.login === monitoredUser;
+    const isAssignee = item.assignees.nodes.some(a => a.login === monitoredUser);
     
-    log.debug(`PR #${item.number} authored by: ${item.author?.login || 'unknown'}`);
-    log.debug(`PR #${item.number} criteria check:
-      - Is author (${monitoredUser})? ${isAuthor}
-      - In monitored repo? ${monitoredRepos.has(repoFullName)}`);
+    log.debug(`PR #${item.number}:
+      - Author: ${item.author?.login || 'unknown'}
+      - Is author? ${isAuthor}
+      - Is assignee? ${isAssignee}
+      - In monitored repo? ${isMonitoredRepo}`);
     
-    return isAuthor;
+    return isAuthor || isAssignee;
   }
 
   log.debug(`${item.__typename} #${item.number} does not meet any criteria for inclusion`);

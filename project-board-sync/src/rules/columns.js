@@ -1,17 +1,12 @@
 const { getItemColumn, setItemColumn, isItemInProject, octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
-// Column names to option IDs mapping - will be populated at runtime
-let columnOptions = null;
-
 /**
  * Get status field configuration from project
  * @param {string} projectId - The project board ID
  * @returns {Promise<Map<string, string>>} Map of column names to option IDs
  */
 async function getColumnOptions(projectId) {
-  if (columnOptions) return columnOptions;
-
   const result = await octokit.graphql(`
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -30,13 +25,15 @@ async function getColumnOptions(projectId) {
   `, { projectId });
 
   // Create mapping of column names to option IDs
-  columnOptions = new Map();
+  const columnMap = new Map();
   const options = result.node.field.options || [];
   for (const opt of options) {
-    columnOptions.set(opt.name.toLowerCase(), opt.id);
+    // Store both exact name and lowercase for case-insensitive lookup
+    columnMap.set(opt.name, opt.id);
+    columnMap.set(opt.name.toLowerCase(), opt.id);
   }
 
-  return columnOptions;
+  return columnMap;
 }
 
 /**
@@ -47,9 +44,12 @@ async function getColumnOptions(projectId) {
  * @throws {Error} If column not found
  */
 function getColumnOptionId(columnName, options) {
-  const optionId = options.get(columnName.toLowerCase());
+  // Try exact match first, then case-insensitive
+  const optionId = options.get(columnName) || options.get(columnName.toLowerCase());
   if (!optionId) {
-    throw new Error(`Column "${columnName}" not found in project. Available columns: ${[...options.keys()].join(', ')}`);
+    // Filter out lowercase duplicates when showing available columns
+    const uniqueColumns = [...new Set([...options.keys()].filter(k => k === k.toLowerCase()))];
+    throw new Error(`Column "${columnName}" not found in project. Available columns: ${uniqueColumns.join(', ')}`);
   }
   return optionId;
 }
@@ -68,27 +68,48 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     
     // Get current column
     const currentColumn = await getItemColumn(projectId, projectItemId);
-    
-    // Skip if already has any column set
-    if (currentColumn) {
+
+    // Skip if item is closed or merged - let GitHub automation handle these
+    if (item.state === 'CLOSED' || item.state === 'MERGED') {
       return { 
         changed: false, 
-        reason: `Column already set to ${currentColumn}`,
-        currentStatus: currentColumn 
+        reason: `Column handled by GitHub automation for ${item.state.toLowerCase()} items`,
+        currentStatus: currentColumn
       };
     }
 
-    // Determine target column based on item type per requirements
-    const targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
-    const optionId = getColumnOptionId(targetColumn, options);
+    // Skip if current column is Done - let GitHub automation handle this
+    if (currentColumn === 'Done') {
+      return {
+        changed: false,
+        reason: 'Column "Done" is handled by GitHub automation',
+        currentStatus: currentColumn
+      };
+    }
 
-    // Set the column
+    // Determine target column based on type (if not set)
+    let targetColumn;
+    if (!currentColumn) {
+      targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
+    }
+
+    // Skip if already has correct column
+    if (!targetColumn || (currentColumn && currentColumn === targetColumn)) {
+      return { 
+        changed: false, 
+        reason: `Column already set to ${currentColumn}`,
+        currentStatus: currentColumn
+      };
+    }
+
+    // Set the new column
+    const optionId = getColumnOptionId(targetColumn, options);
     await setItemColumn(projectId, projectItemId, optionId);
 
     return {
       changed: true,
       newStatus: targetColumn,
-      reason: `Set initial column to ${targetColumn}`
+      reason: `Set column to ${targetColumn} based on ${item.state ? `state (${item.state})` : 'initial rules'}`
     };
   } catch (error) {
     log.error(`Failed to process column for ${item.__typename} #${item.number}: ${error.message}`);
