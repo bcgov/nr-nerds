@@ -6,7 +6,8 @@ class Logger {
     this.logs = {
       errors: [],
       warnings: [],
-      infos: []
+      infos: [],
+      debugs: []
     };
   }
 
@@ -25,6 +26,13 @@ class Logger {
   info(message) {
     this.logs.infos.push(message);
     console.log(`INFO: ${message}`);
+  }
+
+  debug(message) {
+    if (process.env.DEBUG) {
+      this.logs.debugs.push(message);
+      console.log(`DEBUG: ${message}`);
+    }
   }
 
   /**
@@ -46,6 +54,11 @@ class Logger {
     if (this.logs.infos.length > 0) {
       console.log('\nInfo:');
       this.logs.infos.forEach(msg => console.log(`- ${msg}`));
+    }
+
+    if (process.env.DEBUG && this.logs.debugs.length > 0) {
+      console.log('\nDebug:');
+      this.logs.debugs.forEach(msg => console.log(`- ${msg}`));
     }
     
     console.log('\n=== End Summary ===\n');
