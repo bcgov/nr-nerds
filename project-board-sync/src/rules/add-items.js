@@ -123,6 +123,9 @@ async function processItemForProject(item, projectId, context) {
   };
 }
 
+// Export all functions for use in tests and main app
 module.exports = {
-  processAddItems
+  processAddItems,
+  processItemForProject,
+  shouldAddItemToProject
 };

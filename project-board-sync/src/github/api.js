@@ -15,10 +15,10 @@ const octokit = new Octokit({
  */
 async function isItemInProject(nodeId, projectId) {
   const result = await octokit.graphql(`
-    query($projectId: ID!, $contentId: ID!) {
+    query($projectId: ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
-          items(first: 100, filter: { contentIds: [$contentId] }) {
+          items(first: 100) {
             nodes {
               id
               content {
@@ -31,8 +31,7 @@ async function isItemInProject(nodeId, projectId) {
       }
     }
   `, {
-    projectId,
-    contentId: nodeId
+    projectId
   });
 
   const matchingItem = result.node.items.nodes.find(item => 
@@ -54,7 +53,7 @@ async function isItemInProject(nodeId, projectId) {
 async function addItemToProject(nodeId, projectId) {
   const result = await octokit.graphql(`
     mutation($projectId: ID!, $contentId: ID!) {
-      addProjectV2Item(input: {
+      addProjectV2ItemById(input: {
         projectId: $projectId,
         contentId: $contentId
       }) {
@@ -68,7 +67,11 @@ async function addItemToProject(nodeId, projectId) {
     contentId: nodeId
   });
 
-  return result.addProjectV2Item.item.id;
+  if (!result.addProjectV2ItemById?.item?.id) {
+    throw new Error('Failed to add item to project - missing item ID in response');
+  }
+
+  return result.addProjectV2ItemById.item.id;
 }
 
 /**
@@ -198,12 +201,15 @@ async function setItemColumn(projectId, itemId, columnName) {
     query($projectId: ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
-          field(name: "Status") {
-            ... on ProjectV2SingleSelectField {
-              id
-              options {
+          fields(first: 20) {
+            nodes {
+              ... on ProjectV2SingleSelectField {
                 id
                 name
+                options {
+                  id
+                  name
+                }
               }
             }
           }
@@ -214,13 +220,21 @@ async function setItemColumn(projectId, itemId, columnName) {
     projectId
   });
 
-  const fieldId = result.node.field.id;
-  const optionId = result.node.field.options.find(
+  const statusField = result.node.fields.nodes.find(
+    field => field.name === "Status"
+  );
+
+  if (!statusField) {
+    throw new Error('Status field not found in project');
+  }
+
+  const fieldId = statusField.id;
+  const optionId = statusField.options.find(
     opt => opt.name === columnName
   )?.id;
 
   if (!optionId) {
-    throw new Error(`Column "${columnName}" not found in project`);
+    throw new Error(`Column "${columnName}" not found in project's Status field options`);
   }
 
   // Now set the column
@@ -247,10 +261,84 @@ async function setItemColumn(projectId, itemId, columnName) {
   });
 }
 
+/**
+ * Set the sprint for a project item
+ * @param {string} projectId - The project board ID
+ * @param {string} itemId - The project item ID
+ * @param {string} sprintId - The iteration ID of the sprint to set
+ * @returns {Promise<void>}
+ */
+async function setItemSprint(projectId, itemId, sprintId) {
+  // First get the field ID for Sprint/Iteration field
+  const result = await octokit.graphql(`
+    query($projectId: ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          fields(first: 20) {
+            nodes {
+              ... on ProjectV2IterationField {
+                id
+                name
+                configuration {
+                  iterations {
+                    id
+                    title
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `, {
+    projectId
+  });
+
+  const sprintField = result.node.fields.nodes.find(
+    field => field.name === "Sprint" || field.name === "Iteration"
+  );
+
+  if (!sprintField) {
+    throw new Error('Sprint/Iteration field not found in project');
+  }
+
+  const fieldId = sprintField.id;
+  const sprintExists = sprintField.configuration.iterations.some(it => it.id === sprintId);
+
+  if (!sprintExists) {
+    throw new Error(`Sprint with ID "${sprintId}" not found in project's iterations`);
+  }
+
+  // Now set the sprint
+  await octokit.graphql(`
+    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
+      updateProjectV2ItemFieldValue(input: {
+        projectId: $projectId
+        itemId: $itemId
+        fieldId: $fieldId
+        value: { 
+          iterationId: $iterationId
+        }
+      }) {
+        projectV2Item {
+          id
+        }
+      }
+    }
+  `, {
+    projectId,
+    itemId,
+    fieldId,
+    iterationId: sprintId
+  });
+}
+
 module.exports = {
   isItemInProject,
   addItemToProject,
   getRecentItems,
   getItemColumn,
-  setItemColumn
+  setItemColumn,
+  setItemSprint
 };

@@ -5,12 +5,21 @@
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
+    "start": "node src/index.js",
     "test:add-items": "node tests/test-add-items.js",
     "test:columns": "node tests/test-columns.js",
-    "test": "npm run test:add-items && npm run test:columns"
+    "test:sprints": "node tests/test-sprint-assignment.js",
+    "test:linked": "node tests/test-linked-issues.js",
+    "test:assignees": "node tests/test-assignees.js",
+    "test:preflight": "node tests/test-preflight-checks.js",
+    "test": "npm run test:add-items && npm run test:columns && npm run test:sprints && npm run test:linked && npm run test:assignees",
+    "preflight": "GH_TOKEN=${GH_TOKEN} GITHUB_AUTHOR=${GITHUB_AUTHOR} npm run test:preflight"
   },
   "dependencies": {
+    "@octokit/graphql": "^5.0.0",
     "@octokit/rest": "^19.0.0"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0"
   }
-}
 }

@@ -1,28 +1,72 @@
+const { log } = require('./log');
+
 /**
- * Split array into batches and process with delay between batches
- * @param {Array} items - Array of items to process
- * @param {number} batchSize - Size of each batch (default: 10)
- * @param {number} delayMs - Milliseconds to wait between batches (default: 1000)
- * @param {Function} processFn - Async function to process each batch
+ * Default batch processing options
  */
-async function processBatches(items, batchSize = 10, delayMs = 1000, processFn) {
-  const batches = [];
-  
-  // Split into batches
-  for (let i = 0; i < items.length; i += batchSize) {
-    batches.push(items.slice(i, i + batchSize));
-  }
-  
-  // Process each batch with delay
-  for (let i = 0; i < batches.length; i++) {
-    await processFn(batches[i]);
+const DEFAULT_OPTIONS = {
+  batchSize: 10,
+  delayBetweenBatches: 1000,
+  maxRetries: 3,
+  retryDelay: 5000
+};
+
+/**
+ * Process items in batches with rate limiting and retries
+ * @param {Array} items - Array of items to process
+ * @param {Function} processItem - Async function to process a single item
+ * @param {Object} options - Processing options
+ * @returns {Promise<{processed: number, errors: number}>}
+ */
+async function processBatch(items, processItem, options = {}) {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  let processed = 0;
+  let errors = 0;
+
+  for (let i = 0; i < items.length; i += opts.batchSize) {
+    const batch = items.slice(i, i + opts.batchSize);
     
-    if (i < batches.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+    for (const item of batch) {
+      let retries = 0;
+      let success = false;
+
+      while (!success && retries < opts.maxRetries) {
+        try {
+          await processItem(item);
+          processed++;
+          success = true;
+        } catch (error) {
+          retries++;
+          log.warn(`Failed to process item (attempt ${retries}/${opts.maxRetries}):`, error.message);
+          
+          if (retries < opts.maxRetries) {
+            await delay(opts.retryDelay);
+          } else {
+            errors++;
+            log.error(`Failed to process item after ${opts.maxRetries} attempts:`, error.message);
+          }
+        }
+      }
+    }
+
+    // Delay between batches to respect rate limits
+    if (i + opts.batchSize < items.length) {
+      await delay(opts.delayBetweenBatches);
     }
   }
+
+  return { processed, errors };
+}
+
+/**
+ * Helper to delay execution
+ * @param {number} ms - Milliseconds to delay
+ * @returns {Promise<void>}
+ */
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 module.exports = {
-  processBatches
+  processBatch,
+  DEFAULT_OPTIONS
 };

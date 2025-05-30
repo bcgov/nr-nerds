@@ -1,0 +1,50 @@
+const { processAssignees, getItemAssignees } = require('../src/rules/assignees');
+const { TEST_CONFIG } = require('./setup');
+const { log } = require('../src/utils/log');
+
+async function testAssigneeRules() {
+  console.log('\n=== Testing Rule Set 5: Assignee Rules ===\n');
+
+  try {
+    // Test PR with no assignees
+    const testPR = {
+      __typename: 'PullRequest',
+      id: 'test-pr-1',
+      number: 123,
+      repository: { 
+        nameWithOwner: 'bcgov/nr-nerds'
+      },
+      author: { login: TEST_CONFIG.monitoredUser },
+      assignees: { nodes: [] }
+    };
+
+    const projectId = TEST_CONFIG.projectId;
+    const itemId = 'test-item-1';
+
+    // Process assignees
+    const result = await processAssignees(testPR, projectId, itemId);
+    
+    console.log('\nResults:');
+    console.log('- Changed:', result.changed);
+    console.log('- Assignees:', result.assignees);
+    console.log('- Reason:', result.reason);
+
+    // Verify current assignees
+    const currentAssignees = await getItemAssignees(projectId, itemId);
+    console.log('- Current assignees:', currentAssignees);
+
+    log.printSummary();
+  } catch (error) {
+    console.error('Test failed:', error.message);
+    process.exit(1);
+  }
+}
+
+// Run test if this file is run directly
+if (require.main === module) {
+  testAssigneeRules();
+}
+
+module.exports = {
+  testAssigneeRules
+};

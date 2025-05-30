@@ -52,8 +52,10 @@ class Logger {
   }
 }
 
-const log = new Logger();
+// Create a default logger instance
+const defaultLogger = new Logger();
 
 module.exports = {
-  log
+  Logger,
+  log: defaultLogger
 };

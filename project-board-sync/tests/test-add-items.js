@@ -1,16 +1,29 @@
-const { processAddItems } = require('../src/rules/add-items');
+const { processItemForProject } = require('../src/rules/add-items');
 const { TEST_CONFIG } = require('./setup');
-const { log } = require('../src/utils/log');
+const Logger = require('../src/utils/log').Logger;
+const log = new Logger();
 
 async function testAddItems() {
   console.log('\n=== Testing Rule Set 1: Adding Items to Project Board ===\n');
 
   try {
-    const result = await processAddItems(TEST_CONFIG);
+    // Test item that should be added
+    const testPR = {
+      id: 'test-pr-1',
+      __typename: 'PullRequest',
+      repository: { nameWithOwner: 'bcgov/nr-nerds' },
+      author: { login: TEST_CONFIG.monitoredUser },
+      assignees: { nodes: [] }
+    };
+
+    const result = await processItemForProject(testPR, TEST_CONFIG.projectId, {
+      monitoredUser: TEST_CONFIG.monitoredUser,
+      monitoredRepos: TEST_CONFIG.monitoredRepos,
+      processedIds: new Set()
+    });
 
     console.log('\nResults:');
-    console.log(`- Added items: ${result.addedItems.length}`);
-    console.log(`- Skipped items: ${result.skippedItems.length}`);
+    console.log('- Test PR result:', result);
 
     log.printSummary();
   } catch (error) {
