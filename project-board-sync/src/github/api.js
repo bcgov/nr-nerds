@@ -1,5 +1,6 @@
 const { Octokit } = require('@octokit/rest');
 const { graphql } = require('@octokit/graphql');
+const { log } = require('../utils/log');
 
 /**
  * GitHub API client setup
@@ -249,12 +250,19 @@ async function getFieldId(projectId, fieldName) {
             ... on ProjectV2Field {
               id
             }
+            ... on ProjectV2SingleSelectField {
+              id
+            }
           }
         }
       }
     }
   `, { projectId, fieldName });
 
+  if (!result.node.field || !result.node.field.id) {
+    throw new Error(`Field '${fieldName}' not found in project or doesn't have an ID`);
+  }
+  
   const fieldId = result.node.field.id;
   fieldIdCache.set(cacheKey, fieldId);
   return fieldId;

@@ -177,13 +177,18 @@ async function processColumnAssignment(item, projectItemId, projectId) {
  */
 async function processColumns({ projectId, items }) {
   const processedItems = [];
-  const skippedItems = [];    for (const item of items) {
-      try {
-        // Process column assignment - make sure we pass the full item with type info
-        const result = await processColumnAssignment({
-          ...item,
-          __typename: item.type || item.__typename
-        }, item.id, projectId);
+  const skippedItems = [];
+  
+  for (const item of items) {
+    try {
+      log.debug(`Processing column assignment for ${item.type || item.__typename} #${item.number}`);
+      // Process column assignment - make sure we pass the full item with type info
+      const result = await processColumnAssignment({
+        ...item,
+        __typename: item.type || item.__typename,
+        number: item.number,
+        state: item.state || 'OPEN'  // Default to OPEN if state is not provided
+      }, item.projectItemId, projectId);
       
       if (result.changed) {
         processedItems.push({

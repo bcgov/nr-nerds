@@ -145,6 +145,23 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
     }
   }
 
+  // Get the Sprint field ID
+  const sprintFieldResult = await octokit.graphql(`
+    query($projectId: ID!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          field(name: "Sprint") {
+            ... on ProjectV2IterationField {
+              id
+            }
+          }
+        }
+      }
+    }
+  `, { projectId });
+  
+  const sprintFieldId = sprintFieldResult.node.field.id;
+  
   // Set the sprint
   await octokit.graphql(`
     mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
@@ -162,7 +179,7 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
   `, {
     projectId,
     itemId: projectItemId,
-    fieldId: 'ITERATION_FIELD_ID', // TODO: Replace with actual field ID
+    fieldId: sprintFieldId,
     iterationId: activeSprintId
   });
 

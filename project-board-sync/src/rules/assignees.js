@@ -2,6 +2,49 @@ const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
 /**
+ * Get details about a project item including its linked content
+ * @param {string} itemId - The project item ID
+ * @returns {Promise<Object>} Item details including repository info
+ */
+async function getItemDetails(itemId) {
+  try {
+    const result = await octokit.graphql(`
+      query($itemId: ID!) {
+        node(id: $itemId) {
+          ... on ProjectV2Item {
+            id
+            type
+            content {
+              ... on Issue {
+                id
+                number
+                repository {
+                  nameWithOwner
+                }
+              }
+              ... on PullRequest {
+                id
+                number
+                repository {
+                  nameWithOwner
+                }
+              }
+            }
+          }
+        }
+      }
+    `, {
+      itemId
+    });
+    
+    return result.node;
+  } catch (error) {
+    log.error(`Failed to get item details: ${error.message}`);
+    return null;
+  }
+}
+
+/**
  * Compare two arrays for equality
  * @param {Array} a - First array
  * @param {Array} b - Second array
@@ -105,27 +148,63 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
   const fieldId = assigneesField.id;
 
   // Now set the assignees
-  await octokit.graphql(`
-    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $userIds: [String!]!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId
-        itemId: $itemId
-        fieldId: $fieldId
-        value: { 
-          userIds: $userIds
+  // First get user IDs from logins
+  const userIdsResult = await Promise.all(
+    assigneeLogins.map(async (login) => {
+      const result = await octokit.graphql(`
+        query($login: String!) {
+          user(login: $login) {
+            id
+          }
         }
-      }) {
-        projectV2Item {
-          id
-        }
-      }
+      `, { login });
+      return result.user.id;
+    })
+  );
+
+  try {
+    // Get item details to get the repository name and issue/PR number
+    const itemDetails = await getItemDetails(itemId);
+    
+    if (!itemDetails || !itemDetails.content) {
+      throw new Error(`Could not get details for item ${itemId}`);
     }
-  `, {
-    projectId,
-    itemId,
-    fieldId,
-    userIds: assigneeLogins
-  });
+    
+    const { repository, number } = itemDetails.content;
+    if (!repository || !repository.nameWithOwner) {
+      throw new Error(`Repository information not available for item ${itemId}`);
+    }
+    
+    // Use REST API to set assignees directly on the issue/PR
+    // Parse the owner/repo from nameWithOwner (format: "owner/repo")
+    const [owner, repo] = repository.nameWithOwner.split('/');
+    
+    log.info(`Setting assignees for ${repository.nameWithOwner}#${number} to: ${assigneeLogins.join(', ')}`, true);
+    
+    // For a PR
+    if (itemDetails.type === 'PullRequest') {
+      await octokit.rest.pulls.update({
+        owner,
+        repo,
+        pull_number: number,
+        assignees: assigneeLogins
+      });
+    } 
+    // For an Issue
+    else {
+      await octokit.rest.issues.update({
+        owner,
+        repo,
+        issue_number: number,
+        assignees: assigneeLogins
+      });
+    }
+    
+    log.info(`Successfully updated assignees for ${repository.nameWithOwner}#${number} using REST API`, true);
+  } catch (error) {
+    log.error(`Failed to update assignees: ${error.message}`, true);
+    throw new Error(`Failed to update assignees: ${error.message}`);
+  }
 }
 
 /**
@@ -148,10 +227,16 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
  */
 async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
-  const currentAssignees = await getItemAssignees(projectId, itemId);    // For PRs authored by monitored user, ensure they are assigned
-  if (item.__typename === 'PullRequest' && item.author?.login === process.env.GITHUB_AUTHOR) {
+  const currentAssignees = await getItemAssignees(projectId, itemId);
+  
+  // For PRs authored by monitored user, ensure they are assigned
+  // Support both GraphQL objects (item.__typename) and REST API objects (item.type)
+  const isPullRequest = item.__typename === 'PullRequest' || item.type === 'PullRequest';
+  const authorLogin = item.author?.login || item.user?.login;
+  
+  if (isPullRequest && authorLogin === process.env.GITHUB_AUTHOR) {
     log.info(`Processing assignees for PR #${item.number}:`, true);
-    log.info(`  • Author: ${item.author.login}`, true);
+    log.info(`  • Author: ${authorLogin}`, true);
     log.info(`  • Current assignees: ${currentAssignees.join(', ') || 'none'}`, true);
 
     // Check if author is already assigned (in project board)
@@ -164,11 +249,11 @@ async function processAssignees(item, projectId, itemId) {
       };
     }
 
-    // Author is not assigned, so add them
-    const targetAssignees = [item.author.login];
-    log.info(`  • Adding author as assignee: ${item.author.login}`, true);
+    // Author is not assigned, so add them while preserving any existing assignees
+    const targetAssignees = [...new Set([...currentAssignees, item.author.login])];
+    log.info(`  • Setting assignees: ${targetAssignees.join(', ')}`, true);
 
-    // Set assignees in project
+    // Set assignees both in project and in the actual PR/Issue
     await setItemAssignees(projectId, itemId, targetAssignees);
 
     return {
@@ -188,5 +273,6 @@ async function processAssignees(item, projectId, itemId) {
 module.exports = {
   processAssignees,
   getItemAssignees,
-  setItemAssignees
+  setItemAssignees,
+  getItemDetails
 };

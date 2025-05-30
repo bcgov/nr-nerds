@@ -88,10 +88,16 @@ async function main() {
           log.info(`Updated assignees for ${itemRef}: ${assigneeResult.assignees.join(', ')}`);
         }
 
-        // Process linked issues if it's a PR
-        if (item.type === 'PullRequest') {
+        // Process linked issues if it's a PR and has required properties
+        if (item.type === 'PullRequest' && item.repository && item.repository.nameWithOwner) {
           const linkedResult = await processLinkedIssues(
-            item, 
+            {
+              ...item,
+              __typename: 'PullRequest',
+              repository: { 
+                nameWithOwner: item.repo || item.repository.nameWithOwner 
+              }
+            }, 
             context.projectId,
             columnResult.newStatus,
             sprintResult.newSprint
