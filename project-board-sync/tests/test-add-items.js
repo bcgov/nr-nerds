@@ -1,12 +1,12 @@
 const { shouldAddItemToProject } = require('../src/rules/add-items');
-const { TEST_CONFIG } = require('./setup');
+const { TEST_CONFIG } = require('../test-config/setup');
 const { Logger } = require('../src/utils/log');
 const log = new Logger();
 
 // Mock the GitHub API
-jest.mock('../src/github/api', () => require('./mocks/github-api'));
+jest.mock('../src/github/api', () => require('../test-config/mocks/github-api'));
 const { processItemForProject } = require('../src/rules/add-items');
-const { resetMocks, addMockItem, setMockFailure } = require('./mocks/github-api');
+const { resetMocks, addMockItem, setMockFailure } = require('../test-config/mocks/github-api');
 
 describe('Rule Set 1: Adding Items to Project Board', () => {
   const testContext = {

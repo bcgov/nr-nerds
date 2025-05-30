@@ -1,10 +1,17 @@
 module.exports = {
   testEnvironment: 'node',
   verbose: true,
+  // Only match files that start with "test-" in the tests directory
   testMatch: [
-    "**/tests/**/*.js"
+    "**/tests/test-*.js"
   ],
-  setupFilesAfterEnv: ['./tests/jest.setup.js'],
+  // Setup files are now in test-config
+  setupFilesAfterEnv: [
+    './test-config/setup.js',
+    './test-config/jest.setup.js'
+  ],
+  // Mock implementations are in test-config/mocks
+  moduleDirectories: ['node_modules', 'test-config'],
   collectCoverageFrom: [
     "src/**/*.js",
     "!src/utils/log.js"
@@ -16,6 +23,5 @@ module.exports = {
       lines: 80,
       statements: 80
     }
-  },
-  setupFilesAfterEnv: ['./tests/setup.js']
+  }
 };

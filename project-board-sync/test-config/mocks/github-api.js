@@ -4,6 +4,9 @@
 const mockData = {
   items: new Map(),
   projectItems: new Map(),
+  itemColumns: new Map(),
+  itemSprints: new Map(),
+  itemAssignees: new Map(),
   shouldFail: false,
   lastId: 0
 };
@@ -14,6 +17,9 @@ const mockData = {
 function resetMocks() {
   mockData.items.clear();
   mockData.projectItems.clear();
+  mockData.itemColumns.clear();
+  mockData.itemSprints.clear();
+  mockData.itemAssignees.clear();
   mockData.shouldFail = false;
   mockData.lastId = 0;
 }
@@ -85,18 +91,59 @@ function addMockItem(item) {
 }
 
 /**
- * Set whether mock API calls should fail
- * @param {boolean} shouldFail - Whether API calls should throw errors
+ * Mock setItemColumn implementation
  */
-function setMockFailure(shouldFail) {
-  mockData.shouldFail = shouldFail;
+async function setItemColumn(projectItemId, columnId) {
+  if (mockData.shouldFail) {
+    throw new Error('Mock API Error: setItemColumn failed');
+  }
+  mockData.itemColumns.set(projectItemId, columnId);
+  return { success: true };
+}
+
+/**
+ * Mock setItemSprint implementation
+ */
+async function setItemSprint(projectItemId, sprintId) {
+  if (mockData.shouldFail) {
+    throw new Error('Mock API Error: setItemSprint failed');
+  }
+  mockData.itemSprints.set(projectItemId, sprintId);
+  return { success: true };
+}
+
+/**
+ * Mock setItemAssignees implementation
+ */
+async function setItemAssignees(projectItemId, assigneeIds) {
+  if (mockData.shouldFail) {
+    throw new Error('Mock API Error: setItemAssignees failed');
+  }
+  mockData.itemAssignees.set(projectItemId, assigneeIds);
+  return { success: true };
+}
+
+/**
+ * Mock getItemDetails implementation
+ */
+async function getItemDetails(projectItemId) {
+  if (mockData.shouldFail) {
+    throw new Error('Mock API Error: getItemDetails failed');
+  }
+  return {
+    column: mockData.itemColumns.get(projectItemId) || null,
+    sprint: mockData.itemSprints.get(projectItemId) || null,
+    assignees: mockData.itemAssignees.get(projectItemId) || []
+  };
 }
 
 module.exports = {
   isItemInProject,
   addItemToProject,
-  getRecentItems,
+  setItemColumn,
+  setItemSprint,
+  setItemAssignees,
+  getItemDetails,
   resetMocks,
-  addMockItem,
-  setMockFailure
+  setMockFailure: (shouldFail) => { mockData.shouldFail = shouldFail; }
 };

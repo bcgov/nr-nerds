@@ -38,7 +38,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
         working-directory: project-board-sync
-        run: npm start
+        run: GITHUB_AUTHOR=${{ github.actor }} npm run npm start
 
       - name: Notify Microsoft Teams on failure
         if: failure() && github.event_name != 'pull_request'
