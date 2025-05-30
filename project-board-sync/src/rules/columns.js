@@ -1,17 +1,24 @@
 const { getItemColumn, setItemColumn, isItemInProject, octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
-// Column names to option IDs mapping - will be populated at runtime
-let columnOptions = null;
+// Cache column options per project ID during a single run
+const columnOptionsCache = new Map();
 
 /**
  * Get status field configuration from project
+ * Uses in-memory cache to avoid repeated API calls within a single run
  * @param {string} projectId - The project board ID
  * @returns {Promise<Map<string, string>>} Map of column names to option IDs
  */
 async function getColumnOptions(projectId) {
-  if (columnOptions) return columnOptions;
+  // Check cache first
+  if (columnOptionsCache.has(projectId)) {
+    log.debug(`Using cached column options for project ${projectId}`);
+    return columnOptionsCache.get(projectId);
+  }
 
+  // Cache miss - fetch from API
+  log.debug(`Fetching column options for project ${projectId}`);
   const result = await octokit.graphql(`
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -30,13 +37,18 @@ async function getColumnOptions(projectId) {
   `, { projectId });
 
   // Create mapping of column names to option IDs
-  columnOptions = new Map();
+  const columnMap = new Map();
   const options = result.node.field.options || [];
   for (const opt of options) {
-    columnOptions.set(opt.name.toLowerCase(), opt.id);
+    // Store both exact name and lowercase for case-insensitive lookup
+    columnMap.set(opt.name, opt.id);
+    columnMap.set(opt.name.toLowerCase(), opt.id);
   }
 
-  return columnOptions;
+  // Cache the result
+  columnOptionsCache.set(projectId, columnMap);
+  
+  return columnMap;
 }
 
 /**
@@ -47,9 +59,14 @@ async function getColumnOptions(projectId) {
  * @throws {Error} If column not found
  */
 function getColumnOptionId(columnName, options) {
-  const optionId = options.get(columnName.toLowerCase());
+  // Try exact match first, then case-insensitive
+  const optionId = options.get(columnName) || options.get(columnName.toLowerCase());
   if (!optionId) {
-    throw new Error(`Column "${columnName}" not found in project. Available columns: ${[...options.keys()].join(', ')}`);
+    // Get original case-sensitive column names, removing duplicates while preserving case
+    const uniqueColumns = [...new Set([...options.keys()].filter((k, i, arr) => 
+      arr.findIndex(item => item.toLowerCase() === k.toLowerCase()) === i
+    ))];
+    throw new Error(`Column "${columnName}" not found in project. Available columns: ${uniqueColumns.join(', ')}`);
   }
   return optionId;
 }
@@ -68,27 +85,79 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     
     // Get current column
     const currentColumn = await getItemColumn(projectId, projectItemId);
-    
-    // Skip if already has any column set
-    if (currentColumn) {
-      return { 
-        changed: false, 
-        reason: `Column already set to ${currentColumn}`,
-        currentStatus: currentColumn 
+    const currentColumnLower = currentColumn ? currentColumn.toLowerCase() : null;
+
+    let targetColumn = null;
+    let reason = '';
+
+    log.info(`Processing column rules for ${item.__typename} #${item.number}:`, true);
+    log.info(`  • Current column: ${currentColumn || 'None'}`, true);
+    log.info(`  • Item type: ${item.__typename}`, true);
+    log.info(`  • Item state: ${item.state || 'Unknown'}`, true);
+
+    // Skip if item is closed/merged and already in Done column
+    if ((item.state === 'CLOSED' || item.state === 'MERGED') && currentColumnLower === 'done') {
+      log.info('  • Rule: Item is closed/merged and in Done column → Skipping', true);
+      return {
+        changed: false,
+        reason: 'Column already set to Done by GitHub automation',
+        currentStatus: currentColumn
       };
     }
 
-    // Determine target column based on item type per requirements
-    const targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
-    const optionId = getColumnOptionId(targetColumn, options);
+    // Skip if item is closed/merged (GitHub handles this)
+    if (item.state === 'CLOSED' || item.state === 'MERGED') {
+      log.info('  • Rule: Item is closed/merged → GitHub handles column', true);
+      return {
+        changed: false,
+        reason: `Column handled by GitHub automation for ${item.state.toLowerCase()} items`,
+        currentStatus: currentColumn
+      };
+    }
 
-    // Set the column
+    if (!currentColumn) {
+      // Rule: Column=None
+      targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
+      reason = 'initial column assignment';
+      log.info('  • Rule: Column=None → Setting initial column', true);
+    } else if (item.__typename === 'PullRequest' && currentColumnLower === 'new') {
+      // Rule: PR in New column should move to Active
+      targetColumn = 'Active';
+      reason = 'PR moved from New to Active';
+      log.info('  • Rule: PR in New column → Moving to Active', true);
+    } else {
+      log.info('  • No matching rules for current state', true);
+    }
+
+    // Skip if no target or already in correct column (case-insensitive)
+    if (!targetColumn) {
+      log.info('  • Result: No target column determined', true);
+      return { 
+        changed: false, 
+        reason: 'No column change needed',
+        currentStatus: currentColumn
+      };
+    }
+    
+    if (currentColumnLower === targetColumn.toLowerCase()) {
+      log.info(`  • Result: Already in target column (${currentColumn})`, true);
+      return { 
+        changed: false, 
+        reason: `Column already set to ${currentColumn}`,
+        currentStatus: currentColumn
+      };
+    }
+
+    log.info(`  • Result: Moving to ${targetColumn}`, true);
+
+    // Set the new column
+    const optionId = getColumnOptionId(targetColumn, options);
     await setItemColumn(projectId, projectItemId, optionId);
 
     return {
       changed: true,
       newStatus: targetColumn,
-      reason: `Set initial column to ${targetColumn}`
+      reason: reason || `Set column to ${targetColumn} based on ${item.state ? `state (${item.state})` : 'initial rules'}`
     };
   } catch (error) {
     log.error(`Failed to process column for ${item.__typename} #${item.number}: ${error.message}`);
@@ -103,16 +172,18 @@ async function processColumnAssignment(item, projectItemId, projectId) {
  * | Item Type | Trigger Condition | Action        | Skip Condition         |
  * |-----------|-------------------|---------------|------------------------|
  * | PR        | Column=None       | Column=Active | Column=Any already set |
+ * | PR        | Column=New        | Column=Active | Column=Any except New  |
  * | Issue     | Column=None       | Column=New    | Column=Any already set |
  */
 async function processColumns({ projectId, items }) {
   const processedItems = [];
-  const skippedItems = [];
-
-  for (const item of items) {
-    try {
-      // Process column assignment
-      const result = await processColumnAssignment(item, item.id, projectId);
+  const skippedItems = [];    for (const item of items) {
+      try {
+        // Process column assignment - make sure we pass the full item with type info
+        const result = await processColumnAssignment({
+          ...item,
+          __typename: item.type || item.__typename
+        }, item.id, projectId);
       
       if (result.changed) {
         processedItems.push({

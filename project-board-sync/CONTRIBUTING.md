@@ -125,3 +125,24 @@ Verification:
 - One logical change per commit
 - Separate test fixes from implementation changes
 - Include test file name in commit message
+
+## Pull Request Requirements
+
+### Requirements Compliance Checklist
+
+For any code changes, verify:
+
+1. [ ] Every behavior change maps to a specific rule in requirements.md
+2. [ ] No implicit behaviors or assumptions added
+3. [ ] No rules accidentally changed or removed
+4. [ ] When in doubt, quote the relevant rule from requirements.md
+
+### Examples
+
+Good PR description:
+> "This implements rule 5 from requirements.md:
+> | PR | Author=monitored user | Add author as assignee | Assignee already set |
+> The changes ensure author is added as assignee when they are the monitored user."
+
+Bad PR description:
+> "Fixed how assignees work and improved column handling"
