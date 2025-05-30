@@ -15,6 +15,9 @@ const graphqlWithAuth = graphql.defaults({
   },
 });
 
+// Cache field IDs per project to reduce API calls
+const fieldIdCache = new Map();
+
 /**
  * Check if an item is already in the project board
  * @param {string} nodeId - The node ID of the item (PR or Issue)
@@ -192,6 +195,9 @@ async function getItemColumn(projectId, itemId) {
  * @returns {Promise<void>}
  */
 async function setItemColumn(projectId, projectItemId, optionId) {
+  // Get Status field ID from cache
+  const statusFieldId = await getFieldId(projectId, 'Status');
+  
   const mutation = `
     mutation UpdateColumnValue($input: UpdateProjectV2ItemFieldValueInput!) {
       updateProjectV2ItemFieldValue(input: $input) {
@@ -209,14 +215,49 @@ async function setItemColumn(projectId, projectItemId, optionId) {
   const input = {
     projectId: projectId,
     itemId: projectItemId,
-    fieldId: STATUS_FIELD_ID,
+    fieldId: statusFieldId,
     value: {
       singleSelectOptionId: optionId,
     },
   };
 
-  const result = await octokit.graphql(mutation, { input });
+  const result = await graphqlWithAuth(mutation, { input });
   return result;
+}
+
+/**
+ * Get field ID with caching
+ * @param {string} projectId - The project board ID
+ * @param {string} fieldName - The name of the field
+ * @returns {Promise<string>} The field ID
+ */
+async function getFieldId(projectId, fieldName) {
+  // Use composite key for cache
+  const cacheKey = `${projectId}:${fieldName}`;
+  
+  if (fieldIdCache.has(cacheKey)) {
+    log.debug(`Using cached field ID for ${fieldName} in project ${projectId}`);
+    return fieldIdCache.get(cacheKey);
+  }
+
+  log.debug(`Fetching field ID for ${fieldName} in project ${projectId}`);
+  const result = await graphqlWithAuth(`
+    query($projectId: ID!, $fieldName: String!) {
+      node(id: $projectId) {
+        ... on ProjectV2 {
+          field(name: $fieldName) {
+            ... on ProjectV2Field {
+              id
+            }
+          }
+        }
+      }
+    }
+  `, { projectId, fieldName });
+
+  const fieldId = result.node.field.id;
+  fieldIdCache.set(cacheKey, fieldId);
+  return fieldId;
 }
 
 module.exports = {
@@ -226,5 +267,6 @@ module.exports = {
   addItemToProject,
   getRecentItems,
   getItemColumn,
-  setItemColumn
+  setItemColumn,
+  getFieldId
 };

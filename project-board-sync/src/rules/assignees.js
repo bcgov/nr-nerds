@@ -25,12 +25,9 @@ async function getItemAssignees(projectId, itemId) {
     query($projectId: ID!, $itemId: ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
-          fields(first: 20) {
-            nodes {
-              ... on ProjectV2Field {
-                id
-                name
-              }
+          field(name: "Assignees") {
+            ... on ProjectV2Field {
+              id
             }
           }
         }
@@ -40,6 +37,11 @@ async function getItemAssignees(projectId, itemId) {
           fieldValues(first: 10) {
             nodes {
               ... on ProjectV2ItemFieldUserValue {
+                field {
+                  ... on ProjectV2Field {
+                    name
+                  }
+                }
                 users(first: 10) {
                   nodes {
                     login
@@ -141,12 +143,15 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
  */
 async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
-  const currentAssignees = await getItemAssignees(projectId, itemId);
-  
-  // For PRs authored by monitored user, ensure they are assigned
+  const currentAssignees = await getItemAssignees(projectId, itemId);    // For PRs authored by monitored user, ensure they are assigned
   if (item.__typename === 'PullRequest' && item.author?.login === process.env.GITHUB_AUTHOR) {
-    // Check if author is already assigned
-    if (item.assignees.nodes.some(a => a.login === item.author.login)) {
+    log.info(`Processing assignees for PR #${item.number}:`, true);
+    log.info(`  • Author: ${item.author.login}`, true);
+    log.info(`  • Current assignees: ${currentAssignees.join(', ') || 'none'}`, true);
+
+    // Check if author is already assigned (in project board)
+    if (currentAssignees.includes(item.author.login)) {
+      log.info('  • Author already assigned - skipping', true);
       return {
         changed: false,
         assignees: currentAssignees,
@@ -156,15 +161,15 @@ async function processAssignees(item, projectId, itemId) {
 
     // Author is not assigned, so add them
     const targetAssignees = [item.author.login];
+    log.info(`  • Adding author as assignee: ${item.author.login}`, true);
 
-    // Compare current with target assignees
-    const changed = true; // We already checked author wasn't assigned
+    // Set assignees in project
     await setItemAssignees(projectId, itemId, targetAssignees);
 
     return {
       changed: true,
-      assignees: targetAssigneeArray,
-      reason: changed ? 'Added PR author as assignee' : 'Author already assigned'
+      assignees: targetAssignees,
+      reason: 'Added PR author as assignee'
     };
   }
 

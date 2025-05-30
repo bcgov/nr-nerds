@@ -1,12 +1,24 @@
 const { getItemColumn, setItemColumn, isItemInProject, octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
+// Cache column options per project ID during a single run
+const columnOptionsCache = new Map();
+
 /**
  * Get status field configuration from project
+ * Uses in-memory cache to avoid repeated API calls within a single run
  * @param {string} projectId - The project board ID
  * @returns {Promise<Map<string, string>>} Map of column names to option IDs
  */
 async function getColumnOptions(projectId) {
+  // Check cache first
+  if (columnOptionsCache.has(projectId)) {
+    log.debug(`Using cached column options for project ${projectId}`);
+    return columnOptionsCache.get(projectId);
+  }
+
+  // Cache miss - fetch from API
+  log.debug(`Fetching column options for project ${projectId}`);
   const result = await octokit.graphql(`
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -33,6 +45,9 @@ async function getColumnOptions(projectId) {
     columnMap.set(opt.name.toLowerCase(), opt.id);
   }
 
+  // Cache the result
+  columnOptionsCache.set(projectId, columnMap);
+  
   return columnMap;
 }
 
@@ -47,8 +62,10 @@ function getColumnOptionId(columnName, options) {
   // Try exact match first, then case-insensitive
   const optionId = options.get(columnName) || options.get(columnName.toLowerCase());
   if (!optionId) {
-    // Filter out lowercase duplicates when showing available columns
-    const uniqueColumns = [...new Set([...options.keys()].filter(k => k === k.toLowerCase()))];
+    // Get original case-sensitive column names, removing duplicates while preserving case
+    const uniqueColumns = [...new Set([...options.keys()].filter((k, i, arr) => 
+      arr.findIndex(item => item.toLowerCase() === k.toLowerCase()) === i
+    ))];
     throw new Error(`Column "${columnName}" not found in project. Available columns: ${uniqueColumns.join(', ')}`);
   }
   return optionId;
