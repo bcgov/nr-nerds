@@ -143,28 +143,34 @@ async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
   const currentAssignees = await getItemAssignees(projectId, itemId);
   
-  let targetAssignees = [];
-  
-  // For PRs, use author as default assignee if no assignees
-  if (item.__typename === 'PullRequest') {
-    if (item.assignees.nodes.length > 0) {
-      targetAssignees = item.assignees.nodes.map(a => a.login);
-    } else if (item.author) {
-      targetAssignees = [item.author.login];
-    }
-  }
+  // For PRs authored by monitored user, always add author as assignee
+  if (item.__typename === 'PullRequest' && item.author?.login === process.env.GITHUB_AUTHOR) {
+    const targetAssignees = new Set([
+      ...item.assignees.nodes.map(a => a.login), // Keep existing assignees
+      item.author.login // Add author
+    ]);
 
-  // Compare current with target assignees
-  const changed = !arraysEqual(currentAssignees, targetAssignees);
-  
-  if (changed) {
-    await setItemAssignees(projectId, itemId, targetAssignees);
+    // Convert Set back to array for comparison
+    const targetAssigneeArray = Array.from(targetAssignees);
+
+    // Compare current with target assignees
+    const changed = !arraysEqual(currentAssignees, targetAssigneeArray);
+    
+    if (changed) {
+      await setItemAssignees(projectId, itemId, targetAssigneeArray);
+    }
+
+    return {
+      changed,
+      assignees: targetAssigneeArray,
+      reason: changed ? 'Added PR author as assignee' : 'Author already assigned'
+    };
   }
 
   return {
-    changed,
-    assignees: targetAssignees,
-    reason: changed ? 'Updated assignees' : 'No change needed'
+    changed: false,
+    assignees: currentAssignees,
+    reason: 'No assignee changes needed'
   };
 }
 

@@ -68,6 +68,7 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     
     // Get current column
     const currentColumn = await getItemColumn(projectId, projectItemId);
+    const currentColumnLower = currentColumn ? currentColumn.toLowerCase() : null;
 
     // Skip if item is closed or merged - let GitHub automation handle these
     if (item.state === 'CLOSED' || item.state === 'MERGED') {
@@ -79,7 +80,7 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     }
 
     // Skip if current column is Done - let GitHub automation handle this
-    if (currentColumn === 'Done') {
+    if (currentColumnLower === 'done') {
       return {
         changed: false,
         reason: 'Column "Done" is handled by GitHub automation',
@@ -88,13 +89,14 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     }
 
     // Determine target column based on type (if not set)
-    let targetColumn;
+    let targetColumn = null;
     if (!currentColumn) {
+      // Always set PRs to Active, Issues to New (case-sensitive)
       targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
     }
 
-    // Skip if already has correct column
-    if (!targetColumn || (currentColumn && currentColumn === targetColumn)) {
+    // Skip if already has correct column (case-insensitive comparison)
+    if (!targetColumn || (currentColumnLower === targetColumn.toLowerCase())) {
       return { 
         changed: false, 
         reason: `Column already set to ${currentColumn}`,
