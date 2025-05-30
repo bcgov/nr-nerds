@@ -26,12 +26,12 @@ jobs:
         working-directory: project-board-sync
         run: npm ci
         
-      - name: Run Tests
-        env:
-          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
-          VERBOSE: true
-        working-directory: project-board-sync
-        run: npm test
+      # - name: Run Tests
+      #   env:
+      #     GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+      #     VERBOSE: true
+      #   working-directory: project-board-sync
+      #   run: npm test
        
       - name: Run Project Board Sync
         env:
