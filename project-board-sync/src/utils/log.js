@@ -1,14 +1,20 @@
 /**
  * Simple logging utility that collects logs for the final summary
  */
+let instance = null;
+
 class Logger {
   constructor() {
-    this.logs = {
-      errors: [],
-      warnings: [],
-      infos: [],
-      debugs: []
-    };
+    if (!instance) {
+      this.logs = {
+        errors: [],
+        warnings: [],
+        infos: [],
+        debugs: []
+      };
+      instance = this;
+    }
+    return instance;
   }
 
   error(message) {
@@ -23,15 +29,15 @@ class Logger {
     console.warn(`WARNING: ${fullMessage}`);
   }
 
-  info(message) {
+  info(message, raw = false) {
     this.logs.infos.push(message);
-    console.log(`INFO: ${message}`);
+    console.log(raw ? message : `INFO: ${message}`);
   }
 
-  debug(message) {
+  debug(message, raw = false) {
     if (process.env.DEBUG) {
       this.logs.debugs.push(message);
-      console.log(`DEBUG: ${message}`);
+      console.log(raw ? message : `DEBUG: ${message}`);
     }
   }
 

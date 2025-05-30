@@ -13,34 +13,32 @@ const { log } = require('../utils/log');
  * | Issue     | Found in monitored repository | Add to project board | Already in project |
  */
 async function processAddItems({ org, repos, monitoredUser, projectId }) {
-  log.info(`Fetching recent items for org: ${org}, monitored user: ${monitoredUser}`);
+  log.info(`Starting item processing for user ${monitoredUser}`);
   const items = await getRecentItems(org, repos, monitoredUser);
-  log.info(`Found ${items.length} items to process`);
+  log.info(`Found ${items.length} items to process\n`, true);
 
   const addedItems = [];
   const skippedItems = [];
   const monitoredRepos = new Set(repos.map(repo => `${org}/${repo}`));
-  log.info(`Monitoring repositories: ${[...monitoredRepos].join(', ')}`);
+  log.info(`📋 Monitoring repositories:\n${[...monitoredRepos].map(r => `  • ${r}`).join('\n')}\n`, true);
 
   for (const item of items) {
     try {
-      log.info(`\nEvaluating ${item.__typename} #${item.number}:`);
-      log.info(`→ Location: ${item.repository.nameWithOwner}`);
-      log.info(`→ Created by: ${item.author?.login || 'unknown'}`);
-      log.info(`→ Current assignees: ${item.assignees?.nodes?.map(a => a.login).join(', ') || 'none'}`);
-      log.info(`→ Monitored repos: ${[...monitoredRepos].join(', ')}`);
-      log.info(`→ Monitored user: ${monitoredUser}`);
+      const itemIdentifier = `${item.__typename} #${item.number} (${item.repository.nameWithOwner})`;
+      log.info(`\n🔍 Processing: ${itemIdentifier}`, true);
+      log.info(`  ├─ Author: ${item.author?.login || 'unknown'}`, true);
+      log.info(`  └─ Assignees: ${item.assignees?.nodes?.map(a => a.login).join(', ') || 'none'}\n`, true);
 
       // Log qualifying conditions
       const isMonitoredRepo = monitoredRepos.has(item.repository.nameWithOwner);
       const isAuthoredByUser = item.author?.login === monitoredUser;
       const isAssignedToUser = item.assignees?.nodes?.some(a => a.login === monitoredUser) || false;
       
-      log.info('Checking qualifying conditions:');
-      log.info(`→ In monitored repo? ${isMonitoredRepo ? 'Yes' : 'No'}`);
+      log.info('  Checking conditions:', true);
+      log.info(`  ├─ In monitored repo? ${isMonitoredRepo ? '✓ Yes' : '✗ No'}`, true);
       if (item.__typename === 'PullRequest') {
-        log.info(`→ Authored by monitored user? ${isAuthoredByUser ? 'Yes' : 'No'}`);
-        log.info(`→ Assigned to monitored user? ${isAssignedToUser ? 'Yes' : 'No'}`);
+        log.info(`  ├─ Authored by ${monitoredUser}? ${isAuthoredByUser ? '✓ Yes' : '✗ No'}`, true);
+        log.info(`  └─ Assigned to ${monitoredUser}? ${isAssignedToUser ? '✓ Yes' : '✗ No'}\n`, true);
       }
       
       // First check if we should add this item based on rules
@@ -57,8 +55,6 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
           ? 'Issue is in a monitored repository'
           : 'Issue does not meet any criteria';
       
-      log.info(`Decision: ${shouldAdd ? 'Will be added' : 'Will be skipped'} - ${addReason}`);
-      
       if (!shouldAdd) {
         skippedItems.push({
           type: item.__typename,
@@ -66,14 +62,13 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
           repo: item.repository.nameWithOwner,
           reason: addReason
         });
-        log.info(`⨯ Skipping ${item.__typename} #${item.number} - ${addReason}`);
+        log.info(`  ⨯ Action Required: Skip - ${addReason}\n`, true);
         continue;
       }
 
       // Then check if already in project
-      log.info(`Checking if ${item.__typename} #${item.number} is already in project...`);
+      log.info('  Checking project board status...', true);
       const { isInProject } = await isItemInProject(item.id, projectId);
-      log.info(`${item.__typename} #${item.number} in project? ${isInProject}`);
       
       if (isInProject) {
         skippedItems.push({
@@ -82,27 +77,27 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
           repo: item.repository.nameWithOwner,
           reason: 'Already in project board'
         });
+        log.info('  ℹ Status: Already in project board - no action needed\n', true);
         continue;
       }
 
-      log.info(`✓ Adding to project board: ${item.__typename} #${item.number}`);
-      log.info(`  Reason: ${addReason}`);
+      log.info('  ✨ Action Required: Add to project board', true);
+      log.info(`     Reason: ${addReason}`, true);
       
       // Add item to project since it meets criteria and isn't already there
-      await addItemToProject(item.id, projectId);
-      
-      const reason = addReason; // Use the same reason we determined earlier
+      const projectItemId = await addItemToProject(item.id, projectId);
       
       addedItems.push({
         type: item.__typename,
         number: item.number,
         repo: item.repository.nameWithOwner,
-        reason
+        reason: addReason,
+        id: item.id,
+        projectItemId: projectItemId
       });
-      log.info(`Successfully added ${item.__typename} #${item.number} - ${reason}`);
+      log.info('  ✓ Result: Successfully added to project board\n', true);
 
     } catch (error) {
-      console.error('Full error:', error);
       log.error(`Failed to process ${item.__typename} #${item.number}: ${error.message}`);
       log.debug(`Error details: ${error.stack}`);
       // If this is an authentication error, stop processing
@@ -112,20 +107,28 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
     }
   }
 
-  // Log summary
-  log.info(`\nProcessing Summary:`);
-  log.info(`Total items processed: ${items.length}`);
-  log.info(`Items added: ${addedItems.length}`);
-  log.info(`Items skipped: ${skippedItems.length}\n`);
-
-  // Log detailed results
-  addedItems.forEach(item => {
-    log.info(`Added ${item.type} #${item.number} [${item.repo}] - ${item.reason}`);
-  });
-
-  skippedItems.forEach(item => {
-    log.info(`Skipped ${item.type} #${item.number} [${item.repo}] - ${item.reason}`);
-  });
+  // Log summary with more detail
+  log.info('\n📊 Processing Summary', true);
+  log.info(`━━━━━━━━━━━━━━━━━━━`, true);
+  log.info(`Total items processed: ${items.length}`, true);
+  
+  if (addedItems.length > 0) {
+    log.info('\n✓ Items Added:', true);
+    addedItems.forEach(item => {
+      log.info(`  • ${item.type} #${item.number} [${item.repo}]`, true);
+      log.info(`    └─ ${item.reason}`, true);
+    });
+  }
+  
+  if (skippedItems.length > 0) {
+    log.info('\nℹ Items Skipped:', true);
+    skippedItems.forEach(item => {
+      log.info(`  • ${item.type} #${item.number} [${item.repo}]`, true);
+      log.info(`    └─ ${item.reason}`, true);
+    });
+  }
+  
+  log.info('\n━━━━━━━━━━━━━━━━━━━\n', true);
 
   return { addedItems, skippedItems };
 }

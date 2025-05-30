@@ -1,7 +1,7 @@
 const { getRecentItems } = require('./github/api');
 const Logger = require('./utils/log').Logger;
 const log = new Logger();
-const { processItemForProject } = require('./rules/add-items');
+const { processAddItems } = require('./rules/add-items');
 const { processColumnAssignment } = require('./rules/columns');
 const { processSprintAssignment } = require('./rules/sprints');
 const { processAssignees } = require('./rules/assignees');
@@ -43,46 +43,37 @@ async function main() {
         'quickstart-openshift-helpers'
       ],
       monitoredUser: process.env.GITHUB_AUTHOR,
-      processedIds: new Set(),
-      projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg',
-      monitoredRepos: new Set() // Will be populated below
+      projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg'
     };
-
-    // Set up monitored repos set
-    context.monitoredRepos = new Set(context.repos.map(repo => `${context.org}/${repo}`));
 
     log.info('Starting Project Board Sync...');
     log.info(`User: ${context.monitoredUser}`);
     log.info(`Project: ${context.projectId}`);
-    log.info('Monitored Repos: ' + Array.from(context.monitoredRepos).join(', '));
+    log.info('Monitored Repos: ' + context.repos.map(r => `${context.org}/${r}`).join(', '));
 
-    // 1. Get recent items from monitored repos
-    const items = await getRecentItems(context.org, context.repos, context.monitoredUser);
-    log.info(`Found ${items.length} items to process`);
+    // Process items according to our enhanced rules
+    const { addedItems, skippedItems } = await processAddItems({
+      org: context.org,
+      repos: context.repos,
+      monitoredUser: context.monitoredUser,
+      projectId: context.projectId
+    });
 
-    for (const item of items) {
+    // Process additional rules for added items
+    for (const item of addedItems) {
       try {
-        // 2. Add item to project if needed
-        const addResult = await processItemForProject(item, context.projectId, context);
-        
-        if (!addResult.added && !addResult.projectItemId) {
-          log.info(`Skipped ${item.__typename} #${item.number}: ${addResult.reason}`);
-          continue;
-        }
+        const itemRef = `${item.type} #${item.number}`;
 
-        const itemId = addResult.projectItemId;
-        const itemRef = `${item.__typename} #${item.number}`;
-
-        // 3. Set initial column
-        const columnResult = await processColumnAssignment(item, itemId, context.projectId);
+        // Set initial column
+        const columnResult = await processColumnAssignment(item, item.projectItemId, context.projectId);
         if (columnResult.changed) {
           log.info(`Set column for ${itemRef} to ${columnResult.newStatus}`);
         }
 
-        // 4. Assign sprint if needed
+        // Assign sprint if needed
         const sprintResult = await processSprintAssignment(
           item, 
-          itemId, 
+          item.projectItemId, 
           context.projectId, 
           columnResult.newStatus
         );
@@ -90,14 +81,14 @@ async function main() {
           log.info(`Set sprint for ${itemRef} to ${sprintResult.newSprint}`);
         }
 
-        // 5. Handle assignees
-        const assigneeResult = await processAssignees(item, context.projectId, itemId);
+        // Handle assignees
+        const assigneeResult = await processAssignees(item, context.projectId, item.projectItemId);
         if (assigneeResult.changed) {
           log.info(`Updated assignees for ${itemRef}: ${assigneeResult.assignees.join(', ')}`);
         }
 
-        // 6. Process linked issues if it's a PR
-        if (item.__typename === 'PullRequest') {
+        // Process linked issues if it's a PR
+        if (item.type === 'PullRequest') {
           const linkedResult = await processLinkedIssues(
             item, 
             context.projectId,
@@ -113,7 +104,7 @@ async function main() {
         }
 
       } catch (error) {
-        log.error(`Failed to process ${item.__typename} #${item.number}: ${error.message}`);
+        log.error(`Failed to process ${item.type} #${item.number}: ${error.message}`);
       }
     }
 
