@@ -1,3 +1,15 @@
+// Configure testing environment
+const TEST_ENV = {
+  NODE_ENV: process.env.NODE_ENV || 'test',
+  GH_TOKEN: process.env.GH_TOKEN || 'test-token',
+  GITHUB_AUTHOR: process.env.GITHUB_AUTHOR || 'test-user'
+};
+
+// Set up environment variables for tests
+Object.entries(TEST_ENV).forEach(([key, value]) => {
+  process.env[key] = value;
+});
+
 // Test configuration
 const TEST_CONFIG = {
   projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg',

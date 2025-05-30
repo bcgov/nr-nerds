@@ -16,11 +16,24 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
   const items = await getRecentItems(org, repos, monitoredUser);
   const addedItems = [];
   const skippedItems = [];
+  const monitoredRepos = new Set(repos.map(repo => `${org}/${repo}`));
 
   for (const item of items) {
     try {
-      // Skip if already in project
-      if (await isItemInProject(item.id, projectId)) {
+      // First check if we should add this item based on rules
+      if (!shouldAddItemToProject(item, monitoredUser, monitoredRepos)) {
+        skippedItems.push({
+          type: item.__typename,
+          number: item.number,
+          repo: item.repository.nameWithOwner,
+          reason: 'Does not match add criteria'
+        });
+        continue;
+      }
+
+      // Then check if already in project
+      const { isInProject } = await isItemInProject(item.id, projectId);
+      if (isInProject) {
         skippedItems.push({
           type: item.__typename,
           number: item.number,
@@ -30,20 +43,23 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         continue;
       }
 
-      // Add item to project
+      // Add item to project since it meets criteria and isn't already there
       await addItemToProject(item.id, projectId);
+      
+      // Determine the reason for adding
+      const reason = item.__typename === 'PullRequest' 
+        ? item.author?.login === monitoredUser
+          ? 'PR authored by monitored user'
+          : item.assignees.nodes.some(a => a.login === monitoredUser)
+            ? 'PR assigned to monitored user'
+            : 'PR in monitored repository'
+        : 'Issue in monitored repository';
       
       addedItems.push({
         type: item.__typename,
         number: item.number,
         repo: item.repository.nameWithOwner,
-        reason: item.__typename === 'PullRequest' 
-          ? item.author?.login === monitoredUser
-            ? 'PR authored by monitored user'
-            : item.assignees.nodes.some(a => a.login === monitoredUser)
-              ? 'PR assigned to monitored user'
-              : 'PR in monitored repository'
-          : 'Issue in monitored repository'
+        reason
       });
 
     } catch (error) {
