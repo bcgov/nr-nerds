@@ -1,10 +1,27 @@
 const { processSprintAssignment } = require('../src/rules/sprints');
 const { TEST_CONFIG } = require('../test-config/setup');
 const { Logger } = require('../src/utils/log');
-const log = new Logger();
+const { resetMocks, mockData } = require('../test-config/mocks/github-api');
 
 describe('Rule Set 3: Sprint Assignment', () => {
   const projectId = TEST_CONFIG.projectId;
+
+  beforeEach(() => {
+    resetMocks();
+    // Set up mock project items
+    mockData.projectItems.set('test-project-item-1', {
+      id: 'test-project-item-1',
+      content: { id: 'test-pr-1' }
+    });
+    mockData.projectItems.set('test-project-item-2', {
+      id: 'test-project-item-2',
+      content: { id: 'test-pr-2' }
+    });
+    mockData.projectItems.set('test-project-item-3', {
+      id: 'test-project-item-3',
+      content: { id: 'test-pr-3' }
+    });
+  });
 
   describe('Active Items', () => {
     test('should not assign sprint to items not in Next/Active/Done columns', async () => {
@@ -30,7 +47,7 @@ describe('Rule Set 3: Sprint Assignment', () => {
 
       const result = await processSprintAssignment(activeItem, 'test-project-item-2', projectId, 'Active');
       expect(result.changed).toBe(true);
-      expect(result.newSprint).toBe(TEST_CONFIG.testData.sprints['Current Sprint']);
+      expect(result.newSprint).toBe('sprint-1');
     });
   });
 
@@ -45,7 +62,7 @@ describe('Rule Set 3: Sprint Assignment', () => {
 
       const result = await processSprintAssignment(doneItem, 'test-project-item-3', projectId, 'Done');
       expect(result.changed).toBe(true);
-      expect(result.newSprint).toBe(TEST_CONFIG.testData.sprints['Current Sprint']);
+      expect(result.newSprint).toBe('sprint-1');
     });
   });
 });

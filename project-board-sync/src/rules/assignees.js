@@ -2,6 +2,19 @@ const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
 /**
+ * Compare two arrays for equality
+ * @param {Array} a - First array
+ * @param {Array} b - Second array
+ * @returns {boolean}
+ */
+function arraysEqual(a, b) {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((val, idx) => val === sortedB[idx]);
+}
+
+/**
  * Get assignees for a project item
  * @param {string} projectId - The project board ID
  * @param {string} itemId - The project item ID
@@ -130,29 +143,28 @@ async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
   const currentAssignees = await getItemAssignees(projectId, itemId);
   
-  // If already has assignees, no need to change
-  if (currentAssignees.length > 0) {
-    return {
-      changed: false,
-      assignees: currentAssignees,
-      reason: 'Already has assignees'
-    };
+  let targetAssignees = [];
+  
+  // For PRs, use author as default assignee if no assignees
+  if (item.__typename === 'PullRequest') {
+    if (item.assignees.nodes.length > 0) {
+      targetAssignees = item.assignees.nodes.map(a => a.login);
+    } else if (item.author) {
+      targetAssignees = [item.author.login];
+    }
   }
 
-  // For PRs, assign to author if no assignees
-  if (item.__typename === 'PullRequest' && item.author) {
-    await setItemAssignees(projectId, itemId, [item.author.login]);
-    return {
-      changed: true,
-      assignees: [item.author.login],
-      reason: 'Assigned to PR author'
-    };
+  // Compare current with target assignees
+  const changed = !arraysEqual(currentAssignees, targetAssignees);
+  
+  if (changed) {
+    await setItemAssignees(projectId, itemId, targetAssignees);
   }
 
   return {
-    changed: false,
-    assignees: [],
-    reason: 'No default assignee determined'
+    changed,
+    assignees: targetAssignees,
+    reason: changed ? 'Updated assignees' : 'No change needed'
   };
 }
 

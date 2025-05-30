@@ -5,6 +5,26 @@ const TEST_ENV = {
   GITHUB_AUTHOR: process.env.GITHUB_AUTHOR || 'test-user'
 };
 
+// Mock octokit
+jest.mock('../src/github/api', () => {
+  const { graphql, isItemInProject, addItemToProject, getRecentItems, setItemColumn } = require('./mocks/github-api');
+  return {
+    octokit: {
+      graphql,
+      rest: {
+        projects: {
+          createCard: jest.fn(),
+          moveCard: jest.fn()
+        }
+      }
+    },
+    isItemInProject,
+    addItemToProject,
+    getRecentItems,
+    setItemColumn
+  };
+});
+
 // Set up environment variables for tests
 Object.entries(TEST_ENV).forEach(([key, value]) => {
   process.env[key] = value;

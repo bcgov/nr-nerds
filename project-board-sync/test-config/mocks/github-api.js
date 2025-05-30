@@ -8,7 +8,27 @@ const mockData = {
   itemSprints: new Map(),
   itemAssignees: new Map(),
   shouldFail: false,
-  lastId: 0
+  lastId: 0,
+  sprints: [
+    {
+      id: 'sprint-1',
+      title: 'Sprint 15',  // May 15-28
+      startDate: '2025-05-15T00:00:00Z',
+      duration: 14
+    },
+    {
+      id: 'sprint-2',
+      title: 'Sprint 16',  // May 29-Jun 11
+      startDate: '2025-05-29T00:00:00Z',
+      duration: 14
+    },
+    {
+      id: 'sprint-3',
+      title: 'Sprint 17',  // Jun 12-25
+      startDate: '2025-06-12T00:00:00Z',
+      duration: 14
+    }
+  ]
 };
 
 /**
@@ -137,6 +157,130 @@ async function getItemDetails(projectItemId) {
   };
 }
 
+/**
+ * Mock graphql implementation
+ */
+async function graphql(query, variables) {
+  if (mockData.shouldFail) {
+    throw new Error('Mock API Error: graphql failed');
+  }
+
+  // Project field values query (for getting assignees)
+  if (query.includes('fieldValues(first: 10)')) {
+    const { itemId } = variables;
+    const assignees = mockData.itemAssignees.get(itemId) || [];
+    return {
+      node: {
+        fields: {
+          nodes: [{
+            id: 'assignee-field-1',
+            name: 'Assignees'
+          }]
+        }
+      },
+      item: {
+        fieldValues: {
+          nodes: [{
+            users: {
+              nodes: assignees.map(login => ({ login }))
+            }
+          }]
+        }
+      }
+    };
+  }
+
+  // Get project fields query (for getting assignee field ID)
+  if (query.includes('fields(first: 20)') && !query.includes('fieldValues')) {
+    return {
+      node: {
+        fields: {
+          nodes: [{
+            id: 'assignee-field-1',
+            name: 'Assignees'
+          }]
+        }
+      }
+    };
+  }
+
+  // Update field value mutation
+  if (query.includes('updateProjectV2ItemFieldValue')) {
+    const { itemId, userIds } = variables;
+    mockData.itemAssignees.set(itemId, userIds);
+    return {
+      updateProjectV2ItemFieldValue: {
+        projectV2Item: {
+          id: itemId
+        }
+      }
+    };
+  }
+
+  // Get sprint field and item sprint value
+  if (query.includes('field(name: "Sprint")')) {
+    const { itemId } = variables;
+    const currentSprint = mockData.itemSprints.get(itemId) || null;
+    return {
+      node: {
+        field: {
+          id: 'sprint-field-1',
+          configuration: {
+            iterations: [
+              mockData.sprints.current,
+              mockData.sprints.next
+            ]
+          }
+        }
+      },
+      item: {
+        fieldValues: {
+          nodes: currentSprint ? [{
+            iterationId: currentSprint.id,
+            title: currentSprint.title
+          }] : []
+        }
+      }
+    };
+  }
+
+  // Get current sprint
+  if (query.includes('iterations(first: 20)')) {
+    return {
+      node: {
+        field: {
+          id: 'sprint-field-1',
+          configuration: {
+            iterations: [
+              mockData.sprints.current,
+              mockData.sprints.next
+            ]
+          }
+        }
+      }
+    };
+  }
+
+  // Set sprint value mutation
+  if (query.includes('updateProjectV2ItemFieldValue') && query.includes('iterationId')) {
+    const { itemId, value } = variables;
+    const sprintId = value.iterationId;
+    const sprint = Object.values(mockData.sprints).find(s => s.id === sprintId);
+    if (sprint) {
+      mockData.itemSprints.set(itemId, sprint);
+    }
+    return {
+      updateProjectV2ItemFieldValue: {
+        projectV2Item: {
+          id: itemId
+        }
+      }
+    };
+  }
+
+  throw new Error(`Mock API Error: Unhandled GraphQL query: ${query}`);
+}
+
 module.exports = {
   isItemInProject,
   addItemToProject,
@@ -145,5 +289,7 @@ module.exports = {
   setItemAssignees,
   getItemDetails,
   resetMocks,
+  mockData,
+  graphql,
   setMockFailure: (shouldFail) => { mockData.shouldFail = shouldFail; }
 };

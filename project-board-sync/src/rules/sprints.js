@@ -168,7 +168,7 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
 
   return {
     changed: true,
-    newSprint: activeSprintTitle,
+    newSprint: activeSprintId,
     reason: `Assigned to current sprint (${activeSprintTitle})`
   };
 }
