@@ -1,3 +1,5 @@
+const { COLUMNS, COLUMN_IDS } = require('../constants');
+
 /**
  * Mock implementations for GitHub API
  */
@@ -7,6 +9,7 @@ const mockData = {
   itemColumns: new Map(),
   itemSprints: new Map(),
   itemAssignees: new Map(),
+  linkedIssues: new Map(),
   shouldFail: false,
   lastId: 0,
   sprints: [
@@ -40,6 +43,7 @@ function resetMocks() {
   mockData.itemColumns.clear();
   mockData.itemSprints.clear();
   mockData.itemAssignees.clear();
+  mockData.linkedIssues.clear();
   mockData.shouldFail = false;
   mockData.lastId = 0;
 }
@@ -113,23 +117,29 @@ function addMockItem(item) {
 /**
  * Mock setItemColumn implementation
  */
-async function setItemColumn(projectItemId, columnId) {
+async function setItemColumn(projectId, itemId, columnName) {
   if (mockData.shouldFail) {
     throw new Error('Mock API Error: setItemColumn failed');
   }
-  mockData.itemColumns.set(projectItemId, columnId);
-  return { success: true };
+  
+  if (!Object.values(COLUMNS).includes(columnName)) {
+    throw new Error(`Mock API Error: Invalid column name ${columnName}`);
+  }
+
+  mockData.itemColumns.set(`${projectId}:${itemId}`, columnName);
+  return true;
 }
 
 /**
  * Mock setItemSprint implementation
  */
-async function setItemSprint(projectItemId, sprintId) {
+async function setItemSprint(projectId, itemId, sprintId) {
   if (mockData.shouldFail) {
     throw new Error('Mock API Error: setItemSprint failed');
   }
-  mockData.itemSprints.set(projectItemId, sprintId);
-  return { success: true };
+
+  mockData.itemSprints.set(`${projectId}:${itemId}`, sprintId);
+  return true;
 }
 
 /**
@@ -160,9 +170,9 @@ async function getItemDetails(projectItemId) {
 /**
  * Mock graphql implementation
  */
-async function graphql(query, variables) {
+const graphql = jest.fn().mockImplementation(async (query, variables) => {
   if (mockData.shouldFail) {
-    throw new Error('Mock API Error: graphql failed');
+    throw new Error('Mock API Error: GraphQL query failed');
   }
 
   // Project field values query (for getting assignees)
@@ -278,7 +288,30 @@ async function graphql(query, variables) {
     };
   }
 
+  // Handle linked issues query
+  if (query.includes('closingIssuesReferences')) {
+    const key = `${variables.owner}/${variables.repo}:${variables.number}`;
+    const linkedIssues = mockData.linkedIssues.get(key) || [];
+    return {
+      repository: {
+        pullRequest: {
+          closingIssuesReferences: {
+            nodes: linkedIssues
+          }
+        }
+      }
+    };
+  }
+
   throw new Error(`Mock API Error: Unhandled GraphQL query: ${query}`);
+});
+
+/**
+ * Test helper to set up linked issues for a PR
+ */
+function __setMockLinkedIssues(owner, repo, prNumber, issues) {
+  const key = `${owner}/${repo}:${prNumber}`;
+  mockData.linkedIssues.set(key, issues);
 }
 
 module.exports = {
@@ -291,5 +324,44 @@ module.exports = {
   resetMocks,
   mockData,
   graphql,
-  setMockFailure: (shouldFail) => { mockData.shouldFail = shouldFail; }
+  __setMockLinkedIssues,
+  setMockFailure: (shouldFail) => { mockData.shouldFail = shouldFail; },
+  processItemForProject: async (item, projectId) => {
+    if (mockData.shouldFail) {
+      throw new Error('Mock API Error: processItemForProject failed');
+    }
+    
+    console.log('Mock processItemForProject:', { 
+      type: item.__typename,
+      id: item.id,
+      number: item.number,
+      projectId
+    });
+    
+    const key = `${projectId}:${item.id}`;
+    
+    // Track the item itself
+    mockData.items.set(item.id, item);
+    
+    // Check if already in project
+    if (mockData.projectItems.has(key)) {
+      console.log('Item already in project:', { key, projectItemId: mockData.projectItems.get(key) });
+      return { 
+        added: false, 
+        projectItemId: mockData.projectItems.get(key),
+        reason: 'Already in project'
+      };
+    }
+
+    // Add to project
+    const projectItemId = `project-item-${++mockData.lastId}`;
+    mockData.projectItems.set(key, projectItemId);
+    console.log('Added item to project:', { key, projectItemId });
+    
+    return { 
+      added: true, 
+      projectItemId,
+      reason: `Added ${item.__typename} #${item.number}`
+    };
+  }
 };
