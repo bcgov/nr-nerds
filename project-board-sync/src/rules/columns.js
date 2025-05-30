@@ -70,8 +70,17 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     const currentColumn = await getItemColumn(projectId, projectItemId);
     const currentColumnLower = currentColumn ? currentColumn.toLowerCase() : null;
 
+    let targetColumn = null;
+    let reason = '';
+
+    log.info(`Processing column rules for ${item.__typename} #${item.number}:`, true);
+    log.info(`  • Current column: ${currentColumn || 'None'}`, true);
+    log.info(`  • Item type: ${item.__typename}`, true);
+    log.info(`  • Item state: ${item.state || 'Unknown'}`, true);
+
     // Skip if item is closed/merged and already in Done column
     if ((item.state === 'CLOSED' || item.state === 'MERGED') && currentColumnLower === 'done') {
+      log.info('  • Rule: Item is closed/merged and in Done column → Skipping', true);
       return {
         changed: false,
         reason: 'Column already set to Done by GitHub automation',
@@ -79,21 +88,50 @@ async function processColumnAssignment(item, projectItemId, projectId) {
       };
     }
 
-    // Determine target column based on type (if not set)
-    let targetColumn = null;
-    if (!currentColumn) {
-      // Always set PRs to Active, Issues to New (case-sensitive)
-      targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
+    // Skip if item is closed/merged (GitHub handles this)
+    if (item.state === 'CLOSED' || item.state === 'MERGED') {
+      log.info('  • Rule: Item is closed/merged → GitHub handles column', true);
+      return {
+        changed: false,
+        reason: `Column handled by GitHub automation for ${item.state.toLowerCase()} items`,
+        currentStatus: currentColumn
+      };
     }
 
-    // Skip if already has correct column (case-insensitive comparison)
-    if (!targetColumn || (currentColumnLower === targetColumn.toLowerCase())) {
+    if (!currentColumn) {
+      // Rule: Column=None
+      targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
+      reason = 'initial column assignment';
+      log.info('  • Rule: Column=None → Setting initial column', true);
+    } else if (item.__typename === 'PullRequest' && currentColumnLower === 'new') {
+      // Rule: PR in New column should move to Active
+      targetColumn = 'Active';
+      reason = 'PR moved from New to Active';
+      log.info('  • Rule: PR in New column → Moving to Active', true);
+    } else {
+      log.info('  • No matching rules for current state', true);
+    }
+
+    // Skip if no target or already in correct column (case-insensitive)
+    if (!targetColumn) {
+      log.info('  • Result: No target column determined', true);
+      return { 
+        changed: false, 
+        reason: 'No column change needed',
+        currentStatus: currentColumn
+      };
+    }
+    
+    if (currentColumnLower === targetColumn.toLowerCase()) {
+      log.info(`  • Result: Already in target column (${currentColumn})`, true);
       return { 
         changed: false, 
         reason: `Column already set to ${currentColumn}`,
         currentStatus: currentColumn
       };
     }
+
+    log.info(`  • Result: Moving to ${targetColumn}`, true);
 
     // Set the new column
     const optionId = getColumnOptionId(targetColumn, options);
@@ -102,7 +140,7 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     return {
       changed: true,
       newStatus: targetColumn,
-      reason: `Set column to ${targetColumn} based on ${item.state ? `state (${item.state})` : 'initial rules'}`
+      reason: reason || `Set column to ${targetColumn} based on ${item.state ? `state (${item.state})` : 'initial rules'}`
     };
   } catch (error) {
     log.error(`Failed to process column for ${item.__typename} #${item.number}: ${error.message}`);
@@ -117,16 +155,18 @@ async function processColumnAssignment(item, projectItemId, projectId) {
  * | Item Type | Trigger Condition | Action        | Skip Condition         |
  * |-----------|-------------------|---------------|------------------------|
  * | PR        | Column=None       | Column=Active | Column=Any already set |
+ * | PR        | Column=New        | Column=Active | Column=Any except New  |
  * | Issue     | Column=None       | Column=New    | Column=Any already set |
  */
 async function processColumns({ projectId, items }) {
   const processedItems = [];
-  const skippedItems = [];
-
-  for (const item of items) {
-    try {
-      // Process column assignment
-      const result = await processColumnAssignment(item, item.id, projectId);
+  const skippedItems = [];    for (const item of items) {
+      try {
+        // Process column assignment - make sure we pass the full item with type info
+        const result = await processColumnAssignment({
+          ...item,
+          __typename: item.type || item.__typename
+        }, item.id, projectId);
       
       if (result.changed) {
         processedItems.push({

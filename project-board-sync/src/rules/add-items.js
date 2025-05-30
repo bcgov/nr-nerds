@@ -82,13 +82,12 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
       }
 
       log.info('  ✨ Action Required: Add to project board', true);
-      log.info(`     Reason: ${addReason}`, true);
-      
-      // Add item to project since it meets criteria and isn't already there
+      log.info(`     Reason: ${addReason}`, true);        // Add item to project since it meets criteria and isn't already there
       const projectItemId = await addItemToProject(item.id, projectId);
       
       addedItems.push({
         type: item.__typename,
+        __typename: item.__typename,  // Preserve the typename for columns.js
         number: item.number,
         repo: item.repository.nameWithOwner,
         reason: addReason,

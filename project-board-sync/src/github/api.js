@@ -191,46 +191,32 @@ async function getItemColumn(projectId, itemId) {
  * @param {string} optionId - The status option ID to set
  * @returns {Promise<void>}
  */
-async function setItemColumn(projectId, itemId, optionId) {
-  const result = await graphqlWithAuth(`
-    query($projectId: ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          field(name: "Status") {
-            ... on ProjectV2SingleSelectField {
-              id
-            }
+async function setItemColumn(projectId, projectItemId, optionId) {
+  const mutation = `
+    mutation UpdateColumnValue($input: UpdateProjectV2ItemFieldValueInput!) {
+      updateProjectV2ItemFieldValue(input: $input) {
+        projectV2Item {
+          id
+          project {
+            id
+            number
           }
         }
       }
     }
-  `, {
-    projectId
-  });
+  `;
 
-  const fieldId = result.node.field.id;
+  const input = {
+    projectId: projectId,
+    itemId: projectItemId,
+    fieldId: STATUS_FIELD_ID,
+    value: {
+      singleSelectOptionId: optionId,
+    },
+  };
 
-  await graphqlWithAuth(`
-    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId
-        itemId: $itemId
-        fieldId: $fieldId
-        value: { 
-          singleSelectOptionId: $optionId
-        }
-      }) {
-        projectV2Item {
-          id
-        }
-      }
-    }
-  `, {
-    projectId,
-    itemId,
-    fieldId,
-    optionId
-  });
+  const result = await octokit.graphql(mutation, { input });
+  return result;
 }
 
 module.exports = {
