@@ -70,20 +70,11 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     const currentColumn = await getItemColumn(projectId, projectItemId);
     const currentColumnLower = currentColumn ? currentColumn.toLowerCase() : null;
 
-    // Skip if item is closed or merged - let GitHub automation handle these
-    if (item.state === 'CLOSED' || item.state === 'MERGED') {
-      return { 
-        changed: false, 
-        reason: `Column handled by GitHub automation for ${item.state.toLowerCase()} items`,
-        currentStatus: currentColumn
-      };
-    }
-
-    // Skip if current column is Done - let GitHub automation handle this
-    if (currentColumnLower === 'done') {
+    // Skip if item is closed/merged and already in Done column
+    if ((item.state === 'CLOSED' || item.state === 'MERGED') && currentColumnLower === 'done') {
       return {
         changed: false,
-        reason: 'Column "Done" is handled by GitHub automation',
+        reason: 'Column already set to Done by GitHub automation',
         currentStatus: currentColumn
       };
     }
