@@ -5,7 +5,7 @@
 When working with this repository:
 1. Read this CONTRIBUTING.md file first
 2. Follow all guidelines specified here
-3. Do not modify files in `src/` when working on tests
+3. Do not modify files in `src/` when working on tests - this ensures test fixes don't accidentally change implementation behavior
 4. Use the Change Proposal Format below to plan changes
 5. Proceed with changes when ALL verification steps pass
 6. Stop and ask ONLY if:
@@ -22,18 +22,36 @@ Reference markers:
 ## Code Formatting Rules
 <!-- CONTRIBUTING-FORMAT -->
 When suggesting code changes:
-1. Use Markdown code blocks with 4 backticks
+1. Use Markdown code blocks with 4 backticks for code snippets
 2. Include language identifier after backticks
 3. Add filepath comment at the start: `// filepath: /path/to/file`
 4. Use `// ...existing code...` to show unchanged sections
-5. Never wrap entire response in backticks
+5. Never wrap entire response in backticks (only wrap actual code snippets)
 
-Example:
+Examples:
+
+For code snippets to be added or modified:
 ````javascript
 // filepath: /path/to/file.js
 // ...existing code...
 const newCode = true;
 // ...existing code...
+````
+
+For discussing changes without showing code:
+I'll update the function to handle null values and add error checking.
+
+For showing multiple files:
+````javascript
+// filepath: /path/to/file1.js
+function example() {
+  return true;
+}
+````
+
+````javascript
+// filepath: /path/to/file2.js
+const result = example();
 ````
 <!-- CONTRIBUTING-FORMAT -->
 
