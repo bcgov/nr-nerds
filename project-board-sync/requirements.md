@@ -28,6 +28,7 @@ To change automation, simply edit this file and request a sync—no coding requi
 - User: `GITHUB_AUTHOR` (environment variable)
 
 **Monitored Repositories**:
+- action-builder-ghcr
 - nr-nerds
 - quickstart-openshift
 - quickstart-openshift-backends
