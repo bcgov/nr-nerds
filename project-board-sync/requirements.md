@@ -53,7 +53,10 @@ _All repositories listed above are under the `bcgov` GitHub organization unless 
 | Item Type | Trigger Condition | Action        | Skip Condition         |
 |-----------|-------------------|---------------|------------------------|
 | PR        | Column=None       | Column=Active | Column=Any already set |
+| PR        | Column=New        | Column=Active | Column=Any except New  |
 | Issue     | Column=None       | Column=New    | Column=Any already set |
+
+_GitHub Project automation may pick up PRs first, so we need the extra New=>Active rule._
 
 ### 3. Which Sprints are Items Assigned To?
 
