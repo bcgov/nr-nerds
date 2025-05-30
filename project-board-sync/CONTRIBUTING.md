@@ -86,21 +86,21 @@ Verification:
 - Use shared test configuration where possible
 
 ### Feature Additions
-- Create new branch from main
+- Follow the Preliminary Steps section.
 - Update `requirements.md` first if needed
 - Add new tests before implementation
 - Follow existing patterns in `src/`
 - Keep changes focused and minimal
 
 ### Refactoring
-- Create new branch from main
+- Follow the Preliminary Steps section.
 - No behavior changes allowed
 - Must pass existing tests
 - Update tests if structure changes
 - Document architectural decisions
 
 ### Bug Fixes
-- Create new branch from main
+- Follow the Preliminary Steps section.
 - Add failing test first
 - Fix implementation
 - Verify all tests pass
