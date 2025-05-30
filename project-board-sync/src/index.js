@@ -37,6 +37,7 @@ async function main() {
     const context = {
       org: 'bcgov',
       repos: [
+        'action-builder-ghcr',
         'nr-nerds',
         'quickstart-openshift',
         'quickstart-openshift-backends',
