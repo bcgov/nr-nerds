@@ -92,7 +92,8 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         repo: item.repository.nameWithOwner,
         reason: addReason,
         id: item.id,
-        projectItemId: projectItemId
+        projectItemId: projectItemId,
+        author: item.author  // Pass author info for assignee rules
       });
       log.info('  ✓ Result: Successfully added to project board\n', true);
 
