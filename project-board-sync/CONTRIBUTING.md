@@ -77,6 +77,35 @@ Verification:
 ```
 <!-- CONTRIBUTING-BOUNDARY -->
 
+## Contribution Types
+
+### Test Changes
+- Only modify files in `tests/` and `test-config/`
+- Never change implementation behavior
+- Focus on improving test reliability
+- Use shared test configuration where possible
+
+### Feature Additions
+- Create new branch from main
+- Update `requirements.md` first if needed
+- Add new tests before implementation
+- Follow existing patterns in `src/`
+- Keep changes focused and minimal
+
+### Refactoring
+- Create new branch from main
+- No behavior changes allowed
+- Must pass existing tests
+- Update tests if structure changes
+- Document architectural decisions
+
+### Bug Fixes
+- Create new branch from main
+- Add failing test first
+- Fix implementation
+- Verify all tests pass
+- Document root cause in commit
+
 ## Testing Standards
 - Tests must reference requirements.md for business rules
 - Use shared configuration from test-config/
