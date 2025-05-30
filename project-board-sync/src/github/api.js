@@ -19,6 +19,67 @@ const graphqlWithAuth = graphql.defaults({
 // Cache field IDs per project to reduce API calls
 const fieldIdCache = new Map();
 
+// Cache for column option IDs
+const columnOptionIdCache = new Map();
+
+/**
+ * Get the column option ID for a given column name
+ * @param {string} projectId - The project board ID
+ * @param {string} columnName - The name of the column (Status field option)
+ * @returns {Promise<string|null>} The column option ID or null if not found
+ */
+async function getColumnOptionId(projectId, columnName) {
+  // Create a composite cache key
+  const cacheKey = `${projectId}:${columnName}`;
+  
+  // Check if we have this column option ID cached
+  if (columnOptionIdCache.has(cacheKey)) {
+    return columnOptionIdCache.get(cacheKey);
+  }
+  
+  try {
+    // Get Status field ID from cache or fetch it
+    const statusFieldId = await getFieldId(projectId, 'Status');
+    
+    // Get all column options
+    const result = await graphqlWithAuth(`
+      query($projectId: ID!, $fieldId: ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            field(id: $fieldId) {
+              ... on ProjectV2SingleSelectField {
+                options {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+    `, {
+      projectId,
+      fieldId: statusFieldId
+    });
+    
+    // Find the option with matching name
+    const options = result.node.field.options;
+    const option = options.find(opt => opt.name === columnName);
+    
+    if (option) {
+      // Cache the result
+      columnOptionIdCache.set(cacheKey, option.id);
+      return option.id;
+    }
+    
+    log.error(`Column option "${columnName}" not found in project ${projectId}`);
+    return null;
+  } catch (error) {
+    log.error(`Failed to get column option ID for ${columnName}: ${error.message}`);
+    return null;
+  }
+}
+
 /**
  * Check if an item is already in the project board
  * @param {string} nodeId - The node ID of the item (PR or Issue)
@@ -276,5 +337,6 @@ module.exports = {
   getRecentItems,
   getItemColumn,
   setItemColumn,
-  getFieldId
+  getFieldId,
+  getColumnOptionId
 };

@@ -96,7 +96,8 @@ async function main() {
               __typename: 'PullRequest',
               repository: { 
                 nameWithOwner: item.repo || item.repository.nameWithOwner 
-              }
+              },
+              projectItemId: item.projectItemId // Ensure project item ID is passed
             }, 
             context.projectId,
             columnResult.newStatus,
