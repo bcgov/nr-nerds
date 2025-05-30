@@ -1,5 +1,8 @@
 const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
+const { processItemForProject } = require('./add-items');
+const { setItemColumn } = require('../github/api');
+const { setItemSprint } = require('./sprints');
 
 /**
  * Get linked issues for a PR
@@ -13,10 +16,13 @@ async function getLinkedIssues(org, repo, prNumber) {
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          closingIssueReferences(first: 10) {
+          closingIssuesReferences(first: 10) {
             nodes {
               id
               number
+              repository {
+                nameWithOwner
+              }
             }
           }
         }
@@ -28,7 +34,7 @@ async function getLinkedIssues(org, repo, prNumber) {
     number: prNumber
   });
 
-  return result.repository.pullRequest.closingIssueReferences.nodes || [];
+  return result.repository.pullRequest.closingIssuesReferences.nodes || [];
 }
 
 /**

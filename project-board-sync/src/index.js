@@ -1,9 +1,24 @@
-const { getRecentItems, log } = require('./github/api');
+const { getRecentItems } = require('./github/api');
+const Logger = require('./utils/log').Logger;
+const log = new Logger();
 const { processItemForProject } = require('./rules/add-items');
 const { processColumnAssignment } = require('./rules/columns');
 const { processSprintAssignment } = require('./rules/sprints');
 const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues');
+
+/**
+ * Validate required environment variables
+ * @throws {Error} If any required variables are missing
+ */
+function validateEnvironment() {
+  const required = ['GH_TOKEN', 'GITHUB_AUTHOR'];
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+}
 
 /**
  * Project Board Sync Main Function
@@ -16,6 +31,8 @@ const { processLinkedIssues } = require('./rules/linked-issues');
  */
 async function main() {
   try {
+    validateEnvironment();
+
     // Initialize context
     const context = {
       org: 'bcgov',
@@ -27,13 +44,17 @@ async function main() {
       ],
       monitoredUser: process.env.GITHUB_AUTHOR,
       processedIds: new Set(),
-      projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg'
+      projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg',
+      monitoredRepos: new Set() // Will be populated below
     };
+
+    // Set up monitored repos set
+    context.monitoredRepos = new Set(context.repos.map(repo => `${context.org}/${repo}`));
 
     log.info('Starting Project Board Sync...');
     log.info(`User: ${context.monitoredUser}`);
     log.info(`Project: ${context.projectId}`);
-    log.info('Monitored Repos:', context.repos.join(', '));
+    log.info('Monitored Repos: ' + Array.from(context.monitoredRepos).join(', '));
 
     // 1. Get recent items from monitored repos
     const items = await getRecentItems(context.org, context.repos, context.monitoredUser);
@@ -92,13 +113,16 @@ async function main() {
         }
 
       } catch (error) {
-        log.error(`Error processing ${item.__typename} #${item.number}:`, error.message);
+        log.error(`Failed to process ${item.__typename} #${item.number}: ${error.message}`);
       }
     }
 
     log.info('Project Board Sync completed successfully.');
+    log.printSummary();
+
   } catch (error) {
-    log.error('Fatal error:', error);
+    log.error(error);
+    log.printSummary();
     process.exit(1);
   }
 }

@@ -14,22 +14,22 @@ async function getItemAssignees(projectId, itemId) {
         ... on ProjectV2 {
           fields(first: 20) {
             nodes {
-              ... on ProjectV2Assignees {
+              ... on ProjectV2Field {
                 id
                 name
               }
             }
           }
-          items(first: 1, filter: { id: $itemId }) {
+        }
+      }
+      item: node(id: $itemId) {
+        ... on ProjectV2Item {
+          fieldValues(first: 10) {
             nodes {
-              fieldValues(first: 10) {
-                nodes {
-                  ... on ProjectV2ItemFieldUserValue {
-                    users(first: 10) {
-                      nodes {
-                        login
-                      }
-                    }
+              ... on ProjectV2ItemFieldUserValue {
+                users(first: 10) {
+                  nodes {
+                    login
                   }
                 }
               }
@@ -43,7 +43,7 @@ async function getItemAssignees(projectId, itemId) {
     itemId
   });
 
-  const assigneeValues = result.node.items.nodes[0]?.fieldValues.nodes || [];
+  const assigneeValues = result.item?.fieldValues.nodes || [];
   const assignees = assigneeValues.flatMap(value => 
     value.users?.nodes?.map(user => user.login) || []
   );
@@ -66,7 +66,7 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
         ... on ProjectV2 {
           fields(first: 20) {
             nodes {
-              ... on ProjectV2Assignees {
+              ... on ProjectV2Field {
                 id
                 name
               }

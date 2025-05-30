@@ -1,3 +1,6 @@
+const { octokit } = require('../github/api');
+const { log } = require('../utils/log');
+
 /**
  * Get current sprint information for a project item
  * @param {string} projectId - The project board ID
@@ -20,15 +23,15 @@ async function getItemSprint(projectId, itemId) {
               }
             }
           }
-          items(first: 1, filter: { id: $itemId }) {
+        }
+      }
+      item: node(id: $itemId) {
+        ... on ProjectV2Item {
+          fieldValues(first: 1) {
             nodes {
-              fieldValues(first: 1) {
-                nodes {
-                  ... on ProjectV2ItemFieldIterationValue {
-                    iterationId
-                    title
-                  }
-                }
+              ... on ProjectV2ItemFieldIterationValue {
+                iterationId
+                title
               }
             }
           }
@@ -40,7 +43,7 @@ async function getItemSprint(projectId, itemId) {
     itemId
   });
 
-  const fieldValues = result.node.items.nodes[0]?.fieldValues.nodes || [];
+  const fieldValues = result.item?.fieldValues.nodes || [];
   const sprintValue = fieldValues[0];
   
   return {
@@ -169,3 +172,9 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
     reason: `Assigned to current sprint (${activeSprintTitle})`
   };
 }
+
+module.exports = {
+  processSprintAssignment,
+  getItemSprint,
+  getCurrentSprint
+};

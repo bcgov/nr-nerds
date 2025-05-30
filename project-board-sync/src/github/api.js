@@ -1,10 +1,18 @@
 const { Octokit } = require('@octokit/rest');
+const { graphql } = require('@octokit/graphql');
 
 /**
  * GitHub API client setup
  */
 const octokit = new Octokit({
   auth: process.env.GH_TOKEN
+});
+
+// Create authenticated GraphQL client
+const graphqlWithAuth = graphql.defaults({
+  headers: {
+    authorization: `bearer ${process.env.GH_TOKEN}`,
+  },
 });
 
 /**
@@ -14,9 +22,9 @@ const octokit = new Octokit({
  * @returns {Promise<{isInProject: boolean, projectItemId?: string}>} - Whether the item is in the project and its project item ID if found
  */
 async function isItemInProject(nodeId, projectId) {
-  const result = await octokit.graphql(`
-    query($projectId: ID!) {
-      node(id: $projectId) {
+  const result = await graphqlWithAuth(`
+    query($projectId: ID!, $nodeId: ID!) {
+      project: node(id: $projectId) {
         ... on ProjectV2 {
           items(first: 100) {
             nodes {
@@ -29,13 +37,18 @@ async function isItemInProject(nodeId, projectId) {
           }
         }
       }
+      node: node(id: $nodeId) {
+        ... on Issue { id }
+        ... on PullRequest { id }
+      }
     }
   `, {
-    projectId
+    projectId,
+    nodeId
   });
 
-  const matchingItem = result.node.items.nodes.find(item => 
-    item.content && item.content.id === nodeId
+  const matchingItem = result.project.items.nodes.find(item => 
+    item.content && item.content.id === result.node.id
   );
 
   return {
@@ -51,7 +64,7 @@ async function isItemInProject(nodeId, projectId) {
  * @returns {Promise<string>} - The project item ID
  */
 async function addItemToProject(nodeId, projectId) {
-  const result = await octokit.graphql(`
+  const result = await graphqlWithAuth(`
     mutation($projectId: ID!, $contentId: ID!) {
       addProjectV2ItemById(input: {
         projectId: $projectId,
@@ -85,13 +98,10 @@ async function getRecentItems(org, repos, monitoredUser) {
   // Calculate 24 hours ago in ISO format
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   
-  const queries = repos.map(repo => `
-    repo:${org}/${repo} updated:>${since}
-  `);
-  
+  const queries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
   const searchQuery = queries.join(' ');
   
-  const result = await octokit.graphql(`
+  const result = await graphqlWithAuth(`
     query($searchQuery: String!) {
       search(query: $searchQuery, type: ISSUE, first: 100) {
         nodes {
@@ -100,6 +110,7 @@ async function getRecentItems(org, repos, monitoredUser) {
             id
             number
             repository { nameWithOwner }
+            author { login }
             assignees(first: 5) { nodes { login } }
             updatedAt
           }
@@ -118,22 +129,7 @@ async function getRecentItems(org, repos, monitoredUser) {
     searchQuery
   });
 
-  // Filter items based on monitored conditions
-  return result.search.nodes.filter(item => {
-    // Keep issues from monitored repos
-    if (item.__typename === 'Issue') {
-      return true;
-    }
-    
-    // For PRs, check author and assignees
-    if (item.__typename === 'PullRequest') {
-      const isAuthor = item.author?.login === monitoredUser;
-      const isAssignee = item.assignees.nodes.some(a => a.login === monitoredUser);
-      return isAuthor || isAssignee || true; // true for monitored repos
-    }
-    
-    return false;
-  });
+  return result.search.nodes;
 }
 
 /**
@@ -143,7 +139,7 @@ async function getRecentItems(org, repos, monitoredUser) {
  * @returns {Promise<string|null>} - The current column name or null
  */
 async function getItemColumn(projectId, itemId) {
-  const result = await octokit.graphql(`
+  const result = await graphqlWithAuth(`
     query($projectId: ID!, $itemId: ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
@@ -156,17 +152,17 @@ async function getItemColumn(projectId, itemId) {
               }
             }
           }
-          items(first: 1, filter: { id: $itemId }) {
+        }
+      }
+      item: node(id: $itemId) {
+        ... on ProjectV2Item {
+          fieldValues(first: 10) {
             nodes {
-              fieldValues(first: 1) {
-                nodes {
-                  ... on ProjectV2ItemFieldSingleSelectValue {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+                field {
+                  ... on ProjectV2SingleSelectField {
                     name
-                    field {
-                      ... on ProjectV2SingleSelectField {
-                        name
-                      }
-                    }
                   }
                 }
               }
@@ -180,7 +176,7 @@ async function getItemColumn(projectId, itemId) {
     itemId
   });
 
-  const fieldValues = result.node.items.nodes[0]?.fieldValues.nodes || [];
+  const fieldValues = result.item?.fieldValues.nodes || [];
   const statusValue = fieldValues.find(value => 
     value.field && value.field.name === 'Status'
   );
@@ -192,25 +188,17 @@ async function getItemColumn(projectId, itemId) {
  * Set the column (Status field) for a project item
  * @param {string} projectId - The project board ID
  * @param {string} itemId - The project item ID
- * @param {string} columnName - The name of the column to set
+ * @param {string} optionId - The status option ID to set
  * @returns {Promise<void>}
  */
-async function setItemColumn(projectId, itemId, columnName) {
-  // First get the field ID and option ID
-  const result = await octokit.graphql(`
+async function setItemColumn(projectId, itemId, optionId) {
+  const result = await graphqlWithAuth(`
     query($projectId: ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
-          fields(first: 20) {
-            nodes {
-              ... on ProjectV2SingleSelectField {
-                id
-                name
-                options {
-                  id
-                  name
-                }
-              }
+          field(name: "Status") {
+            ... on ProjectV2SingleSelectField {
+              id
             }
           }
         }
@@ -220,25 +208,9 @@ async function setItemColumn(projectId, itemId, columnName) {
     projectId
   });
 
-  const statusField = result.node.fields.nodes.find(
-    field => field.name === "Status"
-  );
+  const fieldId = result.node.field.id;
 
-  if (!statusField) {
-    throw new Error('Status field not found in project');
-  }
-
-  const fieldId = statusField.id;
-  const optionId = statusField.options.find(
-    opt => opt.name === columnName
-  )?.id;
-
-  if (!optionId) {
-    throw new Error(`Column "${columnName}" not found in project's Status field options`);
-  }
-
-  // Now set the column
-  await octokit.graphql(`
+  await graphqlWithAuth(`
     mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
       updateProjectV2ItemFieldValue(input: {
         projectId: $projectId
@@ -261,84 +233,12 @@ async function setItemColumn(projectId, itemId, columnName) {
   });
 }
 
-/**
- * Set the sprint for a project item
- * @param {string} projectId - The project board ID
- * @param {string} itemId - The project item ID
- * @param {string} sprintId - The iteration ID of the sprint to set
- * @returns {Promise<void>}
- */
-async function setItemSprint(projectId, itemId, sprintId) {
-  // First get the field ID for Sprint/Iteration field
-  const result = await octokit.graphql(`
-    query($projectId: ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          fields(first: 20) {
-            nodes {
-              ... on ProjectV2IterationField {
-                id
-                name
-                configuration {
-                  iterations {
-                    id
-                    title
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  `, {
-    projectId
-  });
-
-  const sprintField = result.node.fields.nodes.find(
-    field => field.name === "Sprint" || field.name === "Iteration"
-  );
-
-  if (!sprintField) {
-    throw new Error('Sprint/Iteration field not found in project');
-  }
-
-  const fieldId = sprintField.id;
-  const sprintExists = sprintField.configuration.iterations.some(it => it.id === sprintId);
-
-  if (!sprintExists) {
-    throw new Error(`Sprint with ID "${sprintId}" not found in project's iterations`);
-  }
-
-  // Now set the sprint
-  await octokit.graphql(`
-    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId
-        itemId: $itemId
-        fieldId: $fieldId
-        value: { 
-          iterationId: $iterationId
-        }
-      }) {
-        projectV2Item {
-          id
-        }
-      }
-    }
-  `, {
-    projectId,
-    itemId,
-    fieldId,
-    iterationId: sprintId
-  });
-}
-
 module.exports = {
+  octokit,
+  graphql: graphqlWithAuth,
   isItemInProject,
   addItemToProject,
   getRecentItems,
   getItemColumn,
-  setItemColumn,
-  setItemSprint
+  setItemColumn
 };

@@ -1,89 +1,57 @@
-const { getItemColumn, setItemColumn, isItemInProject } = require('../github/api');
+const { getItemColumn, setItemColumn, isItemInProject, octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
-const STATUS_OPTIONS = {
-  new: 'optionId1',     // Replace with actual option IDs from your project
-  active: 'optionId2',  // These will be looked up at runtime
-  done: 'optionId3'
-};
+// Column names to option IDs mapping - will be populated at runtime
+let columnOptions = null;
 
 /**
- * Get the current column (status) for a project item
+ * Get status field configuration from project
  * @param {string} projectId - The project board ID
- * @param {string} itemId - The project item ID
- * @returns {Promise<{statusName: string|null, statusId: string|null}>}
+ * @returns {Promise<Map<string, string>>} Map of column names to option IDs
  */
-async function getCurrentColumn(projectId, itemId) {
+async function getColumnOptions(projectId) {
+  if (columnOptions) return columnOptions;
+
   const result = await octokit.graphql(`
-    query($projectId: ID!, $itemId: ID!) {
+    query($projectId: ID!) {
       node(id: $projectId) {
         ... on ProjectV2 {
           field(name: "Status") {
             ... on ProjectV2SingleSelectField {
-              id
               options {
                 id
                 name
               }
             }
           }
-          items(first: 1, filter: { id: $itemId }) {
-            nodes {
-              fieldValues(first: 1) {
-                nodes {
-                  ... on ProjectV2ItemFieldSingleSelectValue {
-                    name
-                    optionId
-                  }
-                }
-              }
-            }
-          }
         }
       }
     }
-  `, {
-    projectId,
-    itemId
-  });
+  `, { projectId });
 
-  const fieldValues = result.node.items.nodes[0]?.fieldValues.nodes || [];
-  const statusValue = fieldValues[0];
-  
-  return {
-    statusName: statusValue?.name || null,
-    statusId: statusValue?.optionId || null
-  };
+  // Create mapping of column names to option IDs
+  columnOptions = new Map();
+  const options = result.node.field.options || [];
+  for (const opt of options) {
+    columnOptions.set(opt.name.toLowerCase(), opt.id);
+  }
+
+  return columnOptions;
 }
 
 /**
- * Set the column (status) for a project item
- * @param {string} projectId - The project board ID
- * @param {string} itemId - The project item ID
- * @param {string} statusOptionId - The status option ID to set
+ * Get the option ID for a column name
+ * @param {string} columnName - The name of the column
+ * @param {Map<string, string>} options - Column options mapping
+ * @returns {string} The option ID
+ * @throws {Error} If column not found
  */
-async function setColumn(projectId, itemId, statusOptionId) {
-  await octokit.graphql(`
-    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId
-        itemId: $itemId
-        fieldId: $fieldId
-        value: { 
-          singleSelectOptionId: $optionId
-        }
-      }) {
-        projectV2Item {
-          id
-        }
-      }
-    }
-  `, {
-    projectId,
-    itemId,
-    fieldId: 'STATUS_FIELD_ID', // TODO: Replace with actual field ID
-    optionId: statusOptionId
-  });
+function getColumnOptionId(columnName, options) {
+  const optionId = options.get(columnName.toLowerCase());
+  if (!optionId) {
+    throw new Error(`Column "${columnName}" not found in project. Available columns: ${[...options.keys()].join(', ')}`);
+  }
+  return optionId;
 }
 
 /**
@@ -94,35 +62,42 @@ async function setColumn(projectId, itemId, statusOptionId) {
  * @returns {Promise<{changed: boolean, newStatus?: string}>}
  */
 async function processColumnAssignment(item, projectItemId, projectId) {
-  // Get current column
-  const { statusName, statusId } = await getCurrentColumn(projectId, projectItemId);
-  
-  // Skip if already has any column set
-  if (statusId) {
-    return { 
-      changed: false, 
-      reason: `Column already set to ${statusName}`,
-      currentStatus: statusName 
+  try {
+    // First get available columns
+    const options = await getColumnOptions(projectId);
+    
+    // Get current column
+    const currentColumn = await getItemColumn(projectId, projectItemId);
+    
+    // Skip if already has any column set
+    if (currentColumn) {
+      return { 
+        changed: false, 
+        reason: `Column already set to ${currentColumn}`,
+        currentStatus: currentColumn 
+      };
+    }
+
+    // Determine target column based on item type per requirements
+    const targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
+    const optionId = getColumnOptionId(targetColumn, options);
+
+    // Set the column
+    await setItemColumn(projectId, projectItemId, optionId);
+
+    return {
+      changed: true,
+      newStatus: targetColumn,
+      reason: `Set initial column to ${targetColumn}`
     };
+  } catch (error) {
+    log.error(`Failed to process column for ${item.__typename} #${item.number}: ${error.message}`);
+    throw error;
   }
-
-  // Determine target column based on item type
-  const targetStatusId = item.__typename === 'PullRequest' 
-    ? STATUS_OPTIONS.active 
-    : STATUS_OPTIONS.new;
-
-  // Set the column
-  await setColumn(projectId, projectItemId, targetStatusId);
-
-  return {
-    changed: true,
-    newStatus: Object.keys(STATUS_OPTIONS).find(k => STATUS_OPTIONS[k] === targetStatusId),
-    reason: `Set initial column for ${item.__typename}`
-  };
 }
 
 /**
- * Implementation of Rule Set 2: Which Columns are Items Added To?
+ * Implementation of Rule Set 2: Which Columns Items Go To?
  * 
  * Rules from requirements.md:
  * | Item Type | Trigger Condition | Action        | Skip Condition         |
@@ -136,43 +111,26 @@ async function processColumns({ projectId, items }) {
 
   for (const item of items) {
     try {
-      // First check if item is in project
-      if (!await isItemInProject(item.id, projectId)) {
+      // Process column assignment
+      const result = await processColumnAssignment(item, item.id, projectId);
+      
+      if (result.changed) {
+        processedItems.push({
+          type: item.__typename,
+          number: item.number,
+          repo: item.repository.nameWithOwner,
+          column: result.newStatus,
+          reason: result.reason
+        });
+      } else {
         skippedItems.push({
           type: item.__typename,
           number: item.number,
           repo: item.repository.nameWithOwner,
-          reason: 'Item not in project board'
+          column: result.currentStatus,
+          reason: result.reason
         });
-        continue;
       }
-
-      const currentColumn = await getItemColumn(projectId, item.id);
-
-      // Skip if column is already set (any column counts)
-      if (currentColumn) {
-        skippedItems.push({
-          type: item.__typename,
-          number: item.number,
-          repo: item.repository.nameWithOwner,
-          column: currentColumn,
-          reason: 'Column already set'
-        });
-        continue;
-      }
-
-      // Set initial column based on item type per requirements
-      const targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
-      await setItemColumn(projectId, item.id, targetColumn);
-
-      processedItems.push({
-        type: item.__typename,
-        number: item.number,
-        repo: item.repository.nameWithOwner,
-        column: targetColumn,
-        reason: `Set initial column to ${targetColumn}`
-      });
-
     } catch (error) {
       log.error(`Failed to process column for ${item.__typename} #${item.number}: ${error.message}`);
     }
@@ -191,5 +149,7 @@ async function processColumns({ projectId, items }) {
 }
 
 module.exports = {
-  processColumns
+  processColumns,
+  processColumnAssignment,
+  getColumnOptions
 };
