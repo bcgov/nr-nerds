@@ -1,28 +1,33 @@
 const { processColumnAssignment } = require('../src/rules/columns');
 const { TEST_CONFIG } = require('../test-config/setup');
-const { Logger } = require('../src/utils/log');
+const api = require('../src/github/api');
 
 describe('Rule Set 2: Column Assignment', () => {
+  let getItemColumnMock;
+
+  beforeEach(() => {
+    // Set up the mock before each test
+    getItemColumnMock = jest.spyOn(api, 'getItemColumn');
+  });
+
+  afterEach(() => {
+    // Clean up after each test
+    getItemColumnMock.mockRestore();
+  });
+
   describe('Pull Requests', () => {
     test('should assign new PR to Active column', async () => {
       const testPR = {
         id: 'test-pr-1',
         __typename: 'PullRequest',
         projectItemId: 'test-project-item-1',
-        number: 101,
-        repository: { nameWithOwner: 'bcgov/test-repo' }
+        number: 101
       };
 
-      // Mock empty current column (new PR)
-      const api = require('../src/github/api');
-      const originalGetItemColumn = api.getItemColumn;
-      api.getItemColumn = jest.fn().mockResolvedValue(null);
+      // Mock that this is a new PR (no current column)
+      getItemColumnMock.mockResolvedValue(null);
 
       const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
-
-      // Restore original function
-      api.getItemColumn = originalGetItemColumn;
-
       expect(result.changed).toBe(true);
       expect(result.newStatus).toBe('Active');
       expect(result.reason).toBe('Set column to Active based on initial rules');
@@ -36,6 +41,8 @@ describe('Rule Set 2: Column Assignment', () => {
         state: 'CLOSED',
         number: 103
       };
+
+      getItemColumnMock.mockResolvedValue('Active');
 
       const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
       expect(result.changed).toBe(false);
@@ -51,6 +58,8 @@ describe('Rule Set 2: Column Assignment', () => {
         number: 104
       };
 
+      getItemColumnMock.mockResolvedValue('Active');
+
       const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
       expect(result.changed).toBe(false);
       expect(result.reason).toBe('Column handled by GitHub automation for merged items');
@@ -65,14 +74,9 @@ describe('Rule Set 2: Column Assignment', () => {
       };
 
       // Mock that this PR is already in the Done column
-      const api = require('../src/github/api');
-      const originalGetItemColumn = api.getItemColumn;
-      api.getItemColumn = jest.fn().mockResolvedValue('Done');
+      getItemColumnMock.mockResolvedValue('Done');
 
       const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
-      
-      // Restore original function
-      api.getItemColumn = originalGetItemColumn;
       expect(result.changed).toBe(false);
       expect(result.reason).toBe('Column "Done" is handled by GitHub automation');
       expect(result.currentStatus).toBe('Done');
@@ -87,14 +91,9 @@ describe('Rule Set 2: Column Assignment', () => {
       };
 
       // Mock that this PR is already in the Active column
-      const api = require('../src/github/api');
-      const originalGetItemColumn = api.getItemColumn;
-      api.getItemColumn = jest.fn().mockResolvedValue('Active');
+      getItemColumnMock.mockResolvedValue('Active');
 
       const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
-      
-      // Restore original function
-      api.getItemColumn = originalGetItemColumn;
       expect(result.changed).toBe(false);
       expect(result.reason).toBe('Column already set to Active');
       expect(result.currentStatus).toBe('Active');
@@ -107,20 +106,13 @@ describe('Rule Set 2: Column Assignment', () => {
         id: 'test-issue-1',
         __typename: 'Issue',
         projectItemId: 'test-project-item-2',
-        number: 201,
-        repository: { nameWithOwner: 'bcgov/test-repo' }
+        number: 201
       };
 
-      // Mock empty current column (new issue)
-      const api = require('../src/github/api');
-      const originalGetItemColumn = api.getItemColumn;
-      api.getItemColumn = jest.fn().mockResolvedValue(null);
+      // Mock that this is a new issue (no current column)
+      getItemColumnMock.mockResolvedValue(null);
 
       const result = await processColumnAssignment(testIssue, testIssue.projectItemId, TEST_CONFIG.projectId);
-
-      // Restore original function
-      api.getItemColumn = originalGetItemColumn;
-
       expect(result.changed).toBe(true);
       expect(result.newStatus).toBe('New');
       expect(result.reason).toBe('Set column to New based on initial rules');
@@ -134,6 +126,8 @@ describe('Rule Set 2: Column Assignment', () => {
         state: 'CLOSED',
         number: 203
       };
+
+      getItemColumnMock.mockResolvedValue('New');
 
       const result = await processColumnAssignment(testIssue, testIssue.projectItemId, TEST_CONFIG.projectId);
       expect(result.changed).toBe(false);
@@ -149,14 +143,9 @@ describe('Rule Set 2: Column Assignment', () => {
       };
 
       // Mock that this issue is already in the Done column
-      const api = require('../src/github/api');
-      const originalGetItemColumn = api.getItemColumn;
-      api.getItemColumn = jest.fn().mockResolvedValue('Done');
+      getItemColumnMock.mockResolvedValue('Done');
 
       const result = await processColumnAssignment(testIssue, testIssue.projectItemId, TEST_CONFIG.projectId);
-      
-      // Restore original function
-      api.getItemColumn = originalGetItemColumn;
       expect(result.changed).toBe(false);
       expect(result.reason).toBe('Column "Done" is handled by GitHub automation');
       expect(result.currentStatus).toBe('Done');
@@ -171,14 +160,9 @@ describe('Rule Set 2: Column Assignment', () => {
       };
 
       // Mock that this issue is already in the New column
-      const api = require('../src/github/api');
-      const originalGetItemColumn = api.getItemColumn;
-      api.getItemColumn = jest.fn().mockResolvedValue('New');
+      getItemColumnMock.mockResolvedValue('New');
 
       const result = await processColumnAssignment(testIssue, testIssue.projectItemId, TEST_CONFIG.projectId);
-      
-      // Restore original function
-      api.getItemColumn = originalGetItemColumn;
       expect(result.changed).toBe(false);
       expect(result.reason).toBe('Column already set to New');
       expect(result.currentStatus).toBe('New');
