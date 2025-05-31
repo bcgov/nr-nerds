@@ -65,6 +65,24 @@ describe('Rule Set 2: Column Assignment', () => {
       expect(result.reason).toBe('Column handled by GitHub automation for merged items');
     });
 
+    test('should move PR from New to Active column', async () => {
+      const testPR = {
+        id: 'test-pr-new-to-active',
+        __typename: 'PullRequest',
+        projectItemId: 'test-project-item-new',
+        number: 107,
+        state: 'OPEN'
+      };
+
+      // Mock that this PR is in New column
+      getItemColumnMock.mockResolvedValue('New');
+
+      const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
+      expect(result.changed).toBe(true);
+      expect(result.newStatus).toBe('Active');
+      expect(result.reason).toBe('PR moved from New to Active');
+    });
+
     test('should not change column if PR is already in Done (handled by GitHub)', async () => {
       const testPR = {
         id: 'test-pr-5',
@@ -149,6 +167,24 @@ describe('Rule Set 2: Column Assignment', () => {
       expect(result.changed).toBe(false);
       expect(result.reason).toBe('Column "Done" is handled by GitHub automation');
       expect(result.currentStatus).toBe('Done');
+    });
+
+    test('should not change column if issue already has any column except New', async () => {
+      const testIssue = {
+        id: 'test-issue-skip',
+        __typename: 'Issue',
+        projectItemId: 'test-project-item-skip',
+        number: 206,
+        state: 'OPEN'
+      };
+
+      // Mock that this issue is already in Active column
+      getItemColumnMock.mockResolvedValue('Active');
+
+      const result = await processColumnAssignment(testIssue, testIssue.projectItemId, TEST_CONFIG.projectId);
+      expect(result.changed).toBe(false);
+      expect(result.reason).toBe('No column change needed');
+      expect(result.currentStatus).toBe('Active');
     });
 
     test('should not change column if issue already has correct column', async () => {
