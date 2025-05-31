@@ -5,11 +5,7 @@
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
-    "preflight": "GITHUB_AUTHOR=${GITHUB_AUTHOR} npm run test"
+    "start": "node src/index.js"
   },
   "dependencies": {
     "@octokit/graphql": "^5.0.0",
