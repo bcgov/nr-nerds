@@ -139,11 +139,22 @@ async function processColumnAssignment(item, projectItemId, projectId) {
       };
     }
     
+    // If already in Done column, do not change (handled by GitHub)
+    if (currentColumnLower === 'done') {
+      log.info('  • Already in Done column, handled by GitHub', true);
+      return {
+        changed: false,
+        reason: 'Column "Done" is handled by GitHub automation',
+        currentStatus: currentColumn
+      };
+    }
+
+    // If already in correct column, do not change
     if (currentColumnLower === targetColumn.toLowerCase()) {
       log.info(`  • Result: Already in target column (${currentColumn})`, true);
-      return { 
-        changed: false, 
-        reason: `Column already set to ${currentColumn}`,
+      return {
+        changed: false,
+        reason: `Column already set to ${targetColumn}`,
         currentStatus: currentColumn
       };
     }

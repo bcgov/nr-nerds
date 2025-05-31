@@ -21,6 +21,21 @@ describe('Rule Set 3: Sprint Assignment', () => {
       id: 'test-project-item-3',
       content: { id: 'test-pr-3' }
     });
+    // Ensure sprints are always initialized for each test
+    mockData.sprints = [
+      {
+        id: 'sprint-1',
+        title: 'Sprint 15',
+        startDate: '2025-05-15T00:00:00Z',
+        duration: 14
+      },
+      {
+        id: 'sprint-2',
+        title: 'Sprint 16',
+        startDate: '2025-05-29T00:00:00Z',
+        duration: 14
+      }
+    ];
   });
 
   describe('Active Items', () => {

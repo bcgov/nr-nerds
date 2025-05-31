@@ -312,6 +312,63 @@ async function graphql(query, variables) {
     };
   }
 
+  // Handle user(login: $login) query for assignee logic
+  if (query.includes('user(login: $login)') || query.includes('user(login:')) {
+    return {
+      user: {
+        id: 'mock-user-id-' + (variables.login || 'unknown')
+      }
+    };
+  }
+
+  // Handle PR with closingIssuesReferences for linked issues
+  if (query.includes('pullRequest(number: $number)')) {
+    // Return a mock PR with closingIssuesReferences
+    // If number is 102 (test for no linked issues), return empty nodes
+    if (variables && variables.number === 102) {
+      return {
+        repository: {
+          pullRequest: {
+            body: '',
+            closingIssuesReferences: { nodes: [] }
+          }
+        }
+      };
+    }
+    // Default: return one linked issue
+    return {
+      repository: {
+        pullRequest: {
+          body: '',
+          closingIssuesReferences: {
+            nodes: [
+              {
+                id: 'test-issue-1',
+                number: 100,
+                title: 'Mock linked issue',
+                repository: { nameWithOwner: 'bcgov/nr-nerds' }
+              }
+            ]
+          }
+        }
+      }
+    };
+  }
+
+  // Handle sprints/iterations for sprint assignment tests
+  if (query.includes('iterations')) {
+    return {
+      node: {
+        field: {
+          id: 'sprint-field-1',
+          configuration: {
+            iterations: mockData.sprints
+          }
+        }
+      }
+    };
+  }
+
   // If no match found, throw error with query for debugging
   throw new Error(`Mock API Error: Unhandled GraphQL query: ${query}`);
 }

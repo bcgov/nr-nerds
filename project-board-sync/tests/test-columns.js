@@ -30,7 +30,7 @@ describe('Rule Set 2: Column Assignment', () => {
       const result = await processColumnAssignment(testPR, testPR.projectItemId, TEST_CONFIG.projectId);
       expect(result.changed).toBe(true);
       expect(result.newStatus).toBe('Active');
-      expect(result.reason).toBe('Set column to Active based on initial rules');
+      expect(result.reason).toBe('initial column assignment');
     });
 
     test('should not change column for closed PR (handled by GitHub)', async () => {
@@ -115,7 +115,7 @@ describe('Rule Set 2: Column Assignment', () => {
       const result = await processColumnAssignment(testIssue, testIssue.projectItemId, TEST_CONFIG.projectId);
       expect(result.changed).toBe(true);
       expect(result.newStatus).toBe('New');
-      expect(result.reason).toBe('Set column to New based on initial rules');
+      expect(result.reason).toBe('initial column assignment');
     });
 
     test('should not change column for closed issue (handled by GitHub)', async () => {
