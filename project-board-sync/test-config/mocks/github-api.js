@@ -28,7 +28,7 @@ const mockData = {
       startDate: '2025-06-12T00:00:00Z',
       duration: 14
     }
-  ]
+  ], // <-- Add this comma to close the sprints array property
 };
 
 /**
@@ -146,20 +146,28 @@ async function setItemAssignees(projectItemId, assigneeIds) {
 /**
  * Mock getItemDetails implementation
  */
-async function getItemDetails(projectItemId) {
-  if (mockData.shouldFail) {
-    throw new Error('Mock API Error: getItemDetails failed');
+// Mock getItemDetails for assignees tests
+async function getItemDetails(itemId) {
+  // Return a valid mock object for test-project-item-1 and test-project-item-2
+  if (itemId === 'test-project-item-1' || itemId === 'test-project-item-2') {
+    return {
+      id: itemId,
+      type: 'PullRequest',
+      content: {
+        id: itemId.replace('test-project-item-', 'test-pr-'),
+        number: parseInt(itemId.replace('test-project-item-', '')) + 100,
+        repository: { nameWithOwner: 'bcgov/nr-nerds' }
+      }
+    };
   }
-  return {
-    column: mockData.itemColumns.get(projectItemId) || null,
-    sprint: mockData.itemSprints.get(projectItemId) || null,
-    assignees: mockData.itemAssignees.get(projectItemId) || []
-  };
+  // Default: return null
+  return null;
 }
 
 /**
  * Mock column options for the project
- */  const mockColumnOptions = [
+ */
+const mockColumnOptions = [
   { id: 'col-1', name: 'New' },
   { id: 'col-2', name: 'Active' },
   { id: 'col-3', name: 'Done' },
@@ -356,7 +364,7 @@ async function graphql(query, variables) {
   }
 
   // Handle sprints/iterations for sprint assignment tests
-  if (query.includes('iterations')) {
+  if (/field\s*\{\s*iterations/.test(query)) {
     return {
       node: {
         field: {
@@ -379,7 +387,7 @@ module.exports = {
   setItemColumn,
   setItemSprint,
   setItemAssignees,
-  getItemDetails,
+  getItemDetails, // <-- export the mock
   resetMocks,
   mockData,
   graphql,
