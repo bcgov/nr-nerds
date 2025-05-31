@@ -9,7 +9,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "preflight": "GH_TOKEN=${GH_TOKEN} GITHUB_AUTHOR=${GITHUB_AUTHOR} npm run test"
+    "preflight": "GITHUB_AUTHOR=${GITHUB_AUTHOR} npm run test"
   },
   "dependencies": {
     "@octokit/graphql": "^5.0.0",

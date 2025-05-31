@@ -88,20 +88,33 @@ async function main() {
           log.info(`Updated assignees for ${itemRef}: ${assigneeResult.assignees.join(', ')}`);
         }
 
-        // Process linked issues if it's a PR
-        if (item.type === 'PullRequest') {
+        // Process linked issues if it's a PR and has required properties
+        if (item.type === 'PullRequest' && item.repository && item.repository.nameWithOwner) {
+          log.info(`[Main] Processing linked issues for ${item.type} #${item.number} [${item.repository.nameWithOwner}]`);
+          log.info(`[Main] PR projectItemId: ${item.projectItemId || 'MISSING'}`);
+          log.info(`[Main] PR column: ${columnResult.newStatus || columnResult.currentStatus || 'MISSING'}`);
+          log.info(`[Main] Calling processLinkedIssues for PR #${item.number} (${item.repository.nameWithOwner})`);
           const linkedResult = await processLinkedIssues(
-            item, 
+            {
+              ...item,
+              __typename: 'PullRequest',
+              repository: {
+                nameWithOwner: item.repo || item.repository.nameWithOwner
+              },
+              projectItemId: item.projectItemId
+            },
             context.projectId,
-            columnResult.newStatus,
+            columnResult.newStatus || columnResult.currentStatus,
             sprintResult.newSprint
           );
           if (linkedResult.processed > 0) {
-            log.info(`Processed ${linkedResult.processed} linked issues for ${itemRef}`);
+            log.info(`[Main] Processed ${linkedResult.processed} linked issues for ${item.type} #${item.number}`);
           }
           if (linkedResult.errors > 0) {
-            log.warn(`Failed to process ${linkedResult.errors} linked issues for ${itemRef}`);
+            log.warn(`[Main] Failed to process ${linkedResult.errors} linked issues for ${item.type} #${item.number}`);
           }
+        } else {
+          log.info(`[Main] Skipping processLinkedIssues for ${item.type} #${item.number} - type: ${item.type}, repo: ${item.repository ? item.repository.nameWithOwner : 'MISSING'}`);
         }
 
       } catch (error) {

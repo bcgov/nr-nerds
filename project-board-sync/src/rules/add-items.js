@@ -90,9 +90,11 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         __typename: item.__typename,  // Preserve the typename for columns.js
         number: item.number,
         repo: item.repository.nameWithOwner,
+        repository: item.repository, // <-- Add this line
         reason: addReason,
         id: item.id,
-        projectItemId: projectItemId
+        projectItemId: projectItemId,
+        author: item.author  // Pass author info for assignee rules
       });
       log.info('  ✓ Result: Successfully added to project board\n', true);
 

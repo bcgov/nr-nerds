@@ -1,5 +1,6 @@
 const { Octokit } = require('@octokit/rest');
 const { graphql } = require('@octokit/graphql');
+const { log } = require('../utils/log');
 
 /**
  * GitHub API client setup
@@ -17,6 +18,60 @@ const graphqlWithAuth = graphql.defaults({
 
 // Cache field IDs per project to reduce API calls
 const fieldIdCache = new Map();
+
+// Cache for column option IDs
+const columnOptionIdCache = new Map();
+
+/**
+ * Get the column option ID for a given column name
+ * @param {string} projectId - The project board ID
+ * @param {string} columnName - The name of the column (Status field option)
+ * @returns {Promise<string|null>} The column option ID or null if not found
+ */
+async function getColumnOptionId(projectId, columnName) {
+  // Create a composite cache key
+  const cacheKey = `${projectId}:${columnName}`;
+  
+  // Check if we have this column option ID cached
+  if (columnOptionIdCache.has(cacheKey)) {
+    return columnOptionIdCache.get(cacheKey);
+  }
+  try {
+    // Get all column options by field name (Status)
+    const result = await graphqlWithAuth(`
+      query($projectId: ID!, $fieldName: String!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            field(name: $fieldName) {
+              ... on ProjectV2SingleSelectField {
+                options {
+                  id
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+    `, {
+      projectId,
+      fieldName: 'Status'
+    });
+    // Find the option with matching name
+    const options = result.node.field.options;
+    const option = options.find(opt => opt.name === columnName);
+    if (option) {
+      // Cache the result
+      columnOptionIdCache.set(cacheKey, option.id);
+      return option.id;
+    }
+    log.error(`Column option "${columnName}" not found in project ${projectId}`);
+    return null;
+  } catch (error) {
+    log.error(`Failed to get column option ID for ${columnName}: ${error.message}`);
+    return null;
+  }
+}
 
 /**
  * Check if an item is already in the project board
@@ -197,7 +252,7 @@ async function getItemColumn(projectId, itemId) {
 async function setItemColumn(projectId, projectItemId, optionId) {
   // Get Status field ID from cache
   const statusFieldId = await getFieldId(projectId, 'Status');
-  
+
   const mutation = `
     mutation UpdateColumnValue($input: UpdateProjectV2ItemFieldValueInput!) {
       updateProjectV2ItemFieldValue(input: $input) {
@@ -221,8 +276,20 @@ async function setItemColumn(projectId, projectItemId, optionId) {
     },
   };
 
-  const result = await graphqlWithAuth(mutation, { input });
-  return result;
+  try {
+    const result = await graphqlWithAuth(mutation, { input });
+    if (!result.updateProjectV2ItemFieldValue || !result.updateProjectV2ItemFieldValue.projectV2Item) {
+      log.error(`[API] setItemColumn: No projectV2Item returned for itemId=${projectItemId}, projectId=${projectId}, optionId=${optionId}`);
+      log.error(`[API] setItemColumn: Full response: ${JSON.stringify(result)}`);
+      throw new Error('setItemColumn: No projectV2Item in response');
+    }
+    log.info(`[API] setItemColumn: Successfully set column for itemId=${projectItemId} to optionId=${optionId}`);
+    return result;
+  } catch (error) {
+    log.error(`[API] setItemColumn: Failed to set column for itemId=${projectItemId}, projectId=${projectId}, optionId=${optionId}`);
+    log.error(`[API] setItemColumn: Error: ${error.stack || error}`);
+    throw error;
+  }
 }
 
 /**
@@ -249,12 +316,19 @@ async function getFieldId(projectId, fieldName) {
             ... on ProjectV2Field {
               id
             }
+            ... on ProjectV2SingleSelectField {
+              id
+            }
           }
         }
       }
     }
   `, { projectId, fieldName });
 
+  if (!result.node.field || !result.node.field.id) {
+    throw new Error(`Field '${fieldName}' not found in project or doesn't have an ID`);
+  }
+  
   const fieldId = result.node.field.id;
   fieldIdCache.set(cacheKey, fieldId);
   return fieldId;
@@ -268,5 +342,6 @@ module.exports = {
   getRecentItems,
   getItemColumn,
   setItemColumn,
-  getFieldId
+  getFieldId,
+  getColumnOptionId
 };
