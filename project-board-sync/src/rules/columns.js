@@ -118,7 +118,7 @@ async function processColumnAssignment(item, projectItemId, projectId) {
     if (!currentColumn) {
       // Rule: Column=None
       targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
-      reason = 'initial column assignment';
+      reason = `Set column to ${targetColumn} based on initial column assignment`;
       log.info('  • Rule: Column=None → Setting initial column', true);
     } else if (item.__typename === 'PullRequest' && currentColumnLower === 'new') {
       // Rule: PR in New column should move to Active
@@ -139,10 +139,21 @@ async function processColumnAssignment(item, projectItemId, projectId) {
       };
     }
     
+    // If already in Done column, do not change (handled by GitHub)
+    if (currentColumnLower === 'done') {
+      log.info('  • Already in Done column, handled by GitHub', true);
+      return {
+        changed: false,
+        reason: 'Column "Done" is handled by GitHub automation',
+        currentStatus: currentColumn
+      };
+    }
+
+    // If already in correct column, do not change
     if (currentColumnLower === targetColumn.toLowerCase()) {
       log.info(`  • Result: Already in target column (${currentColumn})`, true);
-      return { 
-        changed: false, 
+      return {
+        changed: false,
         reason: `Column already set to ${currentColumn}`,
         currentStatus: currentColumn
       };
