@@ -90,6 +90,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         __typename: item.__typename,  // Preserve the typename for columns.js
         number: item.number,
         repo: item.repository.nameWithOwner,
+        repository: item.repository, // <-- Add this line
         reason: addReason,
         id: item.id,
         projectItemId: projectItemId,

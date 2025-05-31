@@ -36,17 +36,13 @@ async function getColumnOptionId(projectId, columnName) {
   if (columnOptionIdCache.has(cacheKey)) {
     return columnOptionIdCache.get(cacheKey);
   }
-  
   try {
-    // Get Status field ID from cache or fetch it
-    const statusFieldId = await getFieldId(projectId, 'Status');
-    
-    // Get all column options
+    // Get all column options by field name (Status)
     const result = await graphqlWithAuth(`
-      query($projectId: ID!, $fieldId: ID!) {
+      query($projectId: ID!, $fieldName: String!) {
         node(id: $projectId) {
           ... on ProjectV2 {
-            field(id: $fieldId) {
+            field(name: $fieldName) {
               ... on ProjectV2SingleSelectField {
                 options {
                   id
@@ -59,19 +55,16 @@ async function getColumnOptionId(projectId, columnName) {
       }
     `, {
       projectId,
-      fieldId: statusFieldId
+      fieldName: 'Status'
     });
-    
     // Find the option with matching name
     const options = result.node.field.options;
     const option = options.find(opt => opt.name === columnName);
-    
     if (option) {
       // Cache the result
       columnOptionIdCache.set(cacheKey, option.id);
       return option.id;
     }
-    
     log.error(`Column option "${columnName}" not found in project ${projectId}`);
     return null;
   } catch (error) {
@@ -259,7 +252,7 @@ async function getItemColumn(projectId, itemId) {
 async function setItemColumn(projectId, projectItemId, optionId) {
   // Get Status field ID from cache
   const statusFieldId = await getFieldId(projectId, 'Status');
-  
+
   const mutation = `
     mutation UpdateColumnValue($input: UpdateProjectV2ItemFieldValueInput!) {
       updateProjectV2ItemFieldValue(input: $input) {
@@ -283,8 +276,20 @@ async function setItemColumn(projectId, projectItemId, optionId) {
     },
   };
 
-  const result = await graphqlWithAuth(mutation, { input });
-  return result;
+  try {
+    const result = await graphqlWithAuth(mutation, { input });
+    if (!result.updateProjectV2ItemFieldValue || !result.updateProjectV2ItemFieldValue.projectV2Item) {
+      log.error(`[API] setItemColumn: No projectV2Item returned for itemId=${projectItemId}, projectId=${projectId}, optionId=${optionId}`);
+      log.error(`[API] setItemColumn: Full response: ${JSON.stringify(result)}`);
+      throw new Error('setItemColumn: No projectV2Item in response');
+    }
+    log.info(`[API] setItemColumn: Successfully set column for itemId=${projectItemId} to optionId=${optionId}`);
+    return result;
+  } catch (error) {
+    log.error(`[API] setItemColumn: Failed to set column for itemId=${projectItemId}, projectId=${projectId}, optionId=${optionId}`);
+    log.error(`[API] setItemColumn: Error: ${error.stack || error}`);
+    throw error;
+  }
 }
 
 /**
