@@ -228,19 +228,20 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
 async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
   const currentAssignees = await getItemAssignees(projectId, itemId);
-  
+
   // For PRs authored by monitored user, ensure they are assigned
   // Support both GraphQL objects (item.__typename) and REST API objects (item.type)
   const isPullRequest = item.__typename === 'PullRequest' || item.type === 'PullRequest';
   const authorLogin = item.author?.login || item.user?.login;
-  
-  if (isPullRequest && authorLogin === process.env.GITHUB_AUTHOR) {
+  const monitoredUser = process.env.GITHUB_AUTHOR || (global.TEST_CONFIG && global.TEST_CONFIG.monitoredUser);
+
+  if (isPullRequest && authorLogin === monitoredUser) {
     log.info(`Processing assignees for PR #${item.number}:`, true);
     log.info(`  • Author: ${authorLogin}`, true);
     log.info(`  • Current assignees: ${currentAssignees.join(', ') || 'none'}`, true);
 
     // Check if author is already assigned (in project board)
-    if (currentAssignees.includes(item.author.login)) {
+    if (currentAssignees.includes(authorLogin)) {
       log.info('  • Author already assigned - skipping', true);
       return {
         changed: false,
@@ -250,7 +251,7 @@ async function processAssignees(item, projectId, itemId) {
     }
 
     // Author is not assigned, so add them while preserving any existing assignees
-    const targetAssignees = [...new Set([...currentAssignees, item.author.login])];
+    const targetAssignees = [...new Set([...currentAssignees, authorLogin])];
     log.info(`  • Setting assignees: ${targetAssignees.join(', ')}`, true);
 
     // Set assignees both in project and in the actual PR/Issue

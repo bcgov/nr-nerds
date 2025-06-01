@@ -10,6 +10,8 @@ class Logger {
         errors: [],
         warnings: [],
         infos: [],
+        unchanged: [],
+        skipped: [],
         debugs: []
       };
       instance = this;
@@ -29,6 +31,18 @@ class Logger {
     console.warn(`WARNING: ${fullMessage}`);
   }
 
+  unchanged(message, details = {}) {
+    const logEntry = { message, timestamp: new Date(), ...details };
+    this.logs.unchanged.push(logEntry);
+    console.log(`UNCHANGED: ${message}`);
+  }
+
+  skipped(message, details = {}) {
+    const logEntry = { message, timestamp: new Date(), ...details };
+    this.logs.skipped.push(logEntry);
+    console.log(`SKIPPED: ${message}`);
+  }
+
   info(message, raw = false) {
     this.logs.infos.push(message);
     console.log(raw ? message : `INFO: ${message}`);
@@ -41,33 +55,28 @@ class Logger {
     }
   }
 
-  /**
-   * Print final summary of all logs
-   */
   printSummary() {
-    console.log('\n=== Execution Summary ===\n');
+    console.log('\n📊 Execution Summary');
+    console.log('══════════════════\n');
     
+    const stats = {
+      total: this.logs.infos.length + this.logs.unchanged.length + this.logs.skipped.length,
+      errors: this.logs.errors.length,
+      warnings: this.logs.warnings.length,
+      unchanged: this.logs.unchanged.length,
+      skipped: this.logs.skipped.length
+    };
+    
+    console.log(`Total Items Processed: ${stats.total}`);
+    console.log(`├─ Unchanged: ${stats.unchanged}`);
+    console.log(`├─ Skipped: ${stats.skipped}`);
+    console.log(`├─ Errors: ${stats.errors}`);
+    console.log(`└─ Warnings: ${stats.warnings}\n`);
+
     if (this.logs.errors.length > 0) {
-      console.log('\nErrors:');
+      console.log('❌ Errors:');
       this.logs.errors.forEach(msg => console.log(`- ${msg}`));
     }
-    
-    if (this.logs.warnings.length > 0) {
-      console.log('\nWarnings:');
-      this.logs.warnings.forEach(msg => console.log(`- ${msg}`));
-    }
-    
-    if (this.logs.infos.length > 0) {
-      console.log('\nInfo:');
-      this.logs.infos.forEach(msg => console.log(`- ${msg}`));
-    }
-
-    if (process.env.DEBUG && this.logs.debugs.length > 0) {
-      console.log('\nDebug:');
-      this.logs.debugs.forEach(msg => console.log(`- ${msg}`));
-    }
-    
-    console.log('\n=== End Summary ===\n');
   }
 }
 
