@@ -80,39 +80,68 @@ async function getColumnOptionId(projectId, columnName) {
  * @returns {Promise<{isInProject: boolean, projectItemId?: string}>} - Whether the item is in the project and its project item ID if found
  */
 async function isItemInProject(nodeId, projectId) {
-  const result = await graphqlWithAuth(`
-    query($projectId: ID!, $nodeId: ID!) {
-      project: node(id: $projectId) {
-        ... on ProjectV2 {
-          items(first: 100) {
-            nodes {
-              id
-              content {
-                ... on Issue { id }
-                ... on PullRequest { id }
+  try {
+    let hasNextPage = true;
+    let endCursor = null;
+    let totalItems = 0;
+
+    while (hasNextPage) {
+      const result = await graphqlWithAuth(`
+        query($projectId: ID!, $cursor: String) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: 100, after: $cursor) {
+                nodes {
+                  id
+                  content {
+                    ... on PullRequest {
+                      id
+                    }
+                    ... on Issue {
+                      id
+                    }
+                  }
+                }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
               }
             }
           }
         }
+      `, {
+        projectId,
+        cursor: endCursor
+      });
+
+      const projectItems = result.node?.items?.nodes || [];
+      totalItems += projectItems.length;
+      
+      const matchingItem = projectItems.find(item => item.content?.id === nodeId);
+      if (matchingItem) {
+        log.info(`Found matching item with project item ID: ${matchingItem.id} (searched ${totalItems} items)`);
+        return {
+          isInProject: true,
+          projectItemId: matchingItem.id
+        };
       }
-      node: node(id: $nodeId) {
-        ... on Issue { id }
-        ... on PullRequest { id }
+
+      hasNextPage = result.node?.items?.pageInfo?.hasNextPage || false;
+      endCursor = result.node?.items?.pageInfo?.endCursor;
+
+      // If we haven't found it and there are more pages, continue searching
+      if (hasNextPage) {
+        log.info(`Checked ${totalItems} items, continuing to next page...`);
       }
     }
-  `, {
-    projectId,
-    nodeId
-  });
 
-  const matchingItem = result.project.items.nodes.find(item => 
-    item.content && item.content.id === result.node.id
-  );
-
-  return {
-    isInProject: !!matchingItem,
-    projectItemId: matchingItem?.id
-  };
+    log.info(`Item not found after checking ${totalItems} items`);
+    return { isInProject: false };
+  } catch (error) {
+    log.error(`Failed to check if item ${nodeId} is in project: ${error.message}`);
+    return { isInProject: false };
+  }
 }
 
 /**

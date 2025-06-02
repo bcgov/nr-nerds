@@ -1,6 +1,7 @@
 const { getRecentItems } = require('./github/api');
 const Logger = require('./utils/log').Logger;
 const log = new Logger();
+const { StateVerifier } = require('./utils/state-verifier');
 const { processAddItems } = require('./rules/add-items');
 const { processColumnAssignment } = require('./rules/columns');
 const { processSprintAssignment } = require('./rules/sprints');
@@ -49,6 +50,10 @@ async function main() {
 
     log.info('Starting Project Board Sync...');
     log.info(`User: ${context.monitoredUser}`);
+    
+    // Initialize state tracking
+    process.env.VERBOSE && log.info('State tracking enabled');
+    const startTime = new Date();
     log.info(`Project: ${context.projectId}`);
     log.info('Monitored Repos: ' + context.repos.map(r => `${context.org}/${r}`).join(', '));
 
@@ -65,10 +70,14 @@ async function main() {
       try {
         const itemRef = `${item.type} #${item.number}`;
 
+        // First verify the item was added successfully
+        await StateVerifier.verifyAddition(item, context.projectId);
+
         // Set initial column
         const columnResult = await processColumnAssignment(item, item.projectItemId, context.projectId);
         if (columnResult.changed) {
           log.info(`Set column for ${itemRef} to ${columnResult.newStatus}`);
+          await StateVerifier.verifyColumn(item, context.projectId, columnResult.newStatus);
         }
 
         // Assign sprint if needed
@@ -80,12 +89,14 @@ async function main() {
         );
         if (sprintResult.changed) {
           log.info(`Set sprint for ${itemRef} to ${sprintResult.newSprint}`);
+          await StateVerifier.verifySprint(item, context.projectId, sprintResult.newSprint);
         }
 
         // Handle assignees
         const assigneeResult = await processAssignees(item, context.projectId, item.projectItemId);
         if (assigneeResult.changed) {
           log.info(`Updated assignees for ${itemRef}: ${assigneeResult.assignees.join(', ')}`);
+          await StateVerifier.verifyAssignees(item, context.projectId, assigneeResult.assignees);
         }
 
         // Process linked issues if it's a PR and has required properties
@@ -94,6 +105,9 @@ async function main() {
           log.info(`[Main] PR projectItemId: ${item.projectItemId || 'MISSING'}`);
           log.info(`[Main] PR column: ${columnResult.newStatus || columnResult.currentStatus || 'MISSING'}`);
           log.info(`[Main] Calling processLinkedIssues for PR #${item.number} (${item.repository.nameWithOwner})`);
+          const targetColumn = columnResult.newStatus || columnResult.currentStatus;
+          const targetSprint = sprintResult.newSprint;
+          
           const linkedResult = await processLinkedIssues(
             {
               ...item,
@@ -104,18 +118,29 @@ async function main() {
               projectItemId: item.projectItemId
             },
             context.projectId,
-            columnResult.newStatus || columnResult.currentStatus,
-            sprintResult.newSprint
+            targetColumn,
+            targetSprint
           );
+
           if (linkedResult.processed > 0) {
             log.info(`[Main] Processed ${linkedResult.processed} linked issues for ${item.type} #${item.number}`);
+            // Verify linked issues are in the correct state
+            await StateVerifier.verifyLinkedIssues(
+              item,
+              context.projectId,
+              linkedResult.processedIssues || [],
+              targetColumn,
+              targetSprint
+            );
           }
-          if (linkedResult.errors > 0) {
-            log.warn(`[Main] Failed to process ${linkedResult.errors} linked issues for ${item.type} #${item.number}`);
-          }
-        } else {
-          log.info(`[Main] Skipping processLinkedIssues for ${item.type} #${item.number} - type: ${item.type}, repo: ${item.repository ? item.repository.nameWithOwner : 'MISSING'}`);
         }
+
+        // Finally verify the complete state of the item
+        await StateVerifier.verifyCompleteState(item, context.projectId, {
+          column: columnResult.newStatus || columnResult.currentStatus,
+          sprint: sprintResult.newSprint,
+          assignees: assigneeResult.changed ? assigneeResult.assignees : undefined
+        });
 
       } catch (error) {
         log.error(`Failed to process ${item.type} #${item.number}: ${error.message}`);
@@ -123,7 +148,16 @@ async function main() {
     }
 
     log.info('Project Board Sync completed successfully.');
+    
+    // Print regular summary and state changes if verbose
     log.printSummary();
+    if (process.env.VERBOSE) {
+      const endTime = new Date();
+      const duration = (endTime - startTime) / 1000;
+      log.info(`\nCompleted in ${duration}s`);
+      log.printStateSummary();
+      StateVerifier.printReports();
+    }
 
   } catch (error) {
     log.error(error);
