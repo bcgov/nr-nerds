@@ -49,6 +49,10 @@ async function main() {
 
     log.info('Starting Project Board Sync...');
     log.info(`User: ${context.monitoredUser}`);
+    
+    // Initialize state tracking
+    process.env.VERBOSE && log.info('State tracking enabled');
+    const startTime = new Date();
     log.info(`Project: ${context.projectId}`);
     log.info('Monitored Repos: ' + context.repos.map(r => `${context.org}/${r}`).join(', '));
 
@@ -123,7 +127,15 @@ async function main() {
     }
 
     log.info('Project Board Sync completed successfully.');
+    
+    // Print regular summary and state changes if verbose
     log.printSummary();
+    if (process.env.VERBOSE) {
+      const endTime = new Date();
+      const duration = (endTime - startTime) / 1000;
+      log.info(`\nCompleted in ${duration}s`);
+      log.printStateSummary();
+    }
 
   } catch (error) {
     log.error(error);
