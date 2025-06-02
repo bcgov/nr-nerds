@@ -1,9 +1,7 @@
-const { isItemInProject, getItemColumn, getItemAssignees } = require('../github/api');
-const { getItemSprint } = require('../rules/sprints');
 const { log } = require('./log');
-
-const MAX_RETRIES = 3;
-const RETRY_DELAY = 1000;
+const { getItemColumn, getItemAssignees, isItemInProject } = require('../github/api');
+const { getItemSprint } = require('../rules/sprints');
+const { StateChangeTracker } = require('./state-changes');
 
 /**
  * Sleep for a specified number of milliseconds
@@ -15,16 +13,17 @@ async function sleep(ms) {
 /**
  * Try an operation multiple times with exponential backoff
  */
-async function retry(operation, description, maxRetries = MAX_RETRIES) {
+async function retry(operation, description, maxRetries = 3) {
   let lastError;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await operation();
+      return await operation(attempt);
     } catch (error) {
       lastError = error;
       if (attempt < maxRetries) {
-        const delay = RETRY_DELAY * Math.pow(2, attempt - 1);
-        log.info(`Verification attempt ${attempt} failed: ${error.message}. Retrying in ${delay}ms...`);
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        log.info(`Retry attempt ${attempt}/${maxRetries} failed: ${error.message}`);
+        log.info(`Waiting ${delay/1000}s before next attempt...`);
         await sleep(delay);
       }
     }
@@ -33,66 +32,33 @@ async function retry(operation, description, maxRetries = MAX_RETRIES) {
 }
 
 /**
- * Compare two values and return a diff-like description
- */
-function getDiff(before, after, path = '') {
-  if (typeof before !== typeof after) {
-    return [`${path}: changed from ${typeof before} to ${typeof after}`];
-  }
-
-  if (Array.isArray(before)) {
-    const added = after.filter(item => !before.includes(item));
-    const removed = before.filter(item => !after.includes(item));
-    const diffs = [];
-    if (added.length) diffs.push(`${path}: added ${added.join(', ')}`);
-    if (removed.length) diffs.push(`${path}: removed ${removed.join(', ')}`);
-    return diffs;
-  }
-
-  if (before && typeof before === 'object') {
-    const diffs = [];
-    const allKeys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
-    for (const key of allKeys) {
-      const keyPath = path ? `${path}.${key}` : key;
-      if (!(key in before)) {
-        diffs.push(`${keyPath}: added ${JSON.stringify(after[key])}`);
-      } else if (!(key in after)) {
-        diffs.push(`${keyPath}: removed`);
-      } else {
-        diffs.push(...getDiff(before[key], after[key], keyPath));
-      }
-    }
-    return diffs;
-  }
-
-  if (before !== after) {
-    return [`${path}: changed from ${before} to ${after}`];
-  }
-
-  return [];
-}
-
-/**
  * Verifies that an item's state matches expectations after a change
  */
 class StateVerifier {
+  static tracker = new StateChangeTracker();
+
   /**
    * Verify an item was added to the project
    */
   static async verifyAddition(item, projectId) {
-    // Wait a bit for the addition to propagate through GitHub's systems
-    await sleep(2000);
+    this.tracker.startTracking(item);
     
-    return retry(async () => {
-      log.info(`Verifying addition of ${item.type} #${item.number} to project ${projectId}...`);
+    return retry(async (attempt) => {
       const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
       
-      if (!isInProject || !projectItemId) {
-        log.error(`Failed to verify item in project. Item ID: ${item.id}, Project ID: ${projectId}`);
+      this.tracker.recordChange(
+        item,
+        'Project Addition',
+        { inProject: false },
+        { inProject: true, projectItemId },
+        attempt
+      );
+
+      if (!isInProject) {
         throw new Error(`Item ${item.type} #${item.number} was not added to project`);
       }
-      
-      log.info(`Successfully verified ${item.type} #${item.number} in project with item ID: ${projectItemId}`);
+
+      log.info(`✓ ${item.type} #${item.number} verified in project (attempt ${attempt}/3)`);
       log.logState(item.id, 'Addition Verified', { inProject: true, projectItemId });
       return projectItemId;
     }, `project addition for ${item.type} #${item.number}`);
@@ -102,18 +68,24 @@ class StateVerifier {
    * Verify an item's column matches expected state
    */
   static async verifyColumn(item, projectId, expectedColumn) {
-    return retry(async () => {
+    return retry(async (attempt) => {
       const currentColumn = await getItemColumn(projectId, item.projectItemId);
+      
+      this.tracker.recordChange(
+        item,
+        'Column Assignment',
+        { column: currentColumn },
+        { column: expectedColumn },
+        attempt
+      );
+
       if (currentColumn?.toLowerCase() !== expectedColumn?.toLowerCase()) {
-        const diff = getDiff(
-          { column: expectedColumn?.toLowerCase() },
-          { column: currentColumn?.toLowerCase() }
-        );
-        throw new Error(
-          `Column mismatch for ${item.type} #${item.number}:\n` +
-          diff.map(d => `  ${d}`).join('\n')
-        );
+        throw new Error(`Column mismatch for ${item.type} #${item.number}:\n` +
+          `Expected: "${expectedColumn}"\n` +
+          `Current: "${currentColumn}"`);
       }
+
+      log.info(`✓ ${item.type} #${item.number} verified in column "${expectedColumn}" (attempt ${attempt}/3)`);
       log.logState(item.id, 'Column Verified', { column: currentColumn });
       return currentColumn;
     }, `column state for ${item.type} #${item.number}`);
@@ -165,58 +137,110 @@ class StateVerifier {
   }
 
   /**
-   * Verify linked issues are in the expected state
+   * Verify linked issues are in the correct state
    */
-  static async verifyLinkedIssues(item, projectId, linkedIssues, expectedColumn, expectedSprint) {
-    return retry(async () => {
-      const verificationResults = await Promise.all(
-        linkedIssues.map(async (linkedIssue) => {
-          const { isInProject, projectItemId } = await isItemInProject(linkedIssue.id, projectId);
-          if (!isInProject) {
-            return {
-              issue: linkedIssue,
-              error: 'Not in project'
-            };
-          }
+  static async verifyLinkedIssues(item, projectId, linkedIssues, targetColumn, targetSprint) {
+    return retry(async (attempt) => {
+      const beforeState = { linkedIssuesVerified: false };
+      const afterState = { linkedIssuesVerified: true, verifiedIssues: [] };
 
-          const column = await getItemColumn(projectId, projectItemId);
-          if (column?.toLowerCase() !== expectedColumn?.toLowerCase()) {
-            return {
-              issue: linkedIssue,
-              error: `Wrong column: expected "${expectedColumn}", got "${column}"`
-            };
-          }
+      for (const linkedIssue of linkedIssues) {
+        const issueRef = `Issue #${linkedIssue.number}`;
+        log.info(`Verifying linked ${issueRef} state...`);
 
-          if (expectedSprint) {
-            const { sprintId } = await getItemSprint(projectId, projectItemId);
-            if (sprintId !== expectedSprint) {
-              return {
-                issue: linkedIssue,
-                error: `Wrong sprint: expected "${expectedSprint}", got "${sprintId}"`
-              };
-            }
-          }
+        // Verify column
+        const currentColumn = await getItemColumn(projectId, linkedIssue.projectItemId);
+        if (currentColumn?.toLowerCase() !== targetColumn?.toLowerCase()) {
+          throw new Error(
+            `Column mismatch for linked ${issueRef}:\n` +
+            `Expected: "${targetColumn}"\n` +
+            `Current: "${currentColumn}"`
+          );
+        }
 
-          return { issue: linkedIssue, verified: true };
-        })
+        // Verify sprint if specified
+        if (targetSprint) {
+          const { sprintId } = await getItemSprint(projectId, linkedIssue.projectItemId);
+          if (sprintId !== targetSprint) {
+            throw new Error(
+              `Sprint mismatch for linked ${issueRef}:\n` +
+              `Expected: "${targetSprint}"\n` +
+              `Current: "${sprintId}"`
+            );
+          }
+        }
+
+        afterState.verifiedIssues.push({
+          number: linkedIssue.number,
+          column: currentColumn,
+          sprint: targetSprint
+        });
+      }
+
+      this.tracker.recordChange(
+        item,
+        'Linked Issues Verification',
+        beforeState,
+        afterState,
+        attempt
       );
 
-      const failed = verificationResults.filter(r => !r.verified);
-      if (failed.length > 0) {
+      log.info(`✓ All ${linkedIssues.length} linked issues verified (attempt ${attempt}/3)`);
+      return true;
+    }, `linked issues state for ${item.type} #${item.number}`);
+  }
+
+  /**
+   * Verify the complete state of an item
+   */
+  static async verifyCompleteState(item, projectId, expectedState) {
+    return retry(async (attempt) => {
+      const beforeState = { completeStateVerified: false };
+      const currentState = {
+        column: await getItemColumn(projectId, item.projectItemId),
+        sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId,
+        assignees: await getItemAssignees(projectId, item.projectItemId)
+      };
+
+      const mismatches = [];
+      if (expectedState.column && currentState.column?.toLowerCase() !== expectedState.column.toLowerCase()) {
+        mismatches.push(`Column: expected "${expectedState.column}", got "${currentState.column}"`);
+      }
+      if (expectedState.sprint && currentState.sprint !== expectedState.sprint) {
+        mismatches.push(`Sprint: expected "${expectedState.sprint}", got "${currentState.sprint}"`);
+      }
+      if (expectedState.assignees) {
+        const missing = expectedState.assignees.filter(a => !currentState.assignees.includes(a));
+        const extra = currentState.assignees.filter(a => !expectedState.assignees.includes(a));
+        if (missing.length > 0) mismatches.push(`Missing assignees: ${missing.join(', ')}`);
+        if (extra.length > 0) mismatches.push(`Extra assignees: ${extra.join(', ')}`);
+      }
+
+      if (mismatches.length > 0) {
         throw new Error(
-          `Linked issues verification failed for ${item.type} #${item.number}:\n` +
-          failed.map(f => `  Issue #${f.issue.number}: ${f.error}`).join('\n')
+          `State verification failed for ${item.type} #${item.number}:\n` +
+          mismatches.map(m => `  - ${m}`).join('\n')
         );
       }
 
-      log.logState(item.id, 'Linked Issues Verified', {
-        linkedIssues: linkedIssues.map(i => i.number),
-        column: expectedColumn,
-        sprint: expectedSprint
-      });
+      this.tracker.recordChange(
+        item,
+        'Complete State Verification',
+        beforeState,
+        { completeStateVerified: true, currentState },
+        attempt
+      );
 
-      return verificationResults;
-    }, `linked issues state for ${item.type} #${item.number}`);
+      log.info(`✓ Complete state verified for ${item.type} #${item.number} (attempt ${attempt}/3)`);
+      return currentState;
+    }, `complete state for ${item.type} #${item.number}`);
+  }
+
+  /**
+   * Print a summary of all state changes
+   */
+  static printChangeSummary() {
+    this.tracker.printSummary();
   }
 }
 

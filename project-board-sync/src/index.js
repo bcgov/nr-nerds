@@ -133,12 +133,14 @@ async function main() {
               targetSprint
             );
           }
-          if (linkedResult.errors > 0) {
-            log.warn(`[Main] Failed to process ${linkedResult.errors} linked issues for ${item.type} #${item.number}`);
-          }
-        } else {
-          log.info(`[Main] Skipping processLinkedIssues for ${item.type} #${item.number} - type: ${item.type}, repo: ${item.repository ? item.repository.nameWithOwner : 'MISSING'}`);
         }
+
+        // Finally verify the complete state of the item
+        await StateVerifier.verifyCompleteState(item, context.projectId, {
+          column: columnResult.newStatus || columnResult.currentStatus,
+          sprint: sprintResult.newSprint,
+          assignees: assigneeResult.changed ? assigneeResult.assignees : undefined
+        });
 
       } catch (error) {
         log.error(`Failed to process ${item.type} #${item.number}: ${error.message}`);
@@ -154,6 +156,7 @@ async function main() {
       const duration = (endTime - startTime) / 1000;
       log.info(`\nCompleted in ${duration}s`);
       log.printStateSummary();
+      StateVerifier.printChangeSummary();
     }
 
   } catch (error) {
