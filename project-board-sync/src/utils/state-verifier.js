@@ -65,30 +65,65 @@ class StateVerifier {
   }
 
   /**
-   * Verify an item's column matches expected state
+   * Generic retry with detailed error tracking
+   */
+  static async retryWithTracking(item, type, operation, description) {
+    const MAX_RETRIES = 3;
+    let lastError;
+
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const result = await operation(attempt);
+        return result;
+      } catch (error) {
+        lastError = error;
+        this.tracker.recordError(item, type, error, attempt);
+
+        if (attempt < MAX_RETRIES) {
+          const delay = Math.pow(2, attempt - 1) * 1000;
+          log.info(`
+⌛ ${type} verification attempt ${attempt}/${MAX_RETRIES}
+   Item: ${item.type} #${item.number}
+   Error: ${error.message}
+   Retrying in ${delay/1000}s...`);
+          await sleep(delay);
+        }
+      }
+    }
+    
+    throw new Error(`Failed to verify ${description} after ${MAX_RETRIES} attempts: ${lastError.message}`);
+  }
+
+  /**
+   * Verify an item's column matches expected state with enhanced tracking
    */
   static async verifyColumn(item, projectId, expectedColumn) {
-    return retry(async (attempt) => {
-      const currentColumn = await getItemColumn(projectId, item.projectItemId);
-      
-      this.tracker.recordChange(
-        item,
-        'Column Assignment',
-        { column: currentColumn },
-        { column: expectedColumn },
-        attempt
-      );
+    return this.retryWithTracking(
+      item,
+      'Column Verification',
+      async (attempt) => {
+        const currentColumn = await getItemColumn(projectId, item.projectItemId);
+        
+        this.tracker.recordChange(
+          item,
+          'Column Assignment',
+          { column: currentColumn },
+          { column: expectedColumn },
+          attempt
+        );
 
-      if (currentColumn?.toLowerCase() !== expectedColumn?.toLowerCase()) {
-        throw new Error(`Column mismatch for ${item.type} #${item.number}:\n` +
-          `Expected: "${expectedColumn}"\n` +
-          `Current: "${currentColumn}"`);
-      }
+        if (currentColumn?.toLowerCase() !== expectedColumn?.toLowerCase()) {
+          throw new Error(`
+Column mismatch:
+Expected: "${expectedColumn}"
+Current:  "${currentColumn}"`);
+        }
 
-      log.info(`✓ ${item.type} #${item.number} verified in column "${expectedColumn}" (attempt ${attempt}/3)`);
-      log.logState(item.id, 'Column Verified', { column: currentColumn });
-      return currentColumn;
-    }, `column state for ${item.type} #${item.number}`);
+        log.info(`✓ Column verified: "${expectedColumn}" (attempt ${attempt}/3)`);
+        return currentColumn;
+      },
+      `column state for ${item.type} #${item.number}`
+    );
   }
 
   /**

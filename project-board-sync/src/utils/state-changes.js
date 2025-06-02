@@ -5,6 +5,13 @@ class StateChangeTracker {
   constructor() {
     this.changes = new Map();
     this.startTimes = new Map();
+    this.errors = new Map();
+    this.timingStats = {
+      totalDuration: 0,
+      verificationCounts: {},
+      averageDurations: {},
+      maxRetries: {},
+    };
   }
 
   /**
@@ -36,12 +43,51 @@ class StateChangeTracker {
   }
 
   /**
-   * Print a summary of state changes
+   * Track verification error
+   */
+  recordError(item, type, error, attempt) {
+    const key = `${item.type}#${item.number}`;
+    if (!this.errors.has(key)) {
+      this.errors.set(key, []);
+    }
+    this.errors.get(key).push({
+      type,
+      error: error.message,
+      attempt,
+      timestamp: new Date()
+    });
+  }
+
+  /**
+   * Update timing statistics
+   */
+  updateTimingStats(type, duration, attempts) {
+    if (!this.timingStats.verificationCounts[type]) {
+      this.timingStats.verificationCounts[type] = 0;
+      this.timingStats.averageDurations[type] = 0;
+      this.timingStats.maxRetries[type] = 0;
+    }
+
+    // Update counts and averages
+    const count = ++this.timingStats.verificationCounts[type];
+    const oldAvg = this.timingStats.averageDurations[type];
+    this.timingStats.averageDurations[type] = oldAvg + (duration - oldAvg) / count;
+    this.timingStats.totalDuration += duration;
+
+    // Track max retries
+    if (attempts > this.timingStats.maxRetries[type]) {
+      this.timingStats.maxRetries[type] = attempts;
+    }
+  }
+
+  /**
+   * Print a summary of state changes with enhanced statistics
    */
   printSummary() {
     console.log('\n📊 State Change Summary');
     console.log('═══════════════════════\n');
 
+    // Print changes per item
     for (const [itemKey, changes] of this.changes.entries()) {
       if (changes.length === 0) continue;
 
@@ -57,8 +103,34 @@ class StateChangeTracker {
           console.log(`    ${change.before} → ${change.after}`);
         }
       });
+
+      // Print any errors for this item
+      const itemErrors = this.errors.get(itemKey) || [];
+      if (itemErrors.length > 0) {
+        console.log(`  ❌ Verification Errors:`);
+        itemErrors.forEach(err => {
+          console.log(`    • ${err.type} (attempt ${err.attempt})`);
+          console.log(`      ${err.error}`);
+        });
+      }
       console.log();
     }
+
+    // Print timing statistics
+    console.log('⏱️  Timing Statistics');
+    console.log('══════════════════\n');
+    console.log(`Total Duration: ${(this.timingStats.totalDuration / 1000).toFixed(1)}s\n`);
+    
+    Object.keys(this.timingStats.verificationCounts).forEach(type => {
+      const count = this.timingStats.verificationCounts[type];
+      const avgDuration = this.timingStats.averageDurations[type];
+      const maxRetries = this.timingStats.maxRetries[type];
+      
+      console.log(`${type}:`);
+      console.log(`  Count: ${count}`);
+      console.log(`  Avg Duration: ${(avgDuration / 1000).toFixed(1)}s`);
+      console.log(`  Max Retries: ${maxRetries}`);
+    });
   }
 
   /**
