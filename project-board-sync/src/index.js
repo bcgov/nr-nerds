@@ -145,42 +145,27 @@ async function main() {
       }
     }
 
-    // Exit with error if any items failed processing
-    if (errors.length > 0) {
-      log.error('Project Board Sync completed with errors');
-      log.printSummary();
-      if (process.env.VERBOSE) {
-        const endTime = new Date();
-        const duration = (endTime - startTime) / 1000;
-        log.info(`\nCompleted in ${duration}s`);
-        log.printStateSummary();
-        StateVerifier.printReports();
-      }
-      process.exit(1);
-    }
+    // Print final status and handle errors
+    const endTime = new Date();
+    const duration = (endTime - startTime) / 1000;
 
-    // Only report success if no errors occurred
     if (errors.length > 0) {
       log.error('Project Board Sync completed with errors');
-      log.printSummary();
-      if (process.env.VERBOSE) {
-        const endTime = new Date();
-        const duration = (endTime - startTime) / 1000;
-        log.info(`\nCompleted in ${duration}s`);
-        log.printStateSummary();
-        StateVerifier.printReports();
-      }
-      process.exit(1);
     } else {
       log.info('Project Board Sync completed successfully');
-      log.printSummary();
-      if (process.env.VERBOSE) {
-        const endTime = new Date();
-        const duration = (endTime - startTime) / 1000;
-        log.info(`\nCompleted in ${duration}s`);
-        log.printStateSummary();
-        StateVerifier.printReports();
-      }
+    }
+
+    // Always print summary and optional verbose output
+    log.printSummary();
+    if (process.env.VERBOSE) {
+      log.info(`\nCompleted in ${duration}s`);
+      log.printStateSummary();
+      StateVerifier.printReports();
+    }
+
+    // Exit with error code if any errors occurred
+    if (errors.length > 0) {
+      process.exit(1);
     }
 
   } catch (error) {
