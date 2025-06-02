@@ -105,7 +105,7 @@ async function processColumnAssignment(item, projectItemId, projectId) {
       };
     }
 
-    // Skip if item is closed/merged (GitHub handles this)
+    // Skip if item is closed/merged (GitHub handles these)
     if (item.state === 'CLOSED' || item.state === 'MERGED') {
       log.info('  • Rule: Item is closed/merged → GitHub handles column', true);
       return {
@@ -115,21 +115,24 @@ async function processColumnAssignment(item, projectItemId, projectId) {
       };
     }
 
-    if (!currentColumn) {
-      // Rule: Column=None
-      targetColumn = item.__typename === 'PullRequest' ? 'Active' : 'New';
-      reason = `Set column to ${targetColumn} based on initial column assignment`;
-      log.info('  • Rule: Column=None → Setting initial column', true);
-    } else if (item.__typename === 'PullRequest' && currentColumnLower === 'new') {
-      // Rule: PR in New column should move to Active
-      targetColumn = 'Active';
-      reason = 'PR moved from New to Active';
-      log.info('  • Rule: PR in New column → Moving to Active', true);
-    } else {
-      log.info('  • No matching rules for current state', true);
+    // Handle PRs and Issues according to requirements
+    if (item.__typename === 'PullRequest') {
+      // For PRs: Move to Active if either:
+      // 1. Column is None
+      // 2. Column is New
+      if (!currentColumn || currentColumnLower === 'new') {
+        targetColumn = 'Active';
+        reason = !currentColumn ? 'Initial PR placement in Active' : 'PR moved from New to Active';
+        log.info(`  • Rule: ${!currentColumn ? 'Column=None' : 'Column=New'} → Moving PR to Active`, true);
+      }
+    } else if (item.__typename === 'Issue' && !currentColumn) {
+      // For Issues: Only set column if none is set
+      targetColumn = 'New';
+      reason = 'Initial issue placement in New';
+      log.info('  • Rule: Column=None → Setting initial issue column to New', true);
     }
 
-    // Skip if no target or already in correct column (case-insensitive)
+    // Skip if no target column determined
     if (!targetColumn) {
       log.info('  • Result: No target column determined', true);
       return { 

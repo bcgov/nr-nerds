@@ -2,13 +2,9 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const { processLinkedIssues } = require('../../src/rules/linked-issues');
 
-// Set up minimal API mocks
-const api = require('../../src/github/api');
-
-api.getFieldId = async () => 'field-123';
-api.setItemColumn = async () => {};
-api.setItemAssignees = async () => {};
-api.octokit = { graphql: async () => ({}) };
+// Set up API mocks
+const { mockGitHubApi } = require('../helpers/mocks');
+const api = mockGitHubApi();
 
 // Silence logging
 require('../../src/utils/log').log = {
