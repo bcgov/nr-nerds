@@ -6,10 +6,13 @@ const { processColumnAssignment } = require('../../src/rules/columns');
 const { processSprintAssignment } = require('../../src/rules/sprints');
 const { processAssignees } = require('../../src/rules/assignees');
 
-// Create test API mocks
-const api = require('../../src/github/api');
+// Set up API mocks
+const { mockGitHubApi } = require('../helpers/mocks');
+const api = mockGitHubApi({
+  columns: { current: 'New' }  // Start PR in New column
+});
 
-// Mock API responses
+// Mock getRecentItems to return a test PR
 api.getRecentItems = async () => ([{
   __typename: 'PullRequest',
   id: 'pr-1',
