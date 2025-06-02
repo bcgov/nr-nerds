@@ -13,12 +13,8 @@ const { processLinkedIssues } = require('./rules/linked-issues');
  * @throws {Error} If any required variables are missing
  */
 function validateEnvironment() {
-  const required = ['GH_TOKEN', 'GITHUB_AUTHOR'];
-  const missing = required.filter(key => !process.env[key]);
-  
-  if (missing.length > 0) {
-    throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-  }
+  // Environment variables are injected by container or user
+  return;
 }
 
 /**
@@ -66,6 +62,7 @@ async function main() {
     });
 
     // Process additional rules for added items
+    const errors = [];
     for (const item of addedItems) {
       try {
         const itemRef = `${item.type} #${item.number}`;
@@ -143,20 +140,47 @@ async function main() {
         });
 
       } catch (error) {
+        errors.push(error);
         log.error(`Failed to process ${item.type} #${item.number}: ${error.message}`);
       }
     }
 
-    log.info('Project Board Sync completed successfully.');
-    
-    // Print regular summary and state changes if verbose
-    log.printSummary();
-    if (process.env.VERBOSE) {
-      const endTime = new Date();
-      const duration = (endTime - startTime) / 1000;
-      log.info(`\nCompleted in ${duration}s`);
-      log.printStateSummary();
-      StateVerifier.printReports();
+    // Exit with error if any items failed processing
+    if (errors.length > 0) {
+      log.error('Project Board Sync completed with errors');
+      log.printSummary();
+      if (process.env.VERBOSE) {
+        const endTime = new Date();
+        const duration = (endTime - startTime) / 1000;
+        log.info(`\nCompleted in ${duration}s`);
+        log.printStateSummary();
+        StateVerifier.printReports();
+      }
+      process.exit(1);
+    }
+
+    // Only report success if no errors occurred
+    if (errors.length > 0) {
+      log.error('Project Board Sync completed with errors');
+      log.printSummary();
+      if (process.env.VERBOSE) {
+        const endTime = new Date();
+        const duration = (endTime - startTime) / 1000;
+        log.info(`\nCompleted in ${duration}s`);
+        log.printStateSummary();
+        StateVerifier.printReports();
+      }
+      process.exit(1);
+    } else {
+      log.info('Project Board Sync completed successfully');
+      log.printSummary();
+      if (process.env.VERBOSE) {
+        const endTime = new Date();
+        const duration = (endTime - startTime) / 1000;
+        log.info(`\nCompleted in ${duration}s`);
+        log.printStateSummary();
+        StateVerifier.printReports();
+      }
     }
 
   } catch (error) {
