@@ -2,6 +2,7 @@ const { log } = require('./log');
 const { getItemColumn, getItemAssignees, isItemInProject } = require('../github/api');
 const { getItemSprint } = require('../rules/sprints');
 const { StateChangeTracker } = require('./state-changes');
+const { VerificationProgress } = require('./verification-progress');
 
 /**
  * Sleep for a specified number of milliseconds
@@ -36,6 +37,7 @@ async function retry(operation, description, maxRetries = 3) {
  */
 class StateVerifier {
   static tracker = new StateChangeTracker();
+  static progress = new VerificationProgress();
 
   /**
    * Verify an item was added to the project
@@ -226,49 +228,85 @@ Current:  "${currentColumn}"`);
   }
 
   /**
-   * Verify the complete state of an item
+   * Verify complete state with progress tracking
    */
   static async verifyCompleteState(item, projectId, expectedState) {
-    return retry(async (attempt) => {
-      const beforeState = { completeStateVerified: false };
-      const currentState = {
-        column: await getItemColumn(projectId, item.projectItemId),
-        sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId,
-        assignees: await getItemAssignees(projectId, item.projectItemId)
-      };
+    const itemRef = `${item.type}#${item.number}`;
+    const totalSteps = Object.keys(expectedState).length;
+    this.progress.startOperation('Complete Verification', itemRef, totalSteps);
 
-      const mismatches = [];
-      if (expectedState.column && currentState.column?.toLowerCase() !== expectedState.column.toLowerCase()) {
-        mismatches.push(`Column: expected "${expectedState.column}", got "${currentState.column}"`);
-      }
-      if (expectedState.sprint && currentState.sprint !== expectedState.sprint) {
-        mismatches.push(`Sprint: expected "${expectedState.sprint}", got "${currentState.sprint}"`);
-      }
-      if (expectedState.assignees) {
-        const missing = expectedState.assignees.filter(a => !currentState.assignees.includes(a));
-        const extra = currentState.assignees.filter(a => !expectedState.assignees.includes(a));
-        if (missing.length > 0) mismatches.push(`Missing assignees: ${missing.join(', ')}`);
-        if (extra.length > 0) mismatches.push(`Extra assignees: ${extra.join(', ')}`);
-      }
+    return this.retryWithTracking(
+      item,
+      'Complete State Verification',
+      async (attempt) => {
+        const apiStart = Date.now();
+        const currentState = {
+          column: await getItemColumn(projectId, item.projectItemId),
+          sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId,
+          assignees: await getItemAssignees(projectId, item.projectItemId)
+        };
+        this.progress.recordApiTiming('getItemState', Date.now() - apiStart);
 
-      if (mismatches.length > 0) {
-        throw new Error(
-          `State verification failed for ${item.type} #${item.number}:\n` +
-          mismatches.map(m => `  - ${m}`).join('\n')
+        // Verify each attribute
+        const mismatches = [];
+        
+        if (expectedState.column) {
+          const success = currentState.column?.toLowerCase() === expectedState.column.toLowerCase();
+          this.progress.recordStep('Complete Verification', itemRef,
+            `Verify column: ${expectedState.column}`, success);
+          if (!success) {
+            mismatches.push(`Column: expected "${expectedState.column}", got "${currentState.column}"`);
+          }
+        }
+
+        if (expectedState.sprint) {
+          const success = currentState.sprint === expectedState.sprint;
+          this.progress.recordStep('Complete Verification', itemRef,
+            `Verify sprint: ${expectedState.sprint}`, success);
+          if (!success) {
+            mismatches.push(`Sprint: expected "${expectedState.sprint}", got "${currentState.sprint}"`);
+          }
+        }
+
+        if (expectedState.assignees) {
+          const missing = expectedState.assignees.filter(a => !currentState.assignees.includes(a));
+          const extra = currentState.assignees.filter(a => !expectedState.assignees.includes(a));
+          const success = missing.length === 0 && extra.length === 0;
+          this.progress.recordStep('Complete Verification', itemRef,
+            'Verify assignees', success);
+          if (!success) {
+            if (missing.length > 0) mismatches.push(`Missing assignees: ${missing.join(', ')}`);
+            if (extra.length > 0) mismatches.push(`Extra assignees: ${extra.join(', ')}`);
+          }
+        }
+
+        if (mismatches.length > 0) {
+          throw new Error(
+            `State verification failed:\n${mismatches.map(m => `  - ${m}`).join('\n')}`
+          );
+        }
+
+        this.tracker.recordChange(
+          item,
+          'Complete State Verification',
+          { verified: false },
+          { verified: true, state: currentState },
+          attempt
         );
-      }
 
-      this.tracker.recordChange(
-        item,
-        'Complete State Verification',
-        beforeState,
-        { completeStateVerified: true, currentState },
-        attempt
-      );
+        log.info(`✓ Complete state verified for ${itemRef} (attempt ${attempt}/3)`);
+        return currentState;
+      },
+      `complete state for ${item.type} #${item.number}`
+    );
+  }
 
-      log.info(`✓ Complete state verified for ${item.type} #${item.number} (attempt ${attempt}/3)`);
-      return currentState;
-    }, `complete state for ${item.type} #${item.number}`);
+  /**
+   * Print all verification reports
+   */
+  static printReports() {
+    this.tracker.printSummary();
+    this.progress.printProgressReport();
   }
 
   /**

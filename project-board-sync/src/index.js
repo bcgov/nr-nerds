@@ -156,7 +156,7 @@ async function main() {
       const duration = (endTime - startTime) / 1000;
       log.info(`\nCompleted in ${duration}s`);
       log.printStateSummary();
-      StateVerifier.printChangeSummary();
+      StateVerifier.printReports();
     }
 
   } catch (error) {
