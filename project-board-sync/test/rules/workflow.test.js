@@ -87,3 +87,46 @@ test('full workflow tracks state changes correctly', async (t) => {
   assert.ok(summary.includes('In Progress'), 'summary should show column change');
   assert.ok(summary.includes('project-item-1'), 'summary should show project item');
 });
+
+
+// ----------------------------------- //
+// Additional test for author assignment
+// ----------------------------------- //
+
+// Mock API functions
+const mockApi = {
+  getRecentItems: async () => [{
+    __typename: 'PullRequest',
+    id: 'pr_123',
+    number: 838,
+    repository: { nameWithOwner: 'bcgov/nr-silva' },
+    author: { login: 'DerekRoberts' },
+    assignees: { nodes: [] }
+  }],
+  getItemAssignees: async () => [],
+  setItemAssignees: async () => true,
+  isItemInProject: async () => ({ isInProject: false }),
+  addItemToProject: async () => 'project_item_123'
+};
+
+// Mock environment
+process.env.GITHUB_AUTHOR = 'DerekRoberts';
+
+test('PR authored by monitored user is handled correctly', async (t) => {
+  // Set up test context
+  const context = {
+    org: 'bcgov',
+    repos: ['nr-silva'],
+    monitoredUser: 'DerekRoberts',
+    projectId: 'project_123'
+  };
+
+  // Process the PR
+  const addResult = await processAddItems(context);
+  assert.strictEqual(addResult.addedItems.length, 1, 'PR should be added to board');
+  
+  // Verify assignee handling
+  const assigneeResult = await processAssignees(addResult.addedItems[0], context.projectId, 'project_item_123');
+  assert.strictEqual(assigneeResult.changed, true, 'Author should be added as assignee');
+  assert.deepStrictEqual(assigneeResult.assignees, ['DerekRoberts'], 'Author should be in assignees list');
+});

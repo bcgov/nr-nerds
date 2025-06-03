@@ -1,0 +1,69 @@
+name: Test Coverage Checks
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'test/**'
+      - 'requirements.md'
+      
+jobs:
+  verify-test-coverage:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies  
+        run: npm ci
+        
+      - name: Verify test documentation
+        run: |
+          # Check that each new/modified test has documentation
+          files=$(git diff --name-only origin/main)
+          for file in $files; do
+            if [[ $file == test/rules/* ]] && [[ $file == *.test.js ]]; then
+              # Extract test names
+              tests=$(grep -E '^test\(' "$file" | cut -d"'" -f2)
+              
+              # Verify each test is documented
+              while read -r test_name; do
+                if ! grep -q "$test_name" test/TEST-REQUIREMENTS.md; then
+                  echo "Error: Test '$test_name' in $file is not documented in TEST-REQUIREMENTS.md"
+                  exit 1
+                fi
+              done <<< "$tests"
+            fi
+          done
+      
+      - name: Run tests with coverage
+        run: npm test -- --coverage
+      
+      - name: Verify rule coverage
+        run: |
+          # Extract rules from requirements.md
+          rules=$(grep -E '^\|.*\|.*\|.*\|' requirements.md | grep -v -- '---')
+          
+          # Check each rule has a test
+          while IFS= read -r rule; do
+            if ! grep -q "$rule" test/TEST-REQUIREMENTS.md; then
+              echo "Error: No test documented for rule: $rule"
+              exit 1  
+            fi
+          done <<< "$rules"
+      
+      - name: Verify state tracking
+        run: |
+          # Ensure all tests use StateVerifier
+          files=$(find test/rules -name "*.test.js")
+          for file in $files; do
+            if ! grep -q "StateVerifier" "$file"; then
+              echo "Error: $file is missing StateVerifier usage"
+              exit 1
+            fi
+          done

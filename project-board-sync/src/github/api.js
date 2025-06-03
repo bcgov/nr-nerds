@@ -202,8 +202,9 @@ async function getRecentItems(org, repos, monitoredUser) {
   // Calculate 24 hours ago in ISO format
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   
-  const queries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
-  const searchQuery = queries.join(' ');
+  // Build query parts
+  const repoQueries = repos.map(repo => `repo:${org}/${repo}`);
+  const searchQuery = `(${repoQueries.join(' OR ')} OR author:${monitoredUser} OR assignee:${monitoredUser}) updated:>${since}`;
   
   const result = await graphqlWithAuth(`
     query($searchQuery: String!) {
@@ -225,6 +226,8 @@ async function getRecentItems(org, repos, monitoredUser) {
             author { login }
             assignees(first: 5) { nodes { login } }
             updatedAt
+            state
+            merged
           }
         }
       }

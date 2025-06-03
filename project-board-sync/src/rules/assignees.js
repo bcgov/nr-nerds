@@ -228,33 +228,37 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
 async function processAssignees(item, projectId, itemId) {
   // Get current assignees in project
   const currentAssignees = await getItemAssignees(projectId, itemId);
+  log.info(`Current assignees: ${currentAssignees.join(', ') || 'none'}`);
 
   // For PRs authored by monitored user, ensure they are assigned
-  // Support both GraphQL objects (item.__typename) and REST API objects (item.type)
   const isPullRequest = item.__typename === 'PullRequest' || item.type === 'PullRequest';
   const authorLogin = item.author?.login || item.user?.login;
-  const monitoredUser = process.env.GITHUB_AUTHOR || (global.TEST_CONFIG && global.TEST_CONFIG.monitoredUser);
+  const monitoredUser = process.env.GITHUB_AUTHOR;
 
-  if (isPullRequest && authorLogin === monitoredUser) {
-    log.info(`Processing assignees for PR #${item.number}:`, true);
-    log.info(`  • Author: ${authorLogin}`, true);
-    log.info(`  • Current assignees: ${currentAssignees.join(', ') || 'none'}`, true);
+  if (!isPullRequest || authorLogin !== monitoredUser) {
+    return {
+      changed: false,
+      assignees: currentAssignees,
+      reason: 'No assignee changes needed - not a PR by monitored user'
+    };
+  }
 
-    // Check if author is already assigned (in project board)
-    if (currentAssignees.includes(authorLogin)) {
-      log.info('  • Author already assigned - skipping', true);
-      return {
-        changed: false,
-        assignees: currentAssignees,
-        reason: 'Author already assigned'
-      };
-    }
+  // Skip if author is already assigned
+  if (currentAssignees.includes(authorLogin)) {
+    log.info('Author already assigned - skipping');
+    return {
+      changed: false,
+      assignees: currentAssignees,
+      reason: 'Author already assigned'
+    };
+  }
 
-    // Author is not assigned, so add them while preserving any existing assignees
-    const targetAssignees = [...new Set([...currentAssignees, authorLogin])];
-    log.info(`  • Setting assignees: ${targetAssignees.join(', ')}`, true);
+  // Add author while preserving any existing assignees
+  const targetAssignees = [...new Set([...currentAssignees, authorLogin])];
+  log.info(`Setting assignees to: ${targetAssignees.join(', ')}`);
 
-    // Set assignees both in project and in the actual PR/Issue
+  try {
+    // Set assignees both in project and in the actual PR
     await setItemAssignees(projectId, itemId, targetAssignees);
 
     return {
@@ -262,13 +266,10 @@ async function processAssignees(item, projectId, itemId) {
       assignees: targetAssignees,
       reason: 'Added PR author as assignee'
     };
+  } catch (error) {
+    log.error(`Failed to set assignees: ${error.message}`);
+    throw error;
   }
-
-  return {
-    changed: false,
-    assignees: currentAssignees,
-    reason: 'No assignee changes needed'
-  };
 }
 
 module.exports = {
