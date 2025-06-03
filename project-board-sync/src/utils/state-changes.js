@@ -22,10 +22,13 @@ class StateChangeTracker {
     const key = `${item.type}#${item.number}`;
     this.startTimes.set(key, Date.now());
     this.changes.set(key, []);
-    // Initialize state if not exists
-    if (!this.currentState.has(key)) {
-      this.currentState.set(key, {});
-    }
+    
+    // Initialize with meaningful initial state
+    const initialState = {
+      inProject: item.projectItems?.nodes?.length > 0,
+      projectItemId: item.projectItems?.nodes?.[0]?.id || null
+    };
+    this.currentState.set(key, initialState);
   }
 
   /**
@@ -110,26 +113,17 @@ class StateChangeTracker {
       if (changes.length === 0) continue;
 
       console.log(`🔄 ${itemKey}`);
-      changes.forEach(change => {
+      for (const change of changes) {
         const duration = (change.duration / 1000).toFixed(1);
         console.log(`  • ${change.type} (${duration}s, ${change.attemptCount} attempts)`);
         
+        // Print state differences in a readable format
         if (typeof change.before === 'object') {
           const diffs = this.getDiffs(change.before, change.after);
           diffs.forEach(diff => console.log(`    ${diff}`));
         } else {
           console.log(`    ${change.before} → ${change.after}`);
         }
-      });
-
-      // Print any errors for this item
-      const itemErrors = this.errors.get(itemKey) || [];
-      if (itemErrors.length > 0) {
-        console.log(`  ❌ Verification Errors:`);
-        itemErrors.forEach(err => {
-          console.log(`    • ${err.type} (attempt ${err.attempt})`);
-          console.log(`      ${err.error}`);
-        });
       }
       console.log();
     }
@@ -156,18 +150,48 @@ class StateChangeTracker {
    */
   getDiffs(before, after) {
     const diffs = [];
-    const allKeys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
-    
+    const allKeys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    let projectIdShown = false;
+
     for (const key of allKeys) {
-      if (!(key in before)) {
-        diffs.push(`+ ${key}: ${JSON.stringify(after[key])}`);
-      } else if (!(key in after)) {
-        diffs.push(`- ${key}: ${JSON.stringify(before[key])}`);
-      } else if (before[key] !== after[key]) {
-        diffs.push(`~ ${key}: ${JSON.stringify(before[key])} → ${JSON.stringify(after[key])}`);
+      const beforeVal = before[key];
+      const afterVal = after[key];
+
+      // Skip if values are deeply equal
+      if (JSON.stringify(beforeVal) === JSON.stringify(afterVal)) {
+        continue;
+      }
+
+      // Special handling for project board states
+      if (key === 'inProject' && afterVal === true) {
+        diffs.push('✓ Added to project board');
+        continue;
+      }
+
+      if (key === 'projectItemId' && afterVal && !projectIdShown) {
+        diffs.push(`Project Item ID: ${afterVal}`);
+        projectIdShown = true;
+        continue;
+      }
+
+      // Format values for display
+      const formatValue = (val) => {
+        if (val === undefined || val === null) return 'Not Set';
+        if (val === '') return 'Empty';
+        if (Array.isArray(val)) return val.length ? val.join(', ') : '[]';
+        return val.toString();
+      };
+
+      const beforeStr = formatValue(beforeVal);
+      const afterStr = formatValue(afterVal);
+
+      // Only show meaningful changes
+      if (beforeStr !== afterStr) {
+        const changeIcon = afterStr === 'Not Set' ? '❌' : '✓';
+        diffs.push(`${changeIcon} ${key}: ${beforeStr} → ${afterStr}`);
       }
     }
-    
+
     return diffs;
   }
 }

@@ -57,12 +57,23 @@ class Logger {
    * @param {Object} state The current state of the item
    */
   logState(itemId, context, state) {
-    // Format state values to avoid undefined
+    // Format state values with improved undefined/null handling
     const formattedState = {};
     for (const [key, value] of Object.entries(state)) {
-      formattedState[key] = value === undefined ? 'None' : 
-                           Array.isArray(value) && value.length === 0 ? [] :
-                           value === null ? 'None' : value;
+      // Keep arrays as-is if they exist
+      if (Array.isArray(value)) {
+        formattedState[key] = value.length === 0 ? [] : value;
+        continue;
+      }
+      
+      // Special handling for other values
+      if (value === undefined || value === null) {
+        formattedState[key] = 'Not Set';
+      } else if (value === '') {
+        formattedState[key] = 'Empty';
+      } else {
+        formattedState[key] = value;
+      }
     }
 
     const entry = {
@@ -72,7 +83,7 @@ class Logger {
       state: formattedState
     };
     this.logs.states.push(entry);
-    console.log(`STATE [${context}] Item ${itemId}:`, formattedState);
+    console.log(`STATE [${context}] Item ${itemId}:`, JSON.stringify(formattedState, null, 2));
   }
 
   /**
