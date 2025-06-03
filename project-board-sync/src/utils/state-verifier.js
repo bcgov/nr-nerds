@@ -154,6 +154,27 @@ class StateVerifier {
 
     throw new Error(`Failed to verify ${description} after ${MAX_RETRIES} attempts: ${lastError.message}`);
   }
+
+  /**
+   * Print all verification reports
+   */
+  static printReports() {
+    if (this.tracker) {
+      this.tracker.printSummary();
+    }
+    if (this.progress) {
+      this.progress.printProgressReport();
+    }
+  }
+
+  /**
+   * Print a summary of all state changes
+   */
+  static printChangeSummary() {
+    if (this.tracker) {
+      this.tracker.printSummary();
+    }
+  }
 }
 
 async function sleep(ms) {
