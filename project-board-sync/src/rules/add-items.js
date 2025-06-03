@@ -1,5 +1,6 @@
 const { isItemInProject, addItemToProject, getRecentItems } = require('../github/api');
 const { log } = require('../utils/log');
+const { processBoardItemRules } = require('./processors/board-items');
 
 /**
  * Implementation of Rule Set 1: Which Items are Added to the Project Board?
@@ -27,6 +28,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
       const itemIdentifier = `${item.__typename} #${item.number} (${item.repository.nameWithOwner})`;
       log.info(`\n🔍 Processing: ${itemIdentifier}`, true);
       log.info(`  ├─ Author: ${item.author?.login || 'unknown'}`, true);
+      log.info(`  ├─ Repository: ${item.repository.nameWithOwner}`, true);
       log.info(`  └─ Assignees: ${item.assignees?.nodes?.map(a => a.login).join(', ') || 'none'}\n`, true);
 
       // Log qualifying conditions
@@ -41,9 +43,9 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         log.info(`  └─ Assigned to ${monitoredUser}? ${isAssignedToUser ? '✓ Yes' : '✗ No'}\n`, true);
       }
       
-      // Check if we should add this item based on rules
-      const boardActions = processBoardItemRules(item, { monitoredUser });
-      const shouldAdd = boardActions.length > 0;
+      // Check if we should process this item based on rules
+      const boardActions = await processBoardItemRules(item, { monitoredUser });
+      const shouldProcess = boardActions.length > 0;
       const addReason = item.__typename === 'PullRequest'
         ? isAuthoredByUser 
           ? 'PR is authored by monitored user'
@@ -56,7 +58,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
           ? 'Issue is in a monitored repository'
           : 'Issue does not meet any criteria';
       
-      if (!shouldAdd) {
+      if (!shouldProcess) {
         skippedItems.push({
           type: item.__typename,
           number: item.number,
@@ -67,41 +69,47 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         continue;
       }
 
-      // Then check if already in project
+      // Check if in project and get project item ID
       log.info('  Checking project board status...', true);
-      const { isInProject } = await isItemInProject(item.id, projectId);
+      const { isInProject, projectItemId: existingItemId } = await isItemInProject(item.id, projectId);
+      let projectItemId = existingItemId;
       
-      if (isInProject) {
-        skippedItems.push({
-          type: item.__typename,
-          number: item.number,
-          repo: item.repository.nameWithOwner,
-          reason: 'Already in project board'
-        });
-        log.info('  ℹ Status: Already in project board - no action needed\n', true);
-        continue;
+      // Process all board actions
+      log.info('\n  Processing board actions:', true);
+      for (const action of boardActions) {
+        if (isInProject && action.action === 'add_to_board') {
+          log.info(`    • Skipping add_to_board - Already in project board`, true);
+          continue;
+        }
+        
+        // If we need to add to board and item isn't in project yet
+        if (action.action === 'add_to_board' && !isInProject) {
+          log.info('  ✨ Action Required: Add to project board', true);
+          projectItemId = await addItemToProject(item.id, projectId);
+        }
+        
+        log.info(`    • Action: ${action.action}`, true);
+        log.info(`      Parameters: ${JSON.stringify(action.params)}`, true);
       }
 
-      log.info('  ✨ Action Required: Add to project board', true);
-      log.info(`     Reason: ${addReason}`, true);        // Add item to project since it meets criteria and isn't already there
-      const projectItemId = await addItemToProject(item.id, projectId);
-      
       addedItems.push({
         type: item.__typename,
         __typename: item.__typename,  // Preserve the typename for columns.js
         number: item.number,
         repo: item.repository.nameWithOwner,
-        repository: item.repository, // <-- Add this line
+        repository: item.repository,
         reason: addReason,
         id: item.id,
         projectItemId: projectItemId,
         author: item.author  // Pass author info for assignee rules
       });
-      log.info('  ✓ Result: Successfully added to project board\n', true);
+
+      log.info('  ✓ Successfully processed board actions\n', true);
 
     } catch (error) {
       log.error(`Failed to process ${item.__typename} #${item.number}: ${error.message}`);
       log.debug(`Error details: ${error.stack}`);
+
       // If this is an authentication error, stop processing
       if (error.message.includes('Bad credentials') || error.message.includes('Not authenticated')) {
         throw new Error('GitHub authentication failed. Please check GH_TOKEN environment variable.');
@@ -115,7 +123,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
   log.info(`Total items processed: ${items.length}`, true);
   
   if (addedItems.length > 0) {
-    log.info('\n✓ Items Added:', true);
+    log.info('\n✓ Items Added/Updated:', true);
     addedItems.forEach(item => {
       log.info(`  • ${item.type} #${item.number} [${item.repo}]`, true);
       log.info(`    └─ ${item.reason}`, true);
@@ -133,6 +141,40 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
   log.info('\n━━━━━━━━━━━━━━━━━━━\n', true);
 
   return { addedItems, skippedItems };
+}
+
+/**
+ * Add an item to the project board based on requirements
+ * @param {Object} item - The issue or PR to potentially add
+ * @param {string} projectId - The project board ID
+ * @param {Object} context - Additional context (monitoredUser, repos, etc)
+ * @returns {Promise<{added: boolean, projectItemId?: string}>} Whether item was added and its ID
+ */
+async function processItemForProject(item, projectId, context) {
+  // Skip if already processed
+  if (context.processedIds.has(item.id)) {
+    return { added: false, reason: 'Already processed' };
+  }
+  context.processedIds.add(item.id);
+
+  // Check if it should be added based on requirements
+  if (!shouldAddItemToProject(item, context.monitoredUser, context.monitoredRepos)) {
+    return { added: false, reason: 'Does not match add criteria' };
+  }
+
+  // Check if already in project
+  const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
+  if (isInProject) {
+    return { added: false, projectItemId, reason: 'Already in project' };
+  }
+
+  // Add to project
+  const newProjectItemId = await addItemToProject(item.id, projectId);
+  return { 
+    added: true, 
+    projectItemId: newProjectItemId,
+    reason: `Added as ${item.__typename} from ${item.repository.nameWithOwner}`
+  };
 }
 
 /**
@@ -175,40 +217,6 @@ function shouldAddItemToProject(item, monitoredUser, monitoredRepos) {
 
   log.debug(`${item.__typename} #${item.number} does not meet any criteria for inclusion`);
   return false;
-}
-
-/**
- * Add an item to the project board based on requirements
- * @param {Object} item - The issue or PR to potentially add
- * @param {string} projectId - The project board ID
- * @param {Object} context - Additional context (monitoredUser, repos, etc)
- * @returns {Promise<{added: boolean, projectItemId?: string}>} Whether item was added and its ID
- */
-async function processItemForProject(item, projectId, context) {
-  // Skip if already processed
-  if (context.processedIds.has(item.id)) {
-    return { added: false, reason: 'Already processed' };
-  }
-  context.processedIds.add(item.id);
-
-  // Check if it should be added based on requirements
-  if (!shouldAddItemToProject(item, context.monitoredUser, context.monitoredRepos)) {
-    return { added: false, reason: 'Does not match add criteria' };
-  }
-
-  // Check if already in project
-  const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
-  if (isInProject) {
-    return { added: false, projectItemId, reason: 'Already in project' };
-  }
-
-  // Add to project
-  const newProjectItemId = await addItemToProject(item.id, projectId);
-  return { 
-    added: true, 
-    projectItemId: newProjectItemId,
-    reason: `Added as ${item.__typename} from ${item.repository.nameWithOwner}`
-  };
 }
 
 // Export all functions for use in tests and main app

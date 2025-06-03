@@ -226,8 +226,11 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
  * @returns {Promise<{changed: boolean, assignees: string[], reason: string}>}
  */
 async function processAssignees(item, projectId, itemId) {
+  log.info(`\nProcessing assignees for ${item.__typename || item.type} #${item.number}:`, true);
+
   // Get current assignees in project
   const currentAssignees = await getItemAssignees(projectId, itemId);
+  log.info(`  • Current assignees in project: ${currentAssignees.join(', ') || 'none'}`, true);
 
   // For PRs authored by monitored user, ensure they are assigned
   // Support both GraphQL objects (item.__typename) and REST API objects (item.type)
@@ -271,9 +274,13 @@ async function processAssignees(item, projectId, itemId) {
   };
 }
 
-module.exports = {
+const moduleExports = {
   processAssignees,
   getItemAssignees,
   setItemAssignees,
   getItemDetails
 };
+
+console.log('Exporting from assignees.js:', Object.keys(moduleExports));
+
+module.exports = moduleExports;

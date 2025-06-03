@@ -1,6 +1,9 @@
 const { log } = require('./log');
-const { getItemColumn, getItemAssignees, isItemInProject } = require('../github/api');
+const { getItemColumn, isItemInProject } = require('../github/api');
 const { getItemSprint } = require('../rules/sprints');
+const assigneesModule = require('../rules/assignees');
+console.log('Imported assignees module:', Object.keys(assigneesModule));
+const { getItemAssignees } = assigneesModule;
 const { StateChangeTracker } = require('./state-changes');
 const { VerificationProgress } = require('./verification-progress');
 
@@ -72,10 +75,16 @@ class StateVerifier {
   static async retryWithTracking(item, type, operation, description) {
     const MAX_RETRIES = 3;
     let lastError;
+    let lastState = {}; // Track the last known state
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         const result = await operation(attempt);
+        // Preserve previous state values if new ones aren't provided
+        lastState = {
+          ...lastState,
+          ...(typeof result === 'object' ? result : {})
+        };
         return result;
       } catch (error) {
         lastError = error;
@@ -92,7 +101,7 @@ class StateVerifier {
         }
       }
     }
-    
+
     throw new Error(`Failed to verify ${description} after ${MAX_RETRIES} attempts: ${lastError.message}`);
   }
 
@@ -241,9 +250,9 @@ Current:  "${currentColumn}"`);
       async (attempt) => {
         const apiStart = Date.now();
         const currentState = {
-          column: await getItemColumn(projectId, item.projectItemId),
-          sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId,
-          assignees: await getItemAssignees(projectId, item.projectItemId)
+          column: (await getItemColumn(projectId, item.projectItemId)) || 'None',
+          sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId || 'None',
+          assignees: await getItemAssignees(projectId, item.projectItemId) || []
         };
         this.progress.recordApiTiming('getItemState', Date.now() - apiStart);
 

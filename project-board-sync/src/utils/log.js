@@ -57,14 +57,22 @@ class Logger {
    * @param {Object} state The current state of the item
    */
   logState(itemId, context, state) {
+    // Format state values to avoid undefined
+    const formattedState = {};
+    for (const [key, value] of Object.entries(state)) {
+      formattedState[key] = value === undefined ? 'None' : 
+                           Array.isArray(value) && value.length === 0 ? [] :
+                           value === null ? 'None' : value;
+    }
+
     const entry = {
       timestamp: new Date(),
       itemId,
       context,
-      state
+      state: formattedState
     };
     this.logs.states.push(entry);
-    console.log(`STATE [${context}] Item ${itemId}:`, state);
+    console.log(`STATE [${context}] Item ${itemId}:`, formattedState);
   }
 
   /**

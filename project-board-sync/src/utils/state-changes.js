@@ -6,6 +6,7 @@ class StateChangeTracker {
     this.changes = new Map();
     this.startTimes = new Map();
     this.errors = new Map();
+    this.currentState = new Map(); // Track current state for each item
     this.timingStats = {
       totalDuration: 0,
       verificationCounts: {},
@@ -21,6 +22,10 @@ class StateChangeTracker {
     const key = `${item.type}#${item.number}`;
     this.startTimes.set(key, Date.now());
     this.changes.set(key, []);
+    // Initialize state if not exists
+    if (!this.currentState.has(key)) {
+      this.currentState.set(key, {});
+    }
   }
 
   /**
@@ -29,17 +34,30 @@ class StateChangeTracker {
   recordChange(item, type, before, after, attemptCount = 1) {
     const key = `${item.type}#${item.number}`;
     const changes = this.changes.get(key) || [];
+    const currentState = this.currentState.get(key) || {};
+    
+    // Merge the new state with current state
+    const mergedAfter = {
+      ...currentState,
+      ...after
+    };
+    
+    // Update current state
+    this.currentState.set(key, mergedAfter);
     
     changes.push({
       type,
       timestamp: new Date(),
-      before,
-      after,
+      before: { ...currentState, ...before },
+      after: mergedAfter,
       attemptCount,
       duration: Date.now() - this.startTimes.get(key)
     });
 
     this.changes.set(key, changes);
+    
+    // Update timing stats
+    this.updateTimingStats(type, changes[changes.length - 1].duration, attemptCount);
   }
 
   /**

@@ -1,24 +1,64 @@
 const { loadBoardRules } = require('../../config/board-rules');
+const { log } = require('../../utils/log');
 
 /**
  * Process rules for adding items to the project board
  * @param {Object} item PR or Issue to process
- * @returns {Array<{action: string, params: Object}>} List of actions to take
+ * @returns {Promise<Array<{action: string, params: Object}>>} List of actions to take
  */
-function processBoardItemRules(item, context = {}) {
-    const config = loadBoardRules(context);
+async function processBoardItemRules(item, context = {}) {
+    const config = await loadBoardRules(context);
     const rules = config.rules.board_items;
     const actions = [];
+    
+    log.info(`\nProcessing rules for ${item.__typename} #${item.number}:`, true);
+    log.info(`  • Author: ${item.author?.login || 'unknown'}`, true);
+    log.info(`  • Repository: ${item.repository?.nameWithOwner}`, true);
+    log.info(`  • Monitored user: ${context.monitoredUser}`, true);
 
     for (const rule of rules) {
-        if (matchesCondition(item, rule.trigger, config) && !skipRule(item, rule.skip_if)) {
+        log.info(`\n  Checking rule: ${rule.name}`, true);
+        log.info(`    • Trigger: ${rule.trigger.type} with condition "${rule.trigger.condition}"`, true);
+        
+        const matches = matchesCondition(item, rule.trigger, config);        
+        log.info(`    • Matches condition? ${matches ? '✓ Yes' : '✗ No'}`, true);
+
+        if (matches) {
             // Handle both single actions and action arrays
             const ruleActions = Array.isArray(rule.action) ? rule.action : [rule.action];
+            log.info(`    • Actions to process: ${JSON.stringify(ruleActions)}`, true);
+            
             for (const action of ruleActions) {
-                actions.push({
-                    action: action,
-                    params: { item }
-                });
+                if (typeof action === 'string') {
+                    const [actionName, actionParam] = action.split(': ');
+                    log.info(`      Processing action: ${actionName} with param ${actionParam}`, true);
+
+                    // Only skip add_to_board action if already in project
+                    if (actionName === 'add_to_board' && skipRule(item, rule.skip_if)) {
+                        log.info(`      ⚠ Skipping add_to_board action - already in project`, true);
+                        continue;
+                    }
+
+                    actions.push({
+                        action: actionName,
+                        params: { 
+                            item,
+                            [actionName === 'set_assignee' ? 'assignee' : 'param']: actionParam
+                        }
+                    });
+                } else {
+                    // For non-string actions (just add_to_board), apply skip rule
+                    if (action === 'add_to_board' && skipRule(item, rule.skip_if)) {
+                        log.info(`      ⚠ Skipping add_to_board action - already in project`, true);
+                        continue;
+                    }
+
+                    log.info(`      Processing action: ${action}`, true);
+                    actions.push({
+                        action: action,
+                        params: { item }
+                    });
+                }
             }
         }
     }

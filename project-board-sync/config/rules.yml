@@ -48,21 +48,21 @@ rules:
         type: "PR"
         condition: "column = None"
       action: "set_column: Active"
-      skip_if: "column != None"
+      skip_if: "Column=Any already set"
 
     - name: "PR New Column Rule"
       trigger:
         type: "PR"
         condition: "column = New"
       action: "set_column: Active"
-      skip_if: "column not in [None, New]"
+      skip_if: "Column=Any except New"
 
     - name: "Issue No Column Rule"
       trigger:
         type: "Issue"
         condition: "column = None"
       action: "set_column: New"
-      skip_if: "column != None"
+      skip_if: "Column=Any already set"
 
   # Rules for sprint management
   sprints:
