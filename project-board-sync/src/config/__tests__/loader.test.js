@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const ConfigLoader = require('../loader');
+const { ConfigLoader } = require('../loader');
 
 test('ConfigLoader', async (t) => {
   await t.test('loads valid config from rules.yml', async () => {
