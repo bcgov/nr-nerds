@@ -41,8 +41,9 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         log.info(`  └─ Assigned to ${monitoredUser}? ${isAssignedToUser ? '✓ Yes' : '✗ No'}\n`, true);
       }
       
-      // First check if we should add this item based on rules
-      const shouldAdd = shouldAddItemToProject(item, monitoredUser, monitoredRepos);
+      // Check if we should add this item based on rules
+      const boardActions = processBoardItemRules(item, { monitoredUser });
+      const shouldAdd = boardActions.length > 0;
       const addReason = item.__typename === 'PullRequest'
         ? isAuthoredByUser 
           ? 'PR is authored by monitored user'

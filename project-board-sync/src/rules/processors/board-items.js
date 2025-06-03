@@ -5,17 +5,21 @@ const { loadBoardRules } = require('../../config/board-rules');
  * @param {Object} item PR or Issue to process
  * @returns {Array<{action: string, params: Object}>} List of actions to take
  */
-function processBoardItemRules(item) {
-    const config = loadBoardRules();
+function processBoardItemRules(item, context = {}) {
+    const config = loadBoardRules(context);
     const rules = config.rules.board_items;
     const actions = [];
 
     for (const rule of rules) {
         if (matchesCondition(item, rule.trigger, config) && !skipRule(item, rule.skip_if)) {
-            actions.push({
-                action: rule.action,
-                params: { item }
-            });
+            // Handle both single actions and action arrays
+            const ruleActions = Array.isArray(rule.action) ? rule.action : [rule.action];
+            for (const action of ruleActions) {
+                actions.push({
+                    action: action,
+                    params: { item }
+                });
+            }
         }
     }
 
@@ -40,9 +44,9 @@ function matchesCondition(item, trigger, ruleConfig) {
     // Parse and evaluate condition
     switch (trigger.condition) {
         case 'author = monitored_user':
-            return item.author?.login === process.env.GITHUB_AUTHOR;
+            return item.author?.login === ruleConfig.monitoredUser;
         case 'assignee = monitored_user':
-            return item.assignees?.nodes?.some(a => a.login === process.env.GITHUB_AUTHOR);
+            return item.assignees?.nodes?.some(a => a.login === ruleConfig.monitoredUser);
         case 'repository in monitored_repos':
             const repoName = item.repository?.nameWithOwner?.split('/')[1];
             if (!repoName) return false;

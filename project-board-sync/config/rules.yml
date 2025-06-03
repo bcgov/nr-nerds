@@ -17,7 +17,7 @@ rules:
       trigger:
         type: "PR"
         condition: "author = monitored_user"
-      action: "add_to_board"
+      action: ["add_to_board", "set_assignee: author"]
       skip_if: "already_in_project"
 
     - name: "PR Assignee Rule" 
@@ -46,23 +46,23 @@ rules:
     - name: "PR No Column Rule"
       trigger:
         type: "PR"
-        condition: "Column=None"
+        condition: "column = None"
       action: "set_column: Active"
-      skip_if: "Column=Any already set"
+      skip_if: "column != None"
 
     - name: "PR New Column Rule"
       trigger:
         type: "PR"
-        condition: "Column=New"
+        condition: "column = New"
       action: "set_column: Active"
-      skip_if: "Column=Any except New"
+      skip_if: "column not in [None, New]"
 
     - name: "Issue No Column Rule"
       trigger:
         type: "Issue"
-        condition: "Column=None"
+        condition: "column = None"
       action: "set_column: New"
-      skip_if: "Column=Any already set"
+      skip_if: "column != None"
 
   # Rules for sprint management
   sprints:
