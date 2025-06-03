@@ -43,8 +43,8 @@ function matchesCondition(item, trigger) {
     
     if (trigger.condition.startsWith('column in')) {
         const allowedColumns = trigger.condition
-            .replace('column in [', '')
-            .replace(']', '')
+            .replace(/column in \[/g, '')
+            .replace(/\]/g, '')
             .split(',')
             .map(c => c.trim());
         return allowedColumns.includes(column);
