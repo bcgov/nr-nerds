@@ -22,6 +22,9 @@ const fieldIdCache = new Map();
 // Cache for column option IDs
 const columnOptionIdCache = new Map();
 
+// Cache project items during a single run
+const projectItemsCache = new Map();
+
 /**
  * Get the column option ID for a given column name
  * @param {string} projectId - The project board ID
@@ -29,7 +32,7 @@ const columnOptionIdCache = new Map();
  * @returns {Promise<string|null>} The column option ID or null if not found
  */
 async function getColumnOptionId(projectId, columnName) {
-  // Create a composite cache key
+  // Create a composite cache
   const cacheKey = `${projectId}:${columnName}`;
   
   // Check if we have this column option ID cached
@@ -74,6 +77,66 @@ async function getColumnOptionId(projectId, columnName) {
 }
 
 /**
+ * Get all items from a project board with caching
+ */
+async function getProjectItems(projectId) {
+  if (projectItemsCache.has(projectId)) {
+    return projectItemsCache.get(projectId);
+  }
+
+  const items = new Map();
+  let hasNextPage = true;
+  let endCursor = null;
+  let totalItems = 0;
+
+  while (hasNextPage && totalItems < 300) { // Safety limit
+    const result = await graphqlWithAuth(`
+      query($projectId: ID!, $cursor: String) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100, after: $cursor) {
+              nodes {
+                id
+                content {
+                  ... on PullRequest {
+                    id
+                  }
+                  ... on Issue {
+                    id
+                  }
+                }
+              }
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
+            }
+          }
+        }
+      }
+    `, {
+      projectId,
+      cursor: endCursor
+    });
+
+    const projectItems = result.node?.items?.nodes || [];
+    totalItems += projectItems.length;
+    
+    for (const item of projectItems) {
+      if (item.content?.id) {
+        items.set(item.content.id, item.id);
+      }
+    }
+
+    hasNextPage = result.node?.items?.pageInfo?.hasNextPage || false;
+    endCursor = result.node?.items?.pageInfo?.endCursor;
+  }
+
+  projectItemsCache.set(projectId, items);
+  return items;
+}
+
+/**
  * Check if an item is already in the project board
  * @param {string} nodeId - The node ID of the item (PR or Issue)
  * @param {string} projectId - The project board ID
@@ -81,66 +144,20 @@ async function getColumnOptionId(projectId, columnName) {
  */
 async function isItemInProject(nodeId, projectId) {
   try {
-    let hasNextPage = true;
-    let endCursor = null;
-    let totalItems = 0;
+    const projectItems = await getProjectItems(projectId);
+    const projectItemId = projectItems.get(nodeId);
 
-    while (hasNextPage) {
-      const result = await graphqlWithAuth(`
-        query($projectId: ID!, $cursor: String) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              items(first: 100, after: $cursor) {
-                nodes {
-                  id
-                  content {
-                    ... on PullRequest {
-                      id
-                    }
-                    ... on Issue {
-                      id
-                    }
-                  }
-                }
-                pageInfo {
-                  hasNextPage
-                  endCursor
-                }
-              }
-            }
-          }
-        }
-      `, {
-        projectId,
-        cursor: endCursor
-      });
-
-      const projectItems = result.node?.items?.nodes || [];
-      totalItems += projectItems.length;
-      
-      const matchingItem = projectItems.find(item => item.content?.id === nodeId);
-      if (matchingItem) {
-        log.info(`Found matching item with project item ID: ${matchingItem.id} (searched ${totalItems} items)`);
-        return {
-          isInProject: true,
-          projectItemId: matchingItem.id
-        };
-      }
-
-      hasNextPage = result.node?.items?.pageInfo?.hasNextPage || false;
-      endCursor = result.node?.items?.pageInfo?.endCursor;
-
-      // If we haven't found it and there are more pages, continue searching
-      if (hasNextPage) {
-        log.info(`Checked ${totalItems} items, continuing to next page...`);
-      }
+    if (projectItemId) {
+      return {
+        isInProject: true,
+        projectItemId
+      };
     }
 
-    log.info(`Item not found after checking ${totalItems} items`);
     return { isInProject: false };
   } catch (error) {
     log.error(`Failed to check if item ${nodeId} is in project: ${error.message}`);
-    return { isInProject: false };
+    throw error;
   }
 }
 
