@@ -50,22 +50,26 @@ class StateVerifier {
     
     return retry(async (attempt) => {
       const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
+      const state = { inProject: true, projectItemId };
       
-      this.tracker.recordChange(
-        item,
-        'Project Addition',
-        { inProject: false },
-        { inProject: true, projectItemId },
-        attempt
-      );
+      // Start tracking with initial state
+      if (attempt === 1) {
+        this.tracker.recordChange(
+          item,
+          'Project Addition',
+          { inProject: false },
+          state,
+          attempt
+        );
+      }
 
       if (!isInProject) {
         throw new Error(`Item ${item.type} #${item.number} was not added to project`);
       }
 
       log.info(`✓ ${item.type} #${item.number} verified in project (attempt ${attempt}/3)`);
-      log.logState(item.id, 'Addition Verified', { inProject: true, projectItemId });
-      return projectItemId;
+      log.logState(item.id, 'Addition Verified', state);
+      return state;
     }, `project addition for ${item.type} #${item.number}`);
   }
 

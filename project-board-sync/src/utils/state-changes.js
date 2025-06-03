@@ -34,22 +34,22 @@ class StateChangeTracker {
   recordChange(item, type, before, after, attemptCount = 1) {
     const key = `${item.type}#${item.number}`;
     const changes = this.changes.get(key) || [];
-    const currentState = this.currentState.get(key) || {};
     
-    // Merge the new state with current state
-    const mergedAfter = {
+    // Get the last known state
+    const lastChange = changes[changes.length - 1];
+    const currentState = lastChange ? lastChange.after : {};
+    
+    // Create new state by merging current with after
+    const newState = {
       ...currentState,
       ...after
     };
     
-    // Update current state
-    this.currentState.set(key, mergedAfter);
-    
     changes.push({
       type,
       timestamp: new Date(),
-      before: { ...currentState, ...before },
-      after: mergedAfter,
+      before: attemptCount === 1 ? before : currentState,
+      after: newState,
       attemptCount,
       duration: Date.now() - this.startTimes.get(key)
     });
