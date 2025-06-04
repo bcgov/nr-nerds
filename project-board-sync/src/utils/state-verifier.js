@@ -5,11 +5,36 @@ const assigneesModule = require('../rules/assignees');
 const { getItemAssignees } = assigneesModule;
 const { StateChangeTracker } = require('./state-changes');
 const { VerificationProgress } = require('./verification-progress');
+const { StateTransitionValidator } = require('./state-transition-validator');
 
 class StateVerifier {
   static tracker = new StateChangeTracker();
   static progress = new VerificationProgress();
   static stateMap = new Map();
+  static transitionValidator = null;
+
+  static getTransitionValidator() {
+    if (!this.transitionValidator) {
+      this.transitionValidator = new StateTransitionValidator();
+    }
+    return this.transitionValidator;
+  }
+
+  static initializeTransitionRules(rules) {
+    if (!rules.columns) return;
+
+    for (const rule of rules.columns) {
+      if (rule.validTransitions) {
+        for (const transition of rule.validTransitions) {
+          this.getTransitionValidator().addColumnTransitionRule(
+            transition.from,
+            transition.to,
+            transition.conditions
+          );
+        }
+      }
+    }
+  }
 
   static getState(item) {
     const key = `${item.type}#${item.number}`;
@@ -77,6 +102,17 @@ class StateVerifier {
 
   static async verifyColumn(item, projectId, expectedColumn) {
     const beforeState = this.getState(item);
+
+    // Validate the transition before attempting it
+    const validationResult = this.getTransitionValidator().validateColumnTransition(
+      beforeState.column,
+      expectedColumn,
+      { item }
+    );
+
+    if (!validationResult.valid) {
+      throw new Error(`Invalid column transition: ${validationResult.reason}`);
+    }
 
     return this.retryWithTracking(
       item,
@@ -165,6 +201,20 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
     this.progress.startOperation('Complete Verification', itemRef, totalSteps);
     
     const beforeState = this.getState(item);
+
+    // Validate complete state transition
+    const validationResult = this.getTransitionValidator().validateStateTransition(
+      item,
+      beforeState,
+      expectedState,
+      { maxAssignees: 5 } // Example limit
+    );
+
+    if (!validationResult.valid) {
+      throw new Error(
+        `Invalid state transition:\n${validationResult.errors.map(e => `  - ${e}`).join('\n')}`
+      );
+    }
 
     return this.retryWithTracking(
       item,
@@ -289,6 +339,9 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
     }
     if (this.progress) {
       this.progress.printProgressReport();
+    }
+    if (this.transitionValidator) {
+      this.getTransitionValidator().printStats();
     }
   }
 

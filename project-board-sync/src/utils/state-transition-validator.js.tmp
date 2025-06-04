@@ -1,0 +1,21 @@
+const { log } = require('./log');
+const { StateChangeTracker } = require('./state-changes');
+
+class StateTransitionValidator {
+  constructor() {
+    this.tracker = new StateChangeTracker();
+    this.columnRules = new Map();
+  }
+
+  addColumnTransitionRule(from, to, conditions = []) {
+    const sources = Array.isArray(from) ? from : [from];
+    for (const source of sources) {
+      if (!this.columnRules.has(source)) {
+        this.columnRules.set(source, []);
+      }
+      this.columnRules.get(source).push({ to, conditions });
+    }
+  }
+}
+
+module.exports = { StateTransitionValidator };
