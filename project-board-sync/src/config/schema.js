@@ -25,7 +25,34 @@ const schema = {
         },
         columns: {
           type: 'array',
-          items: { $ref: '#/definitions/rule' }
+          items: { 
+            allOf: [
+              { $ref: '#/definitions/rule' },
+              {
+                type: 'object',
+                required: ['validTransitions'],
+                properties: {
+                  validTransitions: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      required: ['from', 'to', 'conditions'],
+                      properties: {
+                        from: { 
+                          oneOf: [
+                            { type: 'string' },
+                            { type: 'array', items: { type: 'string' } }
+                          ]
+                        },
+                        to: { type: 'string' },
+                        conditions: { type: 'array', items: { type: 'string' } }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
         },
         sprints: {
           type: 'array',
@@ -78,7 +105,22 @@ const schema = {
                 }
               ]
             },
-            condition: { type: 'string' }
+            condition: { type: 'string' },
+            stateRequirements: {
+              type: 'object',
+              properties: {
+                column: { type: 'string' },
+                sprint: { type: 'string' },
+                assignees: {
+                  type: 'array',
+                  items: { type: 'string' }
+                },
+                labels: {
+                  type: 'array',
+                  items: { type: 'string' }
+                }
+              }
+            }
           }
         },
         action: {

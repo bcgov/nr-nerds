@@ -5,11 +5,36 @@ const assigneesModule = require('../rules/assignees');
 const { getItemAssignees } = assigneesModule;
 const { StateChangeTracker } = require('./state-changes');
 const { VerificationProgress } = require('./verification-progress');
+const { StateTransitionValidator } = require('./state-transition-validator');
 
 class StateVerifier {
   static tracker = new StateChangeTracker();
   static progress = new VerificationProgress();
   static stateMap = new Map();
+  static transitionValidator = null;
+
+  static getTransitionValidator() {
+    if (!this.transitionValidator) {
+      this.transitionValidator = new StateTransitionValidator();
+    }
+    return this.transitionValidator;
+  }
+
+  static initializeTransitionRules(rules) {
+    if (!rules.columns) return;
+
+    for (const rule of rules.columns) {
+      if (rule.validTransitions) {
+        for (const transition of rule.validTransitions) {
+          this.getTransitionValidator().addColumnTransitionRule(
+            transition.from,
+            transition.to,
+            transition.conditions
+          );
+        }
+      }
+    }
+  }
 
   static getState(item) {
     const key = `${item.type}#${item.number}`;
@@ -41,6 +66,13 @@ class StateVerifier {
       item,
       'Project Addition',
       async (attempt) => {
+        // Add exponential backoff delay between retries
+        if (attempt > 1) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          log.info(`Retry ${attempt}: Waiting ${delay}ms before checking project status...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
         const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
         const afterState = this.updateState(item, { 
           inProject: true, 
@@ -56,7 +88,9 @@ class StateVerifier {
         );
 
         if (!isInProject) {
-          throw new Error(`Item ${item.type} #${item.number} was not added to project`);
+          const error = new Error(`Item ${item.type} #${item.number} was not added to project`);
+          error.isRetryable = true; // Mark as retryable for eventual consistency
+          throw error;
         }
 
         log.info(`✓ ${item.type} #${item.number} verified in project (attempt ${attempt}/3)`);
@@ -68,6 +102,17 @@ class StateVerifier {
 
   static async verifyColumn(item, projectId, expectedColumn) {
     const beforeState = this.getState(item);
+
+    // Validate the transition before attempting it
+    const validationResult = this.getTransitionValidator().validateColumnTransition(
+      beforeState.column,
+      expectedColumn,
+      { item }
+    );
+
+    if (!validationResult.valid) {
+      throw new Error(`Invalid column transition: ${validationResult.reason}`);
+    }
 
     return this.retryWithTracking(
       item,
@@ -104,9 +149,25 @@ Current: "${currentColumn}"`);
       item,
       'Assignee Verification',
       async (attempt) => {
-        const currentAssignees = await getItemAssignees(projectId, item.projectItemId);
-        const afterState = this.updateState(item, { assignees: currentAssignees });
+        // Get assignees from both project board and Issue/PR
+        const projectAssignees = await getItemAssignees(projectId, item.projectItemId);
+        const itemDetails = await getItemDetails(item.projectItemId);
+        
+        if (!itemDetails || !itemDetails.content) {
+          throw new Error(`Could not get details for item ${item.projectItemId}`);
+        }
 
+        // Get Issue/PR assignees via REST API
+        const { repository, number } = itemDetails.content;
+        const [owner, repo] = repository.nameWithOwner.split('/');
+        const issueOrPrData = itemDetails.type === 'PullRequest' 
+          ? await octokit.rest.pulls.get({ owner, repo, pull_number: number })
+          : await octokit.rest.issues.get({ owner, repo, issue_number: number });
+        
+        const repoAssignees = issueOrPrData.data.assignees.map(a => a.login);
+
+        // Verify both are in sync
+        const afterState = this.updateState(item, { assignees: projectAssignees });
         this.tracker.recordChange(
           item,
           'Assignee Verification',
@@ -115,13 +176,16 @@ Current: "${currentColumn}"`);
           attempt
         );
 
-        // Compare assignee lists
-        const missing = expectedAssignees.filter(a => !currentAssignees.includes(a));
-        const extra = currentAssignees.filter(a => !expectedAssignees.includes(a));
+        // Compare project board assignees with expected
+        const missingInProject = expectedAssignees.filter(a => !projectAssignees.includes(a));
+        const extraInProject = projectAssignees.filter(a => !expectedAssignees.includes(a));
         
-        if (missing.length > 0 || extra.length > 0) {
+        // Compare Issue/PR assignees with expected
+        const missingInRepo = expectedAssignees.filter(a => !repoAssignees.includes(a));
+        const extraInRepo = repoAssignees.filter(a => !expectedAssignees.includes(a));          if (missingInProject.length > 0 || extraInProject.length > 0 || 
+            missingInRepo.length > 0 || extraInRepo.length > 0) {
           throw new Error(`Assignee mismatch for ${item.type} #${item.number}:
-${missing.length > 0 ? `Missing: ${missing.join(', ')}\n` : ''}${extra.length > 0 ? `Extra: ${extra.join(', ')}` : ''}`);
+${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.join(', ')}\n` : ''}${extraInProject.length > 0 ? `Extra in project board: ${extraInProject.join(', ')}\n` : ''}${missingInRepo.length > 0 ? `Missing in Issue/PR: ${missingInRepo.join(', ')}\n` : ''}${extraInRepo.length > 0 ? `Extra in Issue/PR: ${extraInRepo.join(', ')}` : ''}`);
         }
 
         log.info(`✓ Assignees verified for ${item.type} #${item.number} (attempt ${attempt}/3)`);
@@ -137,6 +201,20 @@ ${missing.length > 0 ? `Missing: ${missing.join(', ')}\n` : ''}${extra.length > 
     this.progress.startOperation('Complete Verification', itemRef, totalSteps);
     
     const beforeState = this.getState(item);
+
+    // Validate complete state transition
+    const validationResult = this.getTransitionValidator().validateStateTransition(
+      item,
+      beforeState,
+      expectedState,
+      { maxAssignees: 5 } // Example limit
+    );
+
+    if (!validationResult.valid) {
+      throw new Error(
+        `Invalid state transition:\n${validationResult.errors.map(e => `  - ${e}`).join('\n')}`
+      );
+    }
 
     return this.retryWithTracking(
       item,
@@ -261,6 +339,9 @@ ${missing.length > 0 ? `Missing: ${missing.join(', ')}\n` : ''}${extra.length > 
     }
     if (this.progress) {
       this.progress.printProgressReport();
+    }
+    if (this.transitionValidator) {
+      this.getTransitionValidator().printStats();
     }
   }
 

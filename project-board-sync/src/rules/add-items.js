@@ -13,6 +13,8 @@ const { processBoardItemRules } = require('./processors/board-items');
  * | PR        | Found in monitored repository | Add to project board | Already in project |
  * | Issue     | Found in monitored repository | Add to project board | Already in project |
  */
+const VERIFY_DELAY_MS = 2000; // 2 second delay for eventual consistency
+
 async function processAddItems({ org, repos, monitoredUser, projectId }) {
   log.info(`Starting item processing for user ${monitoredUser}`);
   const items = await getRecentItems(org, repos, monitoredUser);
@@ -86,6 +88,10 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         if (action.action === 'add_to_board' && !isInProject) {
           log.info('  ✨ Action Required: Add to project board', true);
           projectItemId = await addItemToProject(item.id, projectId);
+          
+          // Add delay after adding to project to handle eventual consistency
+          log.info('  ⏳ Waiting for GitHub to process the addition...', true);
+          await new Promise(resolve => setTimeout(resolve, VERIFY_DELAY_MS));
         }
         
         log.info(`    • Action: ${action.action}`, true);
