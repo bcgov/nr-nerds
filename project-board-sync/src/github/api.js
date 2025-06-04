@@ -144,17 +144,44 @@ async function getProjectItems(projectId) {
  */
 async function isItemInProject(nodeId, projectId) {
   try {
-    const projectItems = await getProjectItems(projectId);
+    // Force cache invalidation for recently added items
+    const projectItems = await getProjectItems(projectId, true);
     const projectItemId = projectItems.get(nodeId);
 
-    if (projectItemId) {
-      return {
-        isInProject: true,
-        projectItemId
-      };
+    // Double check with a direct query if not found, to handle eventual consistency
+    if (!projectItemId) {
+      const result = await graphqlWithAuth(`
+        query($projectId: ID!, $nodeId: ID!) {
+          node(id: $projectId) {
+            ... on ProjectV2 {
+              items(first: 1, filter: { content: { id: { eq: $nodeId } } }) {
+                nodes {
+                  id
+                }
+              }
+            }
+          }
+        }
+      `, {
+        projectId,
+        nodeId
+      });
+
+      const directProjectItemId = result.node?.items?.nodes?.[0]?.id;
+      if (directProjectItemId) {
+        // Update cache with the found item
+        projectItems.set(nodeId, directProjectItemId);
+        return {
+          isInProject: true,
+          projectItemId: directProjectItemId
+        };
+      }
     }
 
-    return { isInProject: false };
+    return projectItemId ? {
+      isInProject: true,
+      projectItemId
+    } : { isInProject: false };
   } catch (error) {
     log.error(`Failed to check if item ${nodeId} is in project: ${error.message}`);
     throw error;

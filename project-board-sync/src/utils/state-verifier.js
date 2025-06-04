@@ -41,6 +41,13 @@ class StateVerifier {
       item,
       'Project Addition',
       async (attempt) => {
+        // Add exponential backoff delay between retries
+        if (attempt > 1) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          log.info(`Retry ${attempt}: Waiting ${delay}ms before checking project status...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        
         const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
         const afterState = this.updateState(item, { 
           inProject: true, 
@@ -56,7 +63,9 @@ class StateVerifier {
         );
 
         if (!isInProject) {
-          throw new Error(`Item ${item.type} #${item.number} was not added to project`);
+          const error = new Error(`Item ${item.type} #${item.number} was not added to project`);
+          error.isRetryable = true; // Mark as retryable for eventual consistency
+          throw error;
         }
 
         log.info(`✓ ${item.type} #${item.number} verified in project (attempt ${attempt}/3)`);
