@@ -104,9 +104,25 @@ Current: "${currentColumn}"`);
       item,
       'Assignee Verification',
       async (attempt) => {
-        const currentAssignees = await getItemAssignees(projectId, item.projectItemId);
-        const afterState = this.updateState(item, { assignees: currentAssignees });
+        // Get assignees from both project board and Issue/PR
+        const projectAssignees = await getItemAssignees(projectId, item.projectItemId);
+        const itemDetails = await getItemDetails(item.projectItemId);
+        
+        if (!itemDetails || !itemDetails.content) {
+          throw new Error(`Could not get details for item ${item.projectItemId}`);
+        }
 
+        // Get Issue/PR assignees via REST API
+        const { repository, number } = itemDetails.content;
+        const [owner, repo] = repository.nameWithOwner.split('/');
+        const issueOrPrData = itemDetails.type === 'PullRequest' 
+          ? await octokit.rest.pulls.get({ owner, repo, pull_number: number })
+          : await octokit.rest.issues.get({ owner, repo, issue_number: number });
+        
+        const repoAssignees = issueOrPrData.data.assignees.map(a => a.login);
+
+        // Verify both are in sync
+        const afterState = this.updateState(item, { assignees: projectAssignees });
         this.tracker.recordChange(
           item,
           'Assignee Verification',
@@ -115,11 +131,16 @@ Current: "${currentColumn}"`);
           attempt
         );
 
-        // Compare assignee lists
-        const missing = expectedAssignees.filter(a => !currentAssignees.includes(a));
-        const extra = currentAssignees.filter(a => !expectedAssignees.includes(a));
+        // Compare project board assignees with expected
+        const missingInProject = expectedAssignees.filter(a => !projectAssignees.includes(a));
+        const extraInProject = projectAssignees.filter(a => !expectedAssignees.includes(a));
         
-        if (missing.length > 0 || extra.length > 0) {
+        // Compare Issue/PR assignees with expected
+        const missingInRepo = expectedAssignees.filter(a => !repoAssignees.includes(a));
+        const extraInRepo = repoAssignees.filter(a => !expectedAssignees.includes(a));
+        
+        if (missingInProject.length > 0 || extraInProject.length > 0 || 
+            missingInRepo.length > 0 || extraInRepo.length > 0) {
           throw new Error(`Assignee mismatch for ${item.type} #${item.number}:
 ${missing.length > 0 ? `Missing: ${missing.join(', ')}\n` : ''}${extra.length > 0 ? `Extra: ${extra.join(', ')}` : ''}`);
         }

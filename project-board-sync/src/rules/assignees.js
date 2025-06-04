@@ -117,7 +117,7 @@ async function getItemAssignees(projectId, itemId) {
  * @returns {Promise<void>}
  */
 async function setItemAssignees(projectId, itemId, assigneeLogins) {
-  // First get the assignees field ID
+  // First get the project fields
   const result = await octokit.graphql(`
     query($projectId: ID!) {
       node(id: $projectId) {
@@ -125,6 +125,10 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
           fields(first: 20) {
             nodes {
               ... on ProjectV2Field {
+                id
+                name
+              }
+              ... on ProjectV2FieldCommon {
                 id
                 name
               }
@@ -181,7 +185,7 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
     
     log.info(`Setting assignees for ${repository.nameWithOwner}#${number} to: ${assigneeLogins.join(', ')}`, true);
     
-    // For a PR
+    // Update Issue/PR assignees
     if (itemDetails.type === 'PullRequest') {
       await octokit.rest.pulls.update({
         owner,
@@ -189,9 +193,7 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
         pull_number: number,
         assignees: assigneeLogins
       });
-    } 
-    // For an Issue
-    else {
+    } else {
       await octokit.rest.issues.update({
         owner,
         repo,
@@ -200,7 +202,36 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
       });
     }
     
-    log.info(`Successfully updated assignees for ${repository.nameWithOwner}#${number} using REST API`, true);
+    log.info(`Successfully updated Issue/PR assignees for ${repository.nameWithOwner}#${number}`, true);
+
+    // Update project board assignees
+    for (const userNodeId of userIdsResult) {
+      await octokit.graphql(`
+        mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $userId: ID!) {
+          updateProjectV2ItemFieldValue(
+            input: {
+              projectId: $projectId
+              itemId: $itemId
+              fieldId: $fieldId
+              value: { 
+                users: [$userId]
+              }
+            }
+          ) {
+            projectV2Item {
+              id
+            }
+          }
+        }
+      `, {
+        projectId,
+        itemId,
+        fieldId,
+        userId: userNodeId
+      });
+    }
+    
+    log.info(`Successfully updated project board assignees for ${repository.nameWithOwner}#${number}`, true);
   } catch (error) {
     log.error(`Failed to update assignees: ${error.message}`, true);
     throw new Error(`Failed to update assignees: ${error.message}`);
@@ -228,14 +259,28 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
 async function processAssignees(item, projectId, itemId) {
   log.info(`\nProcessing assignees for ${item.__typename || item.type} #${item.number}:`, true);
 
-  // Get current assignees in project
+  // Get current assignees from both project and Issue/PR
   const currentAssignees = await getItemAssignees(projectId, itemId);
   log.info(`  • Current assignees in project: ${currentAssignees.join(', ') || 'none'}`, true);
 
-  // For PRs authored by monitored user, ensure they are assigned
-  // Support both GraphQL objects (item.__typename) and REST API objects (item.type)
-  const isPullRequest = item.__typename === 'PullRequest' || item.type === 'PullRequest';
-  const authorLogin = item.author?.login || item.user?.login;
+  const itemDetails = await getItemDetails(itemId);
+  if (!itemDetails || !itemDetails.content) {
+    throw new Error(`Could not get details for item ${itemId}`);
+  }
+
+  const { repository, number } = itemDetails.content;
+  const [owner, repo] = repository.nameWithOwner.split('/');
+  const isPullRequest = itemDetails.type === 'PullRequest';
+  
+  // Get current Issue/PR assignees
+  const issueOrPrData = isPullRequest
+    ? await octokit.rest.pulls.get({ owner, repo, pull_number: number })
+    : await octokit.rest.issues.get({ owner, repo, issue_number: number });
+
+  const repoAssignees = issueOrPrData.data.assignees.map(a => a.login);
+  log.info(`  • Current assignees in Issue/PR: ${repoAssignees.join(', ') || 'none'}`, true);
+
+  const authorLogin = item.author?.login || item.user?.login || issueOrPrData.data.user.login;
   const monitoredUser = process.env.GITHUB_AUTHOR || (global.TEST_CONFIG && global.TEST_CONFIG.monitoredUser);
 
   if (isPullRequest && authorLogin === monitoredUser) {
@@ -243,9 +288,12 @@ async function processAssignees(item, projectId, itemId) {
     log.info(`  • Author: ${authorLogin}`, true);
     log.info(`  • Current assignees: ${currentAssignees.join(', ') || 'none'}`, true);
 
-    // Check if author is already assigned (in project board)
-    if (currentAssignees.includes(authorLogin)) {
-      log.info('  • Author already assigned - skipping', true);
+      // Check if author is already assigned in both places
+    const isAssignedInProject = currentAssignees.includes(authorLogin);
+    const isAssignedInRepo = repoAssignees.includes(authorLogin);
+
+    if (isAssignedInProject && isAssignedInRepo) {
+      log.info('  • Author already assigned everywhere - skipping', true);
       return {
         changed: false,
         assignees: currentAssignees,
