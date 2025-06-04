@@ -146,12 +146,10 @@ Current: "${currentColumn}"`);
         
         // Compare Issue/PR assignees with expected
         const missingInRepo = expectedAssignees.filter(a => !repoAssignees.includes(a));
-        const extraInRepo = repoAssignees.filter(a => !expectedAssignees.includes(a));
-        
-        if (missingInProject.length > 0 || extraInProject.length > 0 || 
+        const extraInRepo = repoAssignees.filter(a => !expectedAssignees.includes(a));          if (missingInProject.length > 0 || extraInProject.length > 0 || 
             missingInRepo.length > 0 || extraInRepo.length > 0) {
           throw new Error(`Assignee mismatch for ${item.type} #${item.number}:
-${missing.length > 0 ? `Missing: ${missing.join(', ')}\n` : ''}${extra.length > 0 ? `Extra: ${extra.join(', ')}` : ''}`);
+${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.join(', ')}\n` : ''}${extraInProject.length > 0 ? `Extra in project board: ${extraInProject.join(', ')}\n` : ''}${missingInRepo.length > 0 ? `Missing in Issue/PR: ${missingInRepo.join(', ')}\n` : ''}${extraInRepo.length > 0 ? `Extra in Issue/PR: ${extraInRepo.join(', ')}` : ''}`);
         }
 
         log.info(`✓ Assignees verified for ${item.type} #${item.number} (attempt ${attempt}/3)`);

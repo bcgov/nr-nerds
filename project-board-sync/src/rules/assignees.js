@@ -204,8 +204,22 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
     
     log.info(`Successfully updated Issue/PR assignees for ${repository.nameWithOwner}#${number}`, true);
 
+    // Get user node IDs from GitHub usernames
+    const userIds = await Promise.all(
+      assigneeLogins.map(async (login) => {
+        const result = await octokit.graphql(`
+          query($login: String!) {
+            user(login: $login) {
+              id
+            }
+          }
+        `, { login });
+        return result.user.id;
+      })
+    );
+
     // Update project board assignees
-    for (const userNodeId of userIdsResult) {
+    for (const userId of userIds) {
       await octokit.graphql(`
         mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $userId: ID!) {
           updateProjectV2ItemFieldValue(
@@ -227,7 +241,7 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
         projectId,
         itemId,
         fieldId,
-        userId: userNodeId
+        userId
       });
     }
     
