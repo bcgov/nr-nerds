@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test \"src/**/__tests__/*.test.js\""
+    "test": "node --test \"src/**/__tests__/*.test.js\"",
+    "test:state": "node --test test/state-verifier.test.js"
   },
   "dependencies": {
     "@octokit/graphql": "^9.0.0",
