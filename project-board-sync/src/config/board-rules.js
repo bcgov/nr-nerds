@@ -1,4 +1,4 @@
-const { ConfigLoader } = require('./loader');
+const ConfigLoader = require('./loader');
 const path = require('path');
 
 /**

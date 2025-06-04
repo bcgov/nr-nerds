@@ -30,4 +30,4 @@ class ConfigLoader {
   }
 }
 
-module.exports = { ConfigLoader };
+module.exports = ConfigLoader;

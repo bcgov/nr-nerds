@@ -1,6 +1,30 @@
 # Project Sync Requirements
 
-_Last updated: 2025-05-29_
+> **Migration Status:** These requirements are being migrated to `config/rules.yml`.
+> This document will be maintained until:
+> 1. All rules are verified in YAML configuration
+> 2. All behavior matches these requirements exactly
+> 3. Full test coverage confirms correct implementation
+> 
+> Do not delete this document until migration is complete and verified.
+
+## Migration Progress Tracking
+
+| Rule Set | Status | Verification | Notes |
+|----------|--------|--------------|-------|
+| Board Addition Rules | ⏳ In Progress | Partially Tested | PR/Issue rules migrated |
+| Column Rules | 🔄 Migrated | Needs Testing | All rules in YAML |
+| Sprint Rules | 🔄 Migrated | Needs Testing | Sprint logic transferred |
+| Linked Issue Rules | 🔄 Migrated | Needs Testing | Dependency rules moved |
+| Assignee Rules | ⏳ In Progress | Needs Testing | Author assignment pending |
+
+Legend:
+- ⏳ In Progress: Rule migration started
+- 🔄 Migrated: Rules transferred to YAML
+- ✅ Verified: Rules tested and confirmed working
+- ❌ Failed: Issues found in testing
+
+_Last updated: 2025-06-03_
 
 ## Overview
 This file is the single source of truth for all project board automation logic.
