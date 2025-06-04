@@ -18,10 +18,10 @@ async function processLinkedIssues(pullRequest, projectItemId, projectId, curren
   
   // Log PR initial state
   const prState = {
-    column: currentColumn,
-    assignees: assigneeNodes.map(a => a.login),
-    status: state,
-    merged
+    column: currentColumn || 'None',
+    assignees: assigneeNodes?.map(a => a.login) || [],
+    status: state || 'UNKNOWN',
+    merged: merged === true ? 'Yes' : merged === false ? 'No' : 'Unknown'
   };
   log.logState(pullRequestId, 'PR Initial', prState);
 

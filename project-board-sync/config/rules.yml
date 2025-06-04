@@ -1,0 +1,107 @@
+version: '1.0'
+
+project:
+  id: 'PVT_kwDOAA37OM4AFuzg'
+  organization: 'bcgov'
+  repositories:
+    - action-builder-ghcr
+    - nr-nerds
+    - quickstart-openshift
+    - quickstart-openshift-backends
+    - quickstart-openshift-helpers
+
+rules:
+  # Rules for adding items to board
+  board_items:
+    - name: "PR Author Rule"
+      trigger:
+        type: "PR"
+        condition: "author = monitored_user"
+      action: ["add_to_board", "set_assignee: author"]
+      skip_if: "already_in_project"
+
+    - name: "PR Assignee Rule" 
+      trigger:
+        type: "PR"
+        condition: "assignee = monitored_user"
+      action: "add_to_board"
+      skip_if: "already_in_project"
+
+    - name: "PR Repository Rule"
+      trigger:
+        type: "PR"
+        condition: "repository in monitored_repos"
+      action: "add_to_board"
+      skip_if: "already_in_project"
+
+    - name: "Issue Repository Rule"
+      trigger:
+        type: "Issue"
+        condition: "repository in monitored_repos"
+      action: "add_to_board"
+      skip_if: "already_in_project"
+
+  # Rules for column management
+  columns:
+    - name: "PR No Column Rule"
+      trigger:
+        type: "PR"
+        condition: "column = None"
+      action: "set_column: Active"
+      skip_if: "Column=Any already set"
+
+    - name: "PR New Column Rule"
+      trigger:
+        type: "PR"
+        condition: "column = New"
+      action: "set_column: Active"
+      skip_if: "Column=Any except New"
+
+    - name: "Issue No Column Rule"
+      trigger:
+        type: "Issue"
+        condition: "column = None"
+      action: "set_column: New"
+      skip_if: "Column=Any already set"
+
+  # Rules for sprint management
+  sprints:
+    - name: "Active Sprint Rule"
+      trigger:
+        type: ["PR", "Issue"]
+        condition: "column in [Next, Active]"
+      action: "set_sprint: current"
+      skip_if: "sprint = current"
+
+    - name: "Done Sprint Rule"
+      trigger:
+        type: ["PR", "Issue"]
+        condition: "column = Done"
+      action: "set_sprint: current"
+      skip_if: "sprint != None"
+
+  # Rules for linked issues
+  linked_issues:
+    - name: "Linked Issue Sync"
+      trigger:
+        type: "LinkedIssue"
+        condition: "PR.status != closed_unmerged"
+      action: "inherit_from_pr"  # This will handle both column and assignees
+      skip_if: "matches_pr"
+
+  # Rules for assignee management
+  assignees:
+    - name: "PR Author Assignment"
+      trigger:
+        type: "PR"
+        condition: "author = monitored_user"
+      action: "set_assignee: author"
+      skip_if: "has_assignee"
+
+technical:
+  batch_size: 10
+  batch_delay_seconds: 1
+  update_window_hours: 24
+  optimization:
+    skip_unchanged: true
+    dedup_by_id: true
