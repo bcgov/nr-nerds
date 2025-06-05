@@ -16,10 +16,11 @@ class StateTransitionValidator {
   addColumnTransitionRule(from, to, conditions = []) {
     const sources = Array.isArray(from) ? from : [from];
     for (const source of sources) {
-      if (!this.columnRules.has(source)) {
-        this.columnRules.set(source, []);
+      const sourceLower = source.toLowerCase();
+      if (!this.columnRules.has(sourceLower)) {
+        this.columnRules.set(sourceLower, []);
       }
-      this.columnRules.get(source).push({ to, conditions });
+      this.columnRules.get(sourceLower).push({ to, conditions });
     }
   }
 
@@ -55,7 +56,14 @@ class StateTransitionValidator {
     }
 
     // Find matching rule
-    const matchingRule = rules.find(rule => rule.to.toLowerCase() === normalizedTo);
+    const matchingRule = rules.find(rule => {
+      const ruleToLower = Array.isArray(rule.to) ? rule.to.map(t => t.toLowerCase()) : rule.to.toLowerCase();
+      if (Array.isArray(ruleToLower)) {
+        return ruleToLower.includes(normalizedTo);
+      }
+      return ruleToLower === normalizedTo;
+    });
+
     if (!matchingRule) {
       return {
         valid: false,
@@ -97,21 +105,22 @@ class StateTransitionValidator {
     try {
       // Convert dot notation to actual object access
       // e.g., "item.hasReviewers" checks context.item.hasReviewers
-      // First check if it's a simple boolean context property
+      let value;
+
+      // First check if it's a simple context property
       if (context.hasOwnProperty(condition)) {
-        return context[condition] === true;
+        value = context[condition];
+      } else {
+        // Handle dot notation for nested properties
+        const properties = condition.split('.');
+        value = properties.reduce((obj, prop) => {
+          if (!obj || typeof obj !== 'object') return undefined;
+          return obj[prop];
+        }, context);
       }
-      
-      // Handle dot notation for nested properties
-      const properties = condition.split('.');
-      let value = context;
-      for (const prop of properties) {
-        if (!value || typeof value !== 'object') {
-          return false;
-        }
-        value = value[prop];
-      }
-      return value === true;
+
+      // Truthy check (allows boolean true, non-empty arrays, non-empty strings, etc.)
+      return Boolean(value);
     } catch (error) {
       log.error(`Invalid condition "${condition}": ${error.message}`);
       return false;

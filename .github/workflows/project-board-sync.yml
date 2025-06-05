@@ -31,7 +31,9 @@ jobs:
           GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
         working-directory: project-board-sync
-        run: npm run test:state
+        run: |
+          npm run test:state
+          npm run test:validator
        
       - name: Run Project Board Sync
         env:
