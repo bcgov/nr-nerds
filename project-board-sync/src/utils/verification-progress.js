@@ -1,4 +1,28 @@
 /**
+ * @fileoverview Tracks progress and performance of verification operations
+ * @see /src/index.js for project conventions and architecture
+ * 
+ * Module Conventions:
+ * - Progress tracking includes step-by-step verification
+ * - API performance metrics are collected per endpoint
+ * - Operation progress is tracked with success/failure
+ * - Detailed timing statistics are maintained
+ * 
+ * Documentation Update Guidelines:
+ * Update this documentation when:
+ * - Adding new progress tracking metrics
+ * - Modifying API timing collection
+ * - Changing progress reporting format
+ * - Adding new operation types
+ * 
+ * Maintain Stability:
+ * - Keep API timing format consistent
+ * - Preserve progress step tracking
+ * - Document new progress metrics
+ * - Test progress tracking flows
+ */
+
+/**
  * Tracks progress and performance of verification operations
  */
 class VerificationProgress {

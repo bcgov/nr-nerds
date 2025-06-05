@@ -1,3 +1,29 @@
+/**
+ * @fileoverview Project Board Sync - Central Development Reference
+ * @centralReference Source of truth for project conventions
+ * 
+ * Development Conventions:
+ * 1. Services and Major Components:
+ *    - GitHub API integration (@see github/api.js)
+ *    - Project Board State Management (@see utils/state-verifier.js)
+ *    - Rules Processing (@see rules/*)
+ * 
+ * 2. Code Organization:
+ *    - Business Rules: src/rules/ - Core rule implementations
+ *    - Utils: src/utils/ - Common utilities and helpers
+ *    - Config: src/config/ - Configuration and schema
+ *    - GitHub: src/github/ - API wrappers and types
+ * 
+ * 3. Coding Standards:
+ *    - Every rule module must implement state verification
+ *    - Use state tracking for all board changes
+ *    - Log all state changes via Logger class
+ *    - Document public APIs with JSDoc
+ * 
+ * @see rules.yml - Primary configuration
+ * @see requirements.md - Legacy requirements
+ */
+
 const { getRecentItems } = require('./github/api');
 const Logger = require('./utils/log').Logger;
 const log = new Logger();

@@ -1,3 +1,27 @@
+/**
+ * @fileoverview Central state verification and management system
+ * @see /src/index.js for project conventions and architecture
+ * 
+ * Module Conventions:
+ * - Stateful verification with retry mechanism
+ * - Comprehensive state tracking across operations
+ * - Progress monitoring for all verifications
+ * - Transition validation integration
+ * 
+ * Documentation Update Guidelines:
+ * Update this documentation when:
+ * - Adding new verification types
+ * - Modifying retry mechanisms
+ * - Changing state tracking integration
+ * - Adding new validation rules
+ * 
+ * Maintain Stability:
+ * - Keep retry logic consistent
+ * - Document state verification flows
+ * - Preserve error tracking format
+ * - Test all verification paths
+ */
+
 const { log } = require('./log');
 const { getItemColumn, isItemInProject } = require('../github/api');
 const { getItemSprint } = require('../rules/sprints');

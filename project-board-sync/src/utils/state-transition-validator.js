@@ -1,3 +1,27 @@
+/**
+ * @fileoverview State transition validation for project board changes
+ * @see /src/index.js for project conventions and architecture
+ * 
+ * Module Conventions:
+ * - Case-insensitive string comparison for state values
+ * - State transitions are defined through explicit rules
+ * - All validations provide detailed error messages
+ * - Changes are tracked for state verification
+ * 
+ * Documentation Update Guidelines:
+ * Update this documentation when:
+ * - Adding new validation rules or conditions
+ * - Changing state comparison behavior
+ * - Modifying error message formats
+ * - Adding new state tracking features
+ * 
+ * Maintain Stability:
+ * - Document all condition formats in evaluateCondition()
+ * - Keep error messages consistent with examples
+ * - Update test cases for new validations
+ * - Preserve case-insensitive behavior
+ */
+
 const { log } = require('./log');
 const { StateChangeTracker } = require('./state-changes');
 
