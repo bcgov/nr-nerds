@@ -16,10 +16,11 @@ class StateTransitionValidator {
   addColumnTransitionRule(from, to, conditions = []) {
     const sources = Array.isArray(from) ? from : [from];
     for (const source of sources) {
-      if (!this.columnRules.has(source.toLowerCase())) {
-        this.columnRules.set(source.toLowerCase(), []);
+      const sourceLower = source.toLowerCase();
+      if (!this.columnRules.has(sourceLower)) {
+        this.columnRules.set(sourceLower, []);
       }
-      this.columnRules.get(source.toLowerCase()).push({ to, conditions });
+      this.columnRules.get(sourceLower).push({ to, conditions });
     }
   }
 
