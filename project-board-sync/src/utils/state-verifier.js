@@ -31,6 +31,33 @@ const { StateChangeTracker } = require('./state-changes');
 const { VerificationProgress } = require('./verification-progress');
 const { StateTransitionValidator } = require('./state-transition-validator');
 const { StepVerification } = require('./verification-steps');
+const { validateRequired, validateState, ValidationError } = require('./validation');
+
+class StateVerifierError extends Error {
+  constructor(message, context = {}) {
+    super(message);
+    this.name = 'StateVerifierError';
+    this.context = context;
+    this.recoverySteps = context.recoverySteps || [];
+    this.retryable = context.isRetryable || false;
+  }
+
+  addRecoveryStep(step) {
+    this.recoverySteps.push(step);
+    return this;
+  }
+
+  getDetailedMessage() {
+    let msg = this.message;
+    if (this.context.itemType && this.context.itemNumber) {
+      msg = `${this.context.itemType} #${this.context.itemNumber}: ${msg}`;
+    }
+    if (this.recoverySteps.length > 0) {
+      msg += '\nRecovery Steps:\n' + this.recoverySteps.map(step => `- ${step}`).join('\n');
+    }
+    return msg;
+  }
+}
 
 class StateVerifier {
   static tracker = new StateChangeTracker();
@@ -38,20 +65,23 @@ class StateVerifier {
   static stateMap = new Map();
   static transitionValidator = null;
   
-  // Enhanced step verification with dependencies
+  // Enhanced step verification with validation dependencies
   static steps = new StepVerification([
     'STATE_TRACKING_INITIALIZED',
     'VERIFICATION_PROGRESS_SETUP',
     'TRANSITION_VALIDATOR_CONFIGURED',
     'RULES_INITIALIZED',
+    'STATE_VALIDATED',
+    'DEPENDENCIES_VERIFIED',
     'STATE_VERIFIED'
   ]);
 
   static {
-    // Add dependencies between steps
+    // Enhanced step dependencies with validation requirements
     StateVerifier.steps.addStepDependencies('VERIFICATION_PROGRESS_SETUP', ['STATE_TRACKING_INITIALIZED']);
     StateVerifier.steps.addStepDependencies('RULES_INITIALIZED', ['TRANSITION_VALIDATOR_CONFIGURED']);
-    StateVerifier.steps.addStepDependencies('STATE_VERIFIED', ['RULES_INITIALIZED']);
+    StateVerifier.steps.addStepDependencies('STATE_VALIDATED', ['RULES_INITIALIZED', 'DEPENDENCIES_VERIFIED']);
+    StateVerifier.steps.addStepDependencies('STATE_VERIFIED', ['STATE_VALIDATED']);
   }
 
   static getTransitionValidator() {
@@ -63,23 +93,65 @@ class StateVerifier {
   }
 
   static initializeTransitionRules(rules) {
-    this.steps.validateStepCompleted('TRANSITION_VALIDATOR_CONFIGURED');
+    try {
+      validateRequired(rules, 'rules');
+      this.steps.validateStepCompleted('TRANSITION_VALIDATOR_CONFIGURED');
 
-    if (!rules.columns) return;
+      if (!rules.columns) return;
 
-    for (const rule of rules.columns) {
-      if (rule.validTransitions) {
-        for (const transition of rule.validTransitions) {
-          this.getTransitionValidator().addColumnTransitionRule(
-            transition.from,
-            transition.to,
-            transition.conditions
-          );
+      for (const rule of rules.columns) {
+        if (rule.validTransitions) {
+          for (const transition of rule.validTransitions) {
+            this.getTransitionValidator().addColumnTransitionRule(
+              transition.from,
+              transition.to,
+              transition.conditions
+            );
+          }
         }
       }
-    }
 
-    this.steps.markStepComplete('RULES_INITIALIZED');
+      this.steps.markStepComplete('RULES_INITIALIZED');
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw new StateVerifierError('Failed to initialize rules: Invalid configuration', {
+          originalError: error,
+          rules
+        });
+      }
+      throw error;
+    }
+  }
+
+  static validateState(item, state, rules) {
+    try {
+      validateRequired(item, 'item');
+      validateRequired(state, 'state');
+      validateRequired(rules, 'rules');
+
+      // Validate state with enhanced error context
+      validateState(state, rules, {
+        itemType: item.type,
+        itemNumber: item.number,
+        recoverySteps: [
+          'Verify state values match allowed values in rules',
+          'Check for typos in column names and sprint names',
+          'Ensure assignee usernames are correct'
+        ]
+      });
+
+      this.steps.markStepComplete('STATE_VALIDATED');
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw new StateVerifierError('Invalid state', {
+          originalError: error,
+          item,
+          state,
+          recoverySteps: error.recoverySteps
+        });
+      }
+      throw error;
+    }
   }
 
   static getState(item) {
@@ -243,7 +315,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
   }
 
   static async verifyCompleteState(item, projectId, expectedState) {
-    // Validate required steps are completed
+    // Validate required steps
     this.steps.validateStepCompleted('RULES_INITIALIZED');
     
     const itemRef = `${item.type}#${item.number}`;
@@ -252,7 +324,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
     
     const beforeState = this.getState(item);
 
-    // Validate complete state transition
+    // Enhanced state transition validation
     const validationResult = this.getTransitionValidator().validateStateTransition(
       item,
       beforeState,
@@ -261,57 +333,94 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
     );
 
     if (!validationResult.valid) {
-      throw new Error(
-        `Invalid state transition:\n${validationResult.errors.map(e => `  - ${e}`).join('\n')}`
+      const error = new StateVerifierError(
+        `Invalid state transition:\n${validationResult.errors.map(e => `  - ${e}`).join('\n')}`,
+        {
+          item,
+          currentState: beforeState,
+          expectedState,
+          isRetryable: false,
+          recoverySteps: validationResult.errors
+            .filter(e => e.recovery)
+            .map(e => e.recovery)
+        }
       );
+      throw error;
     }
 
     const result = await this.retryWithTracking(
       item,
       'Complete State Verification',
       async (attempt) => {
-        // Get current state
+        // Get current state with error handling
         const apiStart = Date.now();
-        const currentState = {
-          inProject: true,
-          projectItemId: item.projectItemId,
-          column: await getItemColumn(projectId, item.projectItemId) || 'None',
-          sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId || 'None',
-          assignees: await getItemAssignees(projectId, item.projectItemId) || []
-        };
-        
-        const afterState = this.updateState(item, currentState);
-        this.progress.recordApiTiming('getItemState', Date.now() - apiStart);
+        try {
+          const currentState = {
+            inProject: true,
+            projectItemId: item.projectItemId,
+            column: await getItemColumn(projectId, item.projectItemId) || 'None',
+            sprint: (await getItemSprint(projectId, item.projectItemId))?.sprintId || 'None',
+            assignees: await getItemAssignees(projectId, item.projectItemId) || []
+          };
 
-        // Verify all aspects of state
-        const mismatches = [];
-        ['column', 'sprint', 'assignees'].forEach(aspect => {
-          if (expectedState[aspect]) {
-            const success = this.verifyStateAspect(aspect, expectedState[aspect], afterState[aspect]);
-            this.progress.recordStep('Complete Verification', itemRef,
-              `Verify ${aspect}: ${JSON.stringify(expectedState[aspect])}`, success);
-            if (!success) {
-              mismatches.push(this.getStateAspectMismatchMessage(aspect, expectedState[aspect], afterState[aspect]));
+          const afterState = this.updateState(item, currentState);
+          this.progress.recordApiTiming('getItemState', Date.now() - apiStart);
+
+          // Enhanced state verification with detailed error messages
+          const mismatches = [];
+          ['column', 'sprint', 'assignees'].forEach(aspect => {
+            if (expectedState[aspect]) {
+              const success = this.verifyStateAspect(aspect, expectedState[aspect], afterState[aspect]);
+              this.progress.recordStep('Complete Verification', itemRef,
+                `Verify ${aspect}: ${JSON.stringify(expectedState[aspect])}`, success);
+
+              if (!success) {
+                const mismatchMessage = this.getStateAspectMismatchMessage(
+                  aspect,
+                  expectedState[aspect],
+                  afterState[aspect]
+                );
+                mismatches.push({
+                  aspect,
+                  message: mismatchMessage,
+                  recovery: this.getRecoverySteps(aspect, expectedState[aspect], afterState[aspect])
+                });
+              }
             }
+          });
+
+          if (mismatches.length > 0) {
+            throw new StateVerifierError(
+              'State verification failed:\n' +
+              mismatches.map(m => `  - ${m.message}`).join('\n'),
+              {
+                itemType: item.type,
+                itemNumber: item.number,
+                isRetryable: true,
+                recoverySteps: mismatches.flatMap(m => m.recovery)
+              }
+            );
           }
-        });
 
-        if (mismatches.length > 0) {
-          throw new Error(`State verification failed:\n${mismatches.map(m => `  - ${m}`).join('\n')}`);
+          this.tracker.recordChange(
+            item,
+            'Complete State Verification',
+            beforeState,
+            afterState,
+            attempt
+          );
+
+          log.info(`✓ Complete state verified for ${itemRef} (attempt ${attempt}/3)`);
+          
+          this.steps.markStepComplete('STATE_VERIFIED');
+          return afterState;
+        } catch (error) {
+          if (!error.isRetryable) {
+            error.addRecoveryStep('Check API access and permissions');
+            error.addRecoveryStep('Verify project board configuration');
+          }
+          throw error;
         }
-
-        this.tracker.recordChange(
-          item,
-          'Complete State Verification',
-          beforeState,
-          afterState,
-          attempt
-        );
-
-        log.info(`✓ Complete state verified for ${itemRef} (attempt ${attempt}/3)`);
-        
-        this.steps.markStepComplete('STATE_VERIFIED');
-        return afterState;
       },
       `complete state for ${item.type} #${item.number}`
     );
@@ -324,53 +433,66 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
    * @private
    */
   static verifyStateAspect(aspect, expected, actual) {
-    switch (aspect) {
-      case 'column':
-        return actual?.toLowerCase() === expected?.toLowerCase();
-      case 'sprint':
-        return actual === expected;
-      case 'assignees':
-        const expectedSet = new Set(expected);
-        const actualSet = new Set(actual);
-        return expected.length === actual.length &&
-          expected.every(a => actualSet.has(a)) &&
-          actual.every(a => expectedSet.has(a));
-      default:
-        return false;
+    try {
+      switch (aspect) {
+        case 'column':
+          return actual?.toLowerCase() === expected?.toLowerCase();
+        case 'sprint':
+          return actual === expected;
+        case 'assignees':
+          const expectedSet = new Set(expected);
+          const actualSet = new Set(actual);
+          return expected.length === actual.length &&
+            expected.every(a => actualSet.has(a)) &&
+            actual.every(a => expectedSet.has(a));
+        default:
+          log.warn(`Unknown state aspect: ${aspect}`);
+          return false;
+      }
+    } catch (error) {
+      log.error(`Error verifying ${aspect}: ${error.message}`);
+      return false;
     }
   }
 
-  /**
-   * Get mismatch message for state aspect
-   * @private
-   */
-  static getStateAspectMismatchMessage(aspect, expected, actual) {
+  static getRecoverySteps(aspect, expected, actual) {
     switch (aspect) {
       case 'column':
-        return `Column: expected "${expected}", got "${actual}"`;
+        return [
+          `Verify column "${expected}" exists in project board`,
+          `Check column transition rules allow moving to "${expected}"`,
+          `Ensure required conditions are met for column transition`
+        ];
       case 'sprint':
-        return `Sprint: expected "${expected}", got "${actual}"`;
+        return [
+          `Verify sprint "${expected}" exists and is active`,
+          `Check if sprint dates are valid`,
+          `Ensure sprint is available for assignment`
+        ];
       case 'assignees':
         const missing = expected.filter(a => !actual.includes(a));
         const extra = actual.filter(a => !expected.includes(a));
-        return [
-          missing.length > 0 ? `Missing assignees: ${missing.join(', ')}` : '',
-          extra.length > 0 ? `Extra assignees: ${extra.join(', ')}` : ''
-        ].filter(Boolean).join(', ');
+        const steps = [];
+        if (missing.length > 0) {
+          steps.push(`Add missing assignees: ${missing.join(', ')}`);
+        }
+        if (extra.length > 0) {
+          steps.push(`Remove extra assignees: ${extra.join(', ')}`);
+        }
+        return steps;
       default:
-        return `Unknown aspect ${aspect}`;
+        return [`Verify ${aspect} configuration and permissions`];
     }
   }
 
   static async retryWithTracking(item, type, operation, description) {
     const MAX_RETRIES = 3;
     let lastError;
-    let lastState = this.getState(item); // Start with current state
+    let lastState = this.getState(item);
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         const result = await operation(attempt, lastState);
-        // Update last known state with operation result
         lastState = {
           ...lastState,
           ...(typeof result === 'object' ? result : {})
@@ -380,37 +502,46 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
         lastError = error;
         this.tracker.recordError(item, type, error, attempt);
 
-        if (attempt < MAX_RETRIES) {
-          const delay = Math.pow(2, attempt - 1) * 1000;
+        // Only retry if error is marked as retryable
+        if (attempt < MAX_RETRIES && (error.retryable || error.isRetryable)) {
+          const delay = Math.min(Math.pow(2, attempt - 1) * 1000, 5000);
           log.info(`
 ⌛ ${type} verification attempt ${attempt}/${MAX_RETRIES}
    Item: ${item.type} #${item.number}
    Current State: ${JSON.stringify(lastState, null, 2)}
    Error: ${error.message}
+   Recovery Steps:\n${error.recoverySteps?.map(s => `   - ${s}`).join('\n') || '   None provided'}
    Retrying in ${delay/1000}s...`);
           await sleep(delay);
+          continue;
         }
+        throw error;
       }
     }
 
-    throw new Error(`Failed to verify ${description} after ${MAX_RETRIES} attempts: ${lastError.message}`);
+    throw new StateVerifierError(
+      `Failed to verify ${description} after ${MAX_RETRIES} attempts: ${lastError.message}`,
+      {
+        itemType: item.type,
+        itemNumber: item.number,
+        lastError,
+        lastState
+      }
+    );
   }
 
   static printReports() {
     if (this.tracker) {
       this.tracker.printSummary();
+      console.log('\nValidation Steps Status:');
+      this.steps.printStepStatus();
     }
     if (this.progress) {
       this.progress.printProgressReport();
     }
     if (this.transitionValidator) {
+      console.log('\nTransition Validation Stats:');
       this.getTransitionValidator().printStats();
-    }
-  }
-
-  static printChangeSummary() {
-    if (this.tracker) {
-      this.tracker.printSummary();
     }
   }
 }
