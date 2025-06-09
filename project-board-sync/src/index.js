@@ -70,8 +70,8 @@ envValidator.addStepDependencies('LABELS_CONFIGURED', ['PROJECT_CONFIGURED']);
  */
 function validateEnvironment() {
   // Validate GitHub token
-  if (!process.env.GITHUB_TOKEN) {
-    throw new Error('GITHUB_TOKEN environment variable is required');
+  if (!process.env.GH_TOKEN) {
+    throw new Error('GH_TOKEN environment variable is required');
   }
   envValidator.markStepComplete('TOKEN_CONFIGURED');
 
