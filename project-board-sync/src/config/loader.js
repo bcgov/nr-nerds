@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Configuration loader for project board sync
+ * @see /src/index.js for project conventions and architecture
+ * 
+ * Module Conventions:
+ * - YAML-based configuration in rules.yml
+ * - Schema validation enforced for all configs
+ * - Config validation errors provide detailed feedback
+ * - Environment variable fallbacks supported
+ */
+
 const yaml = require('js-yaml');
 const fs = require('fs');
 const path = require('path');

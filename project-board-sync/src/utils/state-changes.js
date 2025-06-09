@@ -1,4 +1,28 @@
 /**
+ * @fileoverview Tracks state changes during item synchronization
+ * @see /src/index.js for project conventions and architecture
+ * 
+ * Module Conventions:
+ * - Each item's state history is preserved for the duration of sync
+ * - Timing statistics are tracked for performance monitoring
+ * - All state changes are recorded with before/after values
+ * - Error tracking includes attempt counts and timestamps
+ * 
+ * Documentation Update Guidelines:
+ * Update this documentation when:
+ * - Adding new types of state tracking
+ * - Modifying timing statistics collection
+ * - Changing error tracking behavior
+ * - Adding new summary report formats
+ * 
+ * Maintain Stability:
+ * - Preserve state history format for reporting
+ * - Keep timing statistics consistent
+ * - Document any new state tracking fields
+ * - Test state change tracking flows
+ */
+
+/**
  * Tracks state changes during item synchronization
  */
 class StateChangeTracker {
