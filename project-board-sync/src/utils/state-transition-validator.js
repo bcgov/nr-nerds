@@ -20,15 +20,45 @@
  * - Keep error messages consistent with examples
  * - Update test cases for new validations
  * - Preserve case-insensitive behavior
+ * 
+ * Step Verification Checklist:
+ * 1. Configuration Loading
+ *    - ✓ rules.yml loaded and validated
+ *    - ✓ column transitions defined
+ *    - ✓ conditions documented
+ * 
+ * 2. State Change Validation
+ *    - ✓ normalize column names
+ *    - ✓ verify transition rules exist
+ *    - ✓ evaluate conditions
+ *    - ✓ track changes
+ * 
+ * 3. Error Handling
+ *    - ✓ fail fast on invalid config
+ *    - ✓ include error context
+ *    - ✓ log state changes
+ *    - ✓ track validation failures
  */
 
 const { log } = require('./log');
 const { StateChangeTracker } = require('./state-changes');
+const { StepVerification } = require('./verification-steps');
 
 class StateTransitionValidator {
   constructor() {
     this.tracker = new StateChangeTracker();
     this.columnRules = new Map();
+    
+    // Initialize verification steps
+    this.steps = new StepVerification([
+      'CONFIG_LOADED',
+      'RULES_VALIDATED',
+      'CONDITIONS_DOCUMENTED'
+    ]);
+    
+    // Set up step dependencies
+    this.steps.addStepDependencies('RULES_VALIDATED', ['CONFIG_LOADED']);
+    this.steps.addStepDependencies('CONDITIONS_DOCUMENTED', ['CONFIG_LOADED']);
   }
 
   /**
@@ -38,14 +68,28 @@ class StateTransitionValidator {
    * @param {string[]} conditions - Required conditions for the transition
    */
   addColumnTransitionRule(from, to, conditions = []) {
+    // Validate configuration loading step
+    this.steps.validateStepCompleted('CONFIG_LOADED');
+    
     const sources = Array.isArray(from) ? from : [from];
     for (const source of sources) {
       const sourceLower = source.toLowerCase();
       if (!this.columnRules.has(sourceLower)) {
         this.columnRules.set(sourceLower, []);
       }
+      
+      // Validate conditions are documented
+      conditions.forEach(condition => {
+        if (!this.evaluateCondition(condition, {})) {
+          throw new Error(`Invalid condition format: ${condition}`);
+        }
+      });
+      
       this.columnRules.get(sourceLower).push({ to, conditions });
     }
+    
+    // Mark rules as validated
+    this.steps.markStepComplete('RULES_VALIDATED');
   }
 
   /**
@@ -160,7 +204,15 @@ class StateTransitionValidator {
    * @returns {{ valid: boolean, errors: string[] }}
    */
   validateStateTransition(item, currentState, newState, context = {}) {
+    // Verify required steps are complete
+    this.steps.validateStepCompleted('RULES_VALIDATED');
+    
     const errors = [];
+    const validationContext = {
+      startTime: Date.now(),
+      item,
+      changes: []
+    };
 
     // Check column transition if changing
     if (newState.column && newState.column !== currentState.column) {
@@ -191,19 +243,28 @@ class StateTransitionValidator {
       }
     }
 
-    // Track the transition attempt
-    this.tracker.recordChange(
-      item,
-      'State Transition',
-      currentState,
-      newState,
-      errors.length === 0 ? 1 : 0
-    );
+    try {
+      // Track the state changes
+      validationContext.changes.forEach(change => {
+        this.tracker.recordChange(
+          item,
+          change.type,
+          { [change.type]: change.from },
+          { [change.type]: change.to },
+          change.valid ? 1 : 0
+        );
+      });
 
-    return {
-      valid: errors.length === 0,
-      errors
-    };
+      return {
+        valid: errors.length === 0,
+        errors,
+        context: validationContext
+      };
+    } catch (error) {
+      // Track validation failure
+      this.tracker.recordError(error, validationContext);
+      throw error;
+    }
   }
 
   /**

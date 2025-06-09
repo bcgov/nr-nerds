@@ -30,21 +30,41 @@ const { getItemAssignees } = assigneesModule;
 const { StateChangeTracker } = require('./state-changes');
 const { VerificationProgress } = require('./verification-progress');
 const { StateTransitionValidator } = require('./state-transition-validator');
+const { StepVerification } = require('./verification-steps');
 
 class StateVerifier {
   static tracker = new StateChangeTracker();
   static progress = new VerificationProgress();
   static stateMap = new Map();
   static transitionValidator = null;
+  
+  // Enhanced step verification with dependencies
+  static steps = new StepVerification([
+    'STATE_TRACKING_INITIALIZED',
+    'VERIFICATION_PROGRESS_SETUP',
+    'TRANSITION_VALIDATOR_CONFIGURED',
+    'RULES_INITIALIZED',
+    'STATE_VERIFIED'
+  ]);
+
+  static {
+    // Add dependencies between steps
+    StateVerifier.steps.addStepDependencies('VERIFICATION_PROGRESS_SETUP', ['STATE_TRACKING_INITIALIZED']);
+    StateVerifier.steps.addStepDependencies('RULES_INITIALIZED', ['TRANSITION_VALIDATOR_CONFIGURED']);
+    StateVerifier.steps.addStepDependencies('STATE_VERIFIED', ['RULES_INITIALIZED']);
+  }
 
   static getTransitionValidator() {
     if (!this.transitionValidator) {
       this.transitionValidator = new StateTransitionValidator();
+      this.steps.markStepComplete('TRANSITION_VALIDATOR_CONFIGURED');
     }
     return this.transitionValidator;
   }
 
   static initializeTransitionRules(rules) {
+    this.steps.validateStepCompleted('TRANSITION_VALIDATOR_CONFIGURED');
+
     if (!rules.columns) return;
 
     for (const rule of rules.columns) {
@@ -58,6 +78,8 @@ class StateVerifier {
         }
       }
     }
+
+    this.steps.markStepComplete('RULES_INITIALIZED');
   }
 
   static getState(item) {
@@ -70,6 +92,7 @@ class StateVerifier {
         column: 'None',
         sprint: 'None'
       });
+      this.steps.markStepComplete('STATE_TRACKING_INITIALIZED');
     }
     return this.stateMap.get(key);
   }
@@ -220,6 +243,9 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
   }
 
   static async verifyCompleteState(item, projectId, expectedState) {
+    // Validate required steps are completed
+    this.steps.validateStepCompleted('RULES_INITIALIZED');
+    
     const itemRef = `${item.type}#${item.number}`;
     const totalSteps = Object.keys(expectedState).length;
     this.progress.startOperation('Complete Verification', itemRef, totalSteps);
@@ -231,7 +257,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
       item,
       beforeState,
       expectedState,
-      { maxAssignees: 5 } // Example limit
+      { maxAssignees: 5 }
     );
 
     if (!validationResult.valid) {
@@ -240,7 +266,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
       );
     }
 
-    return this.retryWithTracking(
+    const result = await this.retryWithTracking(
       item,
       'Complete State Verification',
       async (attempt) => {
@@ -257,57 +283,23 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
         const afterState = this.updateState(item, currentState);
         this.progress.recordApiTiming('getItemState', Date.now() - apiStart);
 
-        // Compare all aspects of state
+        // Verify all aspects of state
         const mismatches = [];
-
-        // Verify column
-        if (expectedState.column && 
-            afterState.column?.toLowerCase() !== expectedState.column.toLowerCase()) {
-          mismatches.push(`Column: expected "${expectedState.column}", got "${afterState.column}"`);
-        }
-
-        // Verify sprint
-        if (expectedState.sprint && afterState.sprint !== expectedState.sprint) {
-          mismatches.push(`Sprint: expected "${expectedState.sprint}", got "${afterState.sprint}"`);
-        }
-
-        // Verify assignees
-        if (expectedState.assignees) {
-          const missing = expectedState.assignees.filter(a => !afterState.assignees.includes(a));
-          const extra = afterState.assignees.filter(a => !expectedState.assignees.includes(a));
-          if (missing.length > 0 || extra.length > 0) {
-            if (missing.length > 0) mismatches.push(`Missing assignees: ${missing.join(', ')}`);
-            if (extra.length > 0) mismatches.push(`Extra assignees: ${extra.join(', ')}`);
+        ['column', 'sprint', 'assignees'].forEach(aspect => {
+          if (expectedState[aspect]) {
+            const success = this.verifyStateAspect(aspect, expectedState[aspect], afterState[aspect]);
+            this.progress.recordStep('Complete Verification', itemRef,
+              `Verify ${aspect}: ${JSON.stringify(expectedState[aspect])}`, success);
+            if (!success) {
+              mismatches.push(this.getStateAspectMismatchMessage(aspect, expectedState[aspect], afterState[aspect]));
+            }
           }
-        }
+        });
 
-        // Record verification steps
-        if (expectedState.column) {
-          const success = afterState.column?.toLowerCase() === expectedState.column.toLowerCase();
-          this.progress.recordStep('Complete Verification', itemRef,
-            `Verify column: ${expectedState.column}`, success);
-        }
-        if (expectedState.sprint) {
-          const success = afterState.sprint === expectedState.sprint;
-          this.progress.recordStep('Complete Verification', itemRef,
-            `Verify sprint: ${expectedState.sprint}`, success);
-        }
-        if (expectedState.assignees) {
-          const missing = expectedState.assignees.filter(a => !afterState.assignees.includes(a));
-          const extra = afterState.assignees.filter(a => !expectedState.assignees.includes(a));
-          const success = missing.length === 0 && extra.length === 0;
-          this.progress.recordStep('Complete Verification', itemRef,
-            'Verify assignees', success);
-        }
-
-        // If any mismatches found, throw error
         if (mismatches.length > 0) {
-          throw new Error(
-            `State verification failed:\n${mismatches.map(m => `  - ${m}`).join('\n')}`
-          );
+          throw new Error(`State verification failed:\n${mismatches.map(m => `  - ${m}`).join('\n')}`);
         }
 
-        // Record the complete state change
         this.tracker.recordChange(
           item,
           'Complete State Verification',
@@ -317,10 +309,57 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
         );
 
         log.info(`✓ Complete state verified for ${itemRef} (attempt ${attempt}/3)`);
+        
+        this.steps.markStepComplete('STATE_VERIFIED');
         return afterState;
       },
       `complete state for ${item.type} #${item.number}`
     );
+
+    return result;
+  }
+
+  /**
+   * Verify a specific aspect of state
+   * @private
+   */
+  static verifyStateAspect(aspect, expected, actual) {
+    switch (aspect) {
+      case 'column':
+        return actual?.toLowerCase() === expected?.toLowerCase();
+      case 'sprint':
+        return actual === expected;
+      case 'assignees':
+        const expectedSet = new Set(expected);
+        const actualSet = new Set(actual);
+        return expected.length === actual.length &&
+          expected.every(a => actualSet.has(a)) &&
+          actual.every(a => expectedSet.has(a));
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Get mismatch message for state aspect
+   * @private
+   */
+  static getStateAspectMismatchMessage(aspect, expected, actual) {
+    switch (aspect) {
+      case 'column':
+        return `Column: expected "${expected}", got "${actual}"`;
+      case 'sprint':
+        return `Sprint: expected "${expected}", got "${actual}"`;
+      case 'assignees':
+        const missing = expected.filter(a => !actual.includes(a));
+        const extra = actual.filter(a => !expected.includes(a));
+        return [
+          missing.length > 0 ? `Missing assignees: ${missing.join(', ')}` : '',
+          extra.length > 0 ? `Extra assignees: ${extra.join(', ')}` : ''
+        ].filter(Boolean).join(', ');
+      default:
+        return `Unknown aspect ${aspect}`;
+    }
   }
 
   static async retryWithTracking(item, type, operation, description) {
