@@ -20,8 +20,27 @@
  *    - Log all state changes via Logger class
  *    - Document public APIs with JSDoc
  * 
+ * Documentation Maintenance:
+ * 1. Requirements Sources:
+ *    - requirements.md: Core business requirements
+ *    - CONTRIBUTING.md: Development guidelines
+ *    - TEST-REQUIREMENTS.md: Testing standards
+ *    - FUTURE-IDEAS.md: Planned enhancements
+ * 
+ * 2. Documentation Updates:
+ *    - Update JSDoc when changing interfaces or behaviors
+ *    - Keep module conventions in sync with implementations
+ *    - Test cases must reflect documented requirements
+ *    - Reference source requirements in major changes
+ * 
+ * 3. Stability Practices:
+ *    - Follow module-specific update guidelines
+ *    - Maintain consistent error handling
+ *    - Preserve state tracking behaviors
+ *    - Test all documented scenarios
+ * 
  * @see rules.yml - Primary configuration
- * @see requirements.md - Legacy requirements
+ * @see requirements.md - Core business requirements
  */
 
 const { getRecentItems } = require('./github/api');
