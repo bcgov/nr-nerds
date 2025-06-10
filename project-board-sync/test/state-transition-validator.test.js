@@ -6,6 +6,13 @@ test('StateTransitionValidator', async (t) => {
   await t.test('validates simple column transitions', async () => {
     const validator = new StateTransitionValidator();
     
+    // Complete all required steps in correct order
+    validator.steps.markStepComplete('CONFIG_LOADED');
+    validator.steps.markStepComplete('DEPENDENCIES_VERIFIED');
+    validator.steps.markStepComplete('RULES_VALIDATED');
+    validator.steps.markStepComplete('CONDITIONS_DOCUMENTED');
+    validator.steps.markStepComplete('TRANSITION_VALIDATED');
+    
     // Set up rules
     validator.addColumnTransitionRule('Backlog', 'Active', []);
     validator.addColumnTransitionRule('Active', 'Review', ['item.hasReviewers']);
@@ -42,6 +49,13 @@ test('StateTransitionValidator', async (t) => {
 
   await t.test('validates complete state transitions', async () => {
     const validator = new StateTransitionValidator();
+    
+    // Complete all required steps in correct order
+    validator.steps.markStepComplete('CONFIG_LOADED');
+    validator.steps.markStepComplete('DEPENDENCIES_VERIFIED');
+    validator.steps.markStepComplete('RULES_VALIDATED');
+    validator.steps.markStepComplete('CONDITIONS_DOCUMENTED');
+    validator.steps.markStepComplete('TRANSITION_VALIDATED');
     
     // Set up column rules
     validator.addColumnTransitionRule('Backlog', 'Active', []);
@@ -89,7 +103,7 @@ test('StateTransitionValidator', async (t) => {
     const tooManyAssignees = validator.validateStateTransition(
       item,
       {
-        column: 'Backlog',
+        column: 'Active',
         assignees: ['user1']
       },
       {

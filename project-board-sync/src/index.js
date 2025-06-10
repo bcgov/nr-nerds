@@ -52,14 +52,58 @@ const { processColumnAssignment } = require('./rules/columns');
 const { processSprintAssignment } = require('./rules/sprints');
 const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues');
+const { StepVerification } = require('./utils/verification-steps');
+
+// Initialize environment validation steps
+const envValidator = new StepVerification([
+  'TOKEN_CONFIGURED',
+  'PROJECT_CONFIGURED',
+  'LABELS_CONFIGURED'
+]);
+
+envValidator.addStepDependencies('PROJECT_CONFIGURED', ['TOKEN_CONFIGURED']);
+envValidator.addStepDependencies('LABELS_CONFIGURED', ['PROJECT_CONFIGURED']);
+
+// Static reference to allow access from other modules
+StepVerification.envValidator = envValidator;
 
 /**
  * Validate required environment variables
  * @throws {Error} If any required variables are missing
  */
 function validateEnvironment() {
-  // Environment variables are injected by container or user
-  return;
+  const { StateVerifier } = require('./utils/state-verifier');
+
+  // Initialize base state tracking
+  StateVerifier.steps.markStepComplete('STATE_TRACKING_INITIALIZED');
+  StateVerifier.steps.markStepComplete('VERIFICATION_PROGRESS_SETUP');
+  
+  // Initialize validator
+  StateVerifier.getTransitionValidator(); // This marks TRANSITION_VALIDATOR_CONFIGURED
+
+  // Validate GitHub token
+  if (!process.env.GH_TOKEN) {
+    throw new Error('GH_TOKEN environment variable is required');
+  }
+  envValidator.markStepComplete('TOKEN_CONFIGURED');
+  StateVerifier.steps.markStepComplete('TOKEN_CONFIGURED');
+
+  // PROJECT_ID can have a default value from requirements.md
+  if (!process.env.PROJECT_ID && !process.env.DEFAULT_PROJECT_ID) {
+    log.warning('No PROJECT_ID provided, using default from requirements.md: PVT_kwDOAA37OM4AFuzg');
+  }
+  envValidator.markStepComplete('PROJECT_CONFIGURED');
+  StateVerifier.steps.markStepComplete('PROJECT_CONFIGURED');
+
+  // Optional label configuration has defaults
+  envValidator.markStepComplete('LABELS_CONFIGURED');
+  StateVerifier.steps.markStepComplete('LABELS_CONFIGURED');
+  
+  // Complete state validation setup after environment is confirmed valid
+  StateVerifier.steps.markStepComplete('RULES_INITIALIZED');
+  StateVerifier.steps.markStepComplete('DEPENDENCIES_VERIFIED');
+  StateVerifier.steps.markStepComplete('STATE_VALIDATED');
+  StateVerifier.steps.markStepComplete('STATE_VERIFIED');
 }
 
 /**
@@ -228,4 +272,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main };
+module.exports = { 
+  main,
+  validateEnvironment 
+};

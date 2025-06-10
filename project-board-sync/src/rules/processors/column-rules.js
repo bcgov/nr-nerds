@@ -1,4 +1,7 @@
 const { loadBoardRules } = require('../../config/board-rules');
+const { RuleValidation } = require('./validation');
+
+const validator = new RuleValidation();
 
 /**
  * Process rules for managing item columns in the project board
@@ -6,66 +9,32 @@ const { loadBoardRules } = require('../../config/board-rules');
  * @returns {Array<{action: string, params: Object}>} List of actions to take
  */
 function processColumnRules(item) {
-    const config = loadBoardRules();
-    const rules = config.rules.columns;
+    const rules = loadBoardRules();
     const actions = [];
+    validator.steps.markStepComplete('RULE_CONFIG_LOADED');
 
-    for (const rule of rules) {
-        if (matchesCondition(item, rule.trigger) && !skipRule(item, rule.skip_if)) {
-            actions.push({
-                action: rule.action,
-                params: { item }
-            });
+    for (const rule of rules.columns) {
+        try {
+            // Skip rule if conditions not met
+            if (rule.skipIf && validator.validateSkipRule(item, rule.skipIf)) {
+                continue;
+            }
+
+            // Check each trigger
+            for (const trigger of rule.triggers) {
+                if (validator.validateItemCondition(item, trigger)) {
+                    actions.push({
+                        action: `set_column: ${rule.targetColumn}`,
+                        params: { item }
+                    });
+                }
+            }
+        } catch (error) {
+            log.error(`Error processing column rule: ${error.message}`);
         }
     }
 
     return actions;
-}
-
-/**
- * Check if an item matches a rule's trigger condition
- * @private
- */
-function matchesCondition(item, trigger) {
-    // Type check first
-    const typeMap = {
-        'PR': 'PullRequest',
-        'Issue': 'Issue'
-    };
-    const expectedType = typeMap[trigger.type] || trigger.type;
-    if (item.__typename !== expectedType) {
-        return false;
-    }
-
-    // Parse and evaluate condition
-    if (trigger.condition.startsWith('Column=')) {
-        const expectedColumn = trigger.condition.split('=')[1].trim();
-        const currentColumn = item.projectItems?.nodes?.[0]?.fieldValues?.nodes?.find(f => f.field.name === 'Status')?.name;
-        
-        if (expectedColumn === 'None') {
-            return !currentColumn;
-        }
-        return currentColumn === expectedColumn;
-    }
-
-    throw new Error(`Unknown condition: ${trigger.condition}`);
-}
-
-/**
- * Check if a rule should be skipped
- * @private
- */
-function skipRule(item, skipIf) {
-    const currentColumn = item.projectItems?.nodes?.[0]?.fieldValues?.nodes?.find(f => f.field.name === 'Status')?.name;
-
-    if (skipIf === 'Column=Any already set') {
-        return !!currentColumn;
-    }
-    if (skipIf === 'Column=Any except New') {
-        return currentColumn && currentColumn !== 'New';
-    }
-    
-    throw new Error(`Unknown skip condition: ${skipIf}`);
 }
 
 module.exports = {
