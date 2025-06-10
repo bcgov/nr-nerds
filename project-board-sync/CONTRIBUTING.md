@@ -80,10 +80,10 @@ Verification:
 ## Contribution Types
 
 ### Test Changes
-- Only modify files in `tests/` and `test-config/`
+- Only modify files in `tests/`
 - Never change implementation behavior
 - Focus on improving test reliability
-- Use shared test configuration where possible
+- Use appropriate mocking in tests
 
 ### Feature Additions
 - Follow the Preliminary Steps section.
@@ -108,7 +108,7 @@ Verification:
 
 ## Testing Standards
 - Tests must reference requirements.md for business rules
-- Use shared configuration from test-config/
+- Use appropriate mocks instead of test-specific config files
 - Mock external dependencies consistently
 - Keep test data minimal and focused
 
