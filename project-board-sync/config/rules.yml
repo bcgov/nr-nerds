@@ -1,7 +1,12 @@
+# Project Board Sync Configuration
+# This is the single source of truth for automation rules.
+# Changes here will be applied on the next sync run.
+
 version: '1.0'
 
 project:
-  id: 'PVT_kwDOAA37OM4AFuzg'
+  id: 'PVT_kwDOAA37OM4AFuzg'  # Will be configurable via URL in future
+  type: 'ProjectV2'
   organization: 'bcgov'
   repositories:
     - action-builder-ghcr
@@ -10,93 +15,94 @@ project:
     - quickstart-openshift-backends
     - quickstart-openshift-helpers
 
+monitored:
+  users:
+    - name: 'GITHUB_AUTHOR'
+      type: 'env'
+      description: 'Current GitHub user from environment'
+
 rules:
-  # Rules for adding items to board
+  # Rule Set 1: Which Items are Added to Project Board
   board_items:
-    - name: "PR Author Rule"
-      trigger:
-        type: "PR"
-        condition: "author = monitored_user"
-      action: ["add_to_board", "set_assignee: author"]
-      skip_if: "already_in_project"
-
-    - name: "PR Assignee Rule" 
-      trigger:
-        type: "PR"
-        condition: "assignee = monitored_user"
+    - name: "PR by Author"
+      description: "Add PRs authored by monitored user"
+      trigger: "item.type === 'PullRequest' && item.author === monitored.user"
       action: "add_to_board"
-      skip_if: "already_in_project"
+      skip_if: "item.inProject"
 
-    - name: "PR Repository Rule"
-      trigger:
-        type: "PR"
-        condition: "repository in monitored_repos"
+    - name: "PR by Assignment"
+      description: "Add PRs assigned to monitored user"
+      trigger: "item.type === 'PullRequest' && item.assignees.includes(monitored.user)"
       action: "add_to_board"
-      skip_if: "already_in_project"
+      skip_if: "item.inProject"
 
-    - name: "Issue Repository Rule"
-      trigger:
-        type: "Issue"
-        condition: "repository in monitored_repos"
+    - name: "PR by Repository"
+      description: "Add PRs from monitored repositories"
+      trigger: "item.type === 'PullRequest' && monitored.repos.includes(item.repository)"
       action: "add_to_board"
-      skip_if: "already_in_project"
+      skip_if: "item.inProject"
 
-  # Rules for column management
+    - name: "Issue by Repository"
+      description: "Add issues from monitored repositories"
+      trigger: "item.type === 'Issue' && monitored.repos.includes(item.repository)"
+      action: "add_to_board"
+      skip_if: "item.inProject"
+
+  # Rule Set 2: Column Assignment Rules
   columns:
-    - name: "PR No Column Rule"
-      trigger:
-        type: "PR"
-        condition: "column = None"
-      action: "set_column: Active"
-      skip_if: "Column=Any already set"
+    - name: "PR New to Active"
+      description: "Move PRs from New to Active"
+      trigger: "item.type === 'PullRequest' && item.column === 'New'"
+      action: "set_column"
+      value: "Active"
+      skip_if: "item.column !== 'New'"
 
-    - name: "PR New Column Rule"
-      trigger:
-        type: "PR"
-        condition: "column = New"
-      action: "set_column: Active"
-      skip_if: "Column=Any except New"
+    - name: "PR No Column"
+      description: "Set new PRs to Active"
+      trigger: "item.type === 'PullRequest' && !item.column"
+      action: "set_column"
+      value: "Active"
+      skip_if: "item.column"
 
-    - name: "Issue No Column Rule"
-      trigger:
-        type: "Issue"
-        condition: "column = None"
-      action: "set_column: New"
-      skip_if: "Column=Any already set"
+    - name: "Issue No Column"
+      description: "Set new issues to New"
+      trigger: "item.type === 'Issue' && !item.column"
+      action: "set_column"
+      value: "New"
+      skip_if: "item.column"
 
-  # Rules for sprint management
+  # Rule Set 3: Sprint Assignment Rules
   sprints:
-    - name: "Active Sprint Rule"
-      trigger:
-        type: ["PR", "Issue"]
-        condition: "column in [Next, Active]"
-      action: "set_sprint: current"
-      skip_if: "sprint = current"
+    - name: "Active Sprint Assignment"
+      description: "Assign current sprint in Next/Active columns"
+      trigger: "item.column === 'Next' || item.column === 'Active'"
+      action: "set_sprint"
+      value: "current"
+      skip_if: "item.sprint === 'current'"
 
-    - name: "Done Sprint Rule"
-      trigger:
-        type: ["PR", "Issue"]
-        condition: "column = Done"
-      action: "set_sprint: current"
-      skip_if: "sprint != None"
+    - name: "Done Sprint Assignment"
+      description: "Assign sprint in Done column"
+      trigger: "item.column === 'Done'"
+      action: "set_sprint"
+      value: "current"
+      skip_if: "item.sprint"
 
-  # Rules for linked issues
+  # Rule Set 4: Linked Issue Rules
   linked_issues:
-    - name: "Linked Issue Sync"
-      trigger:
-        type: "LinkedIssue"
-        condition: "PR.status != closed_unmerged"
-      action: "inherit_from_pr"  # This will handle both column and assignees
-      skip_if: "matches_pr"
+    - name: "Linked Issue Inheritance"
+      description: "Sync linked issues with PR state"
+      trigger: "item.type === 'LinkedIssue' && !item.pr.closed && item.pr.merged"
+      action: ["inherit_column", "inherit_assignees"]
+      skip_if: "item.column === item.pr.column && item.assignees === item.pr.assignees"
 
-  # Rules for assignee management
+  # Rule Set 5: Assignee Rules  
   assignees:
-    - name: "PR Author Assignment"
-      trigger:
-        type: "PR"
-        condition: "author = monitored_user"
-      action: "set_assignee: author"
-      skip_if: "has_assignee"
+    - name: "Author Assignment"
+      description: "Add PR author as assignee"
+      trigger: "item.type === 'PullRequest' && item.author === monitored.user"
+      action: "add_assignee"
+      value: "item.author"
+      skip_if: "item.assignees.includes(item.author)"
 
 technical:
   batch_size: 10
