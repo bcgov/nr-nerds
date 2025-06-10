@@ -25,7 +25,9 @@ See `TECHNICAL.md` for implementation details and `CONTRIBUTING.md` for developm
 ## Files
 
 - `project-board-sync.js`: The main script that runs the automation
-- `requirements.md`: The single source of truth for all automation rules
+- `config/rules.yml`: Source of truth for all automation rules
+- `TECHNICAL.md`: Implementation details and architecture
+- `CONTRIBUTING.md`: Development guidelines and processes
 - `FUTURE-IDEAS.md`: Ideas and plans for future enhancements
 - `fetch-user-assignments.js`: Utility to find issues and PRs assigned to users
 

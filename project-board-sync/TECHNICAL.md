@@ -37,7 +37,7 @@
 5. Assignee Rules: Manage PR/Issue assignments
 
 ### Validation & Verification
-- Column transitions follow strict rules defined in requirements.md
+- Column transitions follow strict rules defined in config/rules.yml
 - Sprint assignments respect board state and column rules
 - Assignee changes tracked and verified on both project and repository
 - All state changes logged for audit purposes
