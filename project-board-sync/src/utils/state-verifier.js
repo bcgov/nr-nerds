@@ -22,7 +22,9 @@
  * - Test all verification paths
  */
 
-const { log } = require('./log');
+const { log, Logger } = require('./log');
+// Initialize logger
+const verifierLog = new Logger();
 const { getItemColumn, isItemInProject } = require('../github/api');
 const { getItemSprint } = require('../rules/sprints');
 const assigneesModule = require('../rules/assignees');
@@ -254,7 +256,7 @@ Expected: "${expectedColumn}"
 Current: "${currentColumn}"`);
         }
 
-        log.info(`✓ Column verified: "${expectedColumn}" (attempt ${attempt}/3)`);
+        verifierLog.info(`✓ Column verified: "${expectedColumn}" (attempt ${attempt}/3)`);
         return afterState;
       },
       `column state for ${item.type} #${item.number}`
@@ -273,6 +275,7 @@ Current: "${currentColumn}"`);
         const itemDetails = await getItemDetails(item.projectItemId);
         
         if (!itemDetails || !itemDetails.content) {
+          verifierLog.error(`Could not get details for item ${item.projectItemId}`);
           throw new Error(`Could not get details for item ${item.projectItemId}`);
         }
 
@@ -307,7 +310,7 @@ Current: "${currentColumn}"`);
 ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.join(', ')}\n` : ''}${extraInProject.length > 0 ? `Extra in project board: ${extraInProject.join(', ')}\n` : ''}${missingInRepo.length > 0 ? `Missing in Issue/PR: ${missingInRepo.join(', ')}\n` : ''}${extraInRepo.length > 0 ? `Extra in Issue/PR: ${extraInRepo.join(', ')}` : ''}`);
         }
 
-        log.info(`✓ Assignees verified for ${item.type} #${item.number} (attempt ${attempt}/3)`);
+        verifierLog.info(`✓ Assignees verified for ${item.type} #${item.number} (attempt ${attempt}/3)`);
         return afterState;
       },
       `assignee state for ${item.type} #${item.number}`
@@ -445,12 +448,11 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
           return expected.length === actual.length &&
             expected.every(a => actualSet.has(a)) &&
             actual.every(a => expectedSet.has(a));
-        default:
-          log.warn(`Unknown state aspect: ${aspect}`);
-          return false;
+        default:      verifierLog.warning(`Unknown state aspect: ${aspect}`);
+      return false;
       }
     } catch (error) {
-      log.error(`Error verifying ${aspect}: ${error.message}`);
+      verifierLog.error(`Error verifying ${aspect}: ${error.message}`);
       return false;
     }
   }

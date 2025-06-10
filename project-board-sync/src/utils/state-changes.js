@@ -129,43 +129,46 @@ class StateChangeTracker {
    * Print a summary of state changes with enhanced statistics
    */
   printSummary() {
-    console.log('\n📊 State Change Summary');
-    console.log('═══════════════════════\n');
+    const { Logger } = require('./log');
+    const log = new Logger();
+    
+    log.info('\n📊 State Change Summary', true);
+    log.info('═══════════════════════\n', true);
 
     // Print changes per item
     for (const [itemKey, changes] of this.changes.entries()) {
       if (changes.length === 0) continue;
 
-      console.log(`🔄 ${itemKey}`);
+      log.info(`🔄 ${itemKey}`, true);
       for (const change of changes) {
         const duration = (change.duration / 1000).toFixed(1);
-        console.log(`  • ${change.type} (${duration}s, ${change.attemptCount} attempts)`);
+        log.info(`  • ${change.type} (${duration}s, ${change.attemptCount} attempts)`, true);
         
         // Print state differences in a readable format
         if (typeof change.before === 'object') {
           const diffs = this.getDiffs(change.before, change.after);
-          diffs.forEach(diff => console.log(`    ${diff}`));
+          diffs.forEach(diff => log.info(`    ${diff}`, true));
         } else {
-          console.log(`    ${change.before} → ${change.after}`);
+          log.info(`    ${change.before} → ${change.after}`, true);
         }
       }
-      console.log();
+      log.info('', true);
     }
 
     // Print timing statistics
-    console.log('⏱️  Timing Statistics');
-    console.log('══════════════════\n');
-    console.log(`Total Duration: ${(this.timingStats.totalDuration / 1000).toFixed(1)}s\n`);
+    log.info('⏱️  Timing Statistics', true);
+    log.info('══════════════════\n', true);
+    log.info(`Total Duration: ${(this.timingStats.totalDuration / 1000).toFixed(1)}s\n`, true);
     
     Object.keys(this.timingStats.verificationCounts).forEach(type => {
       const count = this.timingStats.verificationCounts[type];
       const avgDuration = this.timingStats.averageDurations[type];
       const maxRetries = this.timingStats.maxRetries[type];
       
-      console.log(`${type}:`);
-      console.log(`  Count: ${count}`);
-      console.log(`  Avg Duration: ${(avgDuration / 1000).toFixed(1)}s`);
-      console.log(`  Max Retries: ${maxRetries}`);
+      log.info(`${type}:`, true);
+      log.info(`  Count: ${count}`, true);
+      log.info(`  Avg Duration: ${(avgDuration / 1000).toFixed(1)}s`, true);
+      log.info(`  Max Retries: ${maxRetries}`, true);
     });
   }
 

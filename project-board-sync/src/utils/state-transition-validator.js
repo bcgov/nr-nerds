@@ -305,9 +305,9 @@ class StateTransitionValidator {
   printStats() {
     this.tracker.printSummary();
     if (this.validationErrors.size > 0) {
-      console.log('\nValidation Errors:');
+      log.info('\nValidation Errors:', true);
       this.validationErrors.forEach((error, transition) => {
-        console.log(`${transition}: ${error.message}`);
+        log.error(`${transition}: ${error.message}`);
       });
     }
   }

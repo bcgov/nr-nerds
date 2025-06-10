@@ -9,13 +9,14 @@
  * - Validation failures throw errors
  */
 
-const { log } = require('./log');
+const { Logger } = require('./log');
 
 class StepVerification {
   constructor(requiredSteps = []) {
     this.completedSteps = new Set();
     this.requiredSteps = requiredSteps;
     this.stepDependencies = new Map();
+    this.log = new Logger();
   }
 
   /**
@@ -41,7 +42,7 @@ class StepVerification {
     }
 
     this.completedSteps.add(step);
-    log.debug(`Completed verification step: ${step}`);
+    this.log.debug(`Completed verification step: ${step}`);
   }
 
   /**
@@ -72,18 +73,26 @@ class StepVerification {
   }
 
   /**
+   * Get list of all completed steps in order of completion
+   * @returns {string[]} List of completed steps
+   */
+  getCompletedSteps() {
+    return [...this.completedSteps];
+  }
+
+  /**
    * Print verification step status
    */
   printStepStatus() {
-    console.log('\nVerification Step Status:');
-    console.log('========================');
+    this.log.info('\nVerification Step Status:', true);
+    this.log.info('========================', true);
     
     this.requiredSteps.forEach(step => {
       const completed = this.completedSteps.has(step);
       const dependencies = this.stepDependencies.get(step);
-      console.log(`${completed ? '✓' : '✗'} ${step}`);
+      this.log.info(`${completed ? '✓' : '✗'} ${step}`, true);
       if (dependencies?.length > 0) {
-        console.log(`  Dependencies: ${dependencies.join(', ')}`);
+        this.log.info(`  Dependencies: ${dependencies.join(', ')}`, true);
       }
     });
   }

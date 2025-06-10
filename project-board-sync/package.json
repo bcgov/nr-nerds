@@ -5,10 +5,12 @@
   "main": "src/index.js",
   "type": "commonjs",
   "scripts": {
+    "validate": "node scripts/validate-config.js",
     "start": "node src/index.js",
-    "test": "node --test \"src/**/__tests__/*.test.js\"",
+    "test": "node --test \"src/**/__tests__/*.test.js\" \"test/**/*.test.js\"",
     "test:state": "node --test test/state-verifier.test.js",
-    "test:validator": "node --test test/state-transition-validator.test.js"
+    "test:validator": "node --test test/state-transition-validator.test.js",
+    "test:env": "node --test test/validation/env-defaults.test.js test/validation/environment.test.js"
   },
   "dependencies": {
     "@octokit/graphql": "^9.0.0",
