@@ -185,3 +185,33 @@ If you find yourself making assumptions about how something should work:
 - Reach out in your team's preferred channel
 
 Please keep our documentation clear and user-friendly for everyone. Thank you for helping make our automation better!
+
+## Testing Guidelines
+
+This project uses Node's built-in `node:test` module. **DO NOT USE JEST.**
+
+Example of proper test mocking:
+```javascript
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+
+test('feature test', async (t) => {
+    // Mock dependencies inside the test
+    t.mock('./my-module', {
+        myFunction: () => 'mocked result'
+    });
+    
+    // Test environment setup
+    process.env.MY_VAR = 'test';
+    
+    await t.test('specific case', async () => {
+        // Your test code here
+    });
+});
+```
+
+Common test patterns:
+1. Always use `node:test` for testing
+2. Place mocks inside the test function using `t.mock()`
+3. Use `assert` from `node:assert/strict`
+4. Group related test cases using nested `t.test()`
