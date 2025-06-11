@@ -22,9 +22,9 @@
  * 
  * Documentation Maintenance:
  * 1. Requirements Sources:
- *    - requirements.md: Core business requirements
+ *    - config/rules.yml: Core business rules
  *    - CONTRIBUTING.md: Development guidelines
- *    - TEST-REQUIREMENTS.md: Testing standards
+ *    - TECHNICAL.md: Implementation details
  *    - FUTURE-IDEAS.md: Planned enhancements
  * 
  * 2. Documentation Updates:
@@ -39,8 +39,7 @@
  *    - Preserve state tracking behaviors
  *    - Test all documented scenarios
  * 
- * @see rules.yml - Primary configuration
- * @see requirements.md - Core business requirements
+ * @see rules.yml - Core business rules and configuration
  */
 
 const { getRecentItems } = require('./github/api');
@@ -88,9 +87,9 @@ function validateEnvironment() {
   envValidator.markStepComplete('TOKEN_CONFIGURED');
   StateVerifier.steps.markStepComplete('TOKEN_CONFIGURED');
 
-  // PROJECT_ID can have a default value from requirements.md
+  // PROJECT_ID can have a default value from rules.yml
   if (!process.env.PROJECT_ID && !process.env.DEFAULT_PROJECT_ID) {
-    log.warning('No PROJECT_ID provided, using default from requirements.md: PVT_kwDOAA37OM4AFuzg');
+    log.warning('No PROJECT_ID provided, using default from rules.yml: PVT_kwDOAA37OM4AFuzg');
   }
   envValidator.markStepComplete('PROJECT_CONFIGURED');
   StateVerifier.steps.markStepComplete('PROJECT_CONFIGURED');
@@ -108,7 +107,7 @@ function validateEnvironment() {
 
 /**
  * Project Board Sync Main Function
- * Implements all five rule sets from requirements.md:
+ * Implements all five rule sets from rules.yml:
  * 1. Which Items are Added (Board Addition Rules)
  * 2. Which Columns Items Go To (Column Rules)
  * 3. Sprint Assignment Rules

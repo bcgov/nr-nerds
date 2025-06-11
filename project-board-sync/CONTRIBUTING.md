@@ -59,7 +59,7 @@ const result = example();
 <!-- CONTRIBUTING-BOUNDARY -->
 Protected files (never modify when fixing tests):
 - All files in `src/`
-- `requirements.md`
+- `config/rules.yml`
 
 Change Proposal Format:
 ```
@@ -80,14 +80,14 @@ Verification:
 ## Contribution Types
 
 ### Test Changes
-- Only modify files in `tests/` and `test-config/`
+- Only modify files in `tests/`
 - Never change implementation behavior
 - Focus on improving test reliability
-- Use shared test configuration where possible
+- Use appropriate mocking in tests
 
 ### Feature Additions
 - Follow the Preliminary Steps section.
-- Update `requirements.md` first if needed
+- Update `config/rules.yml` first if needed
 - Add new tests before implementation
 - Follow existing patterns in `src/`
 - Keep changes focused and minimal
@@ -107,8 +107,8 @@ Verification:
 - Document root cause in commit
 
 ## Testing Standards
-- Tests must reference requirements.md for business rules
-- Use shared configuration from test-config/
+- Tests must reference rules.yml for business rules
+- Use appropriate mocks instead of test-specific config files
 - Mock external dependencies consistently
 - Keep test data minimal and focused
 
@@ -132,16 +132,22 @@ Verification:
 
 For any code changes, verify:
 
-1. [ ] Every behavior change maps to a specific rule in requirements.md
+1. [ ] Every behavior change maps to a specific rule in config/rules.yml
 2. [ ] No implicit behaviors or assumptions added
 3. [ ] No rules accidentally changed or removed
-4. [ ] When in doubt, quote the relevant rule from requirements.md
+4. [ ] When in doubt, quote the relevant rule from config/rules.yml
 
 ### Examples
 
 Good PR description:
-> "This implements rule 5 from requirements.md:
-> | PR | Author=monitored user | Add author as assignee | Assignee already set |
+> "This implements the author assignment rule from config/rules.yml:
+> ```yaml
+> - name: Author Assignment
+>   description: Add PR author as assignee
+>   trigger: item.type === 'PullRequest' && item.author === monitored.user
+>   action: add_assignee
+>   value: item.author
+> ```
 > The changes ensure author is added as assignee when they are the monitored user."
 
 Bad PR description:

@@ -4,18 +4,30 @@ A GitHub Projects v2 automation tool for synchronizing issues and pull requests 
 
 ## Overview
 
-This tool automates the management of GitHub Projects v2 boards based on rules defined in `requirements.md`. It handles:
+This tool automates the management of GitHub Projects v2 boards based on configurable rules. It handles:
 
 - Adding PRs and issues to the project board
 - Assigning users to PRs and issues
-- Moving items to the appropriate columns based on state (e.g., open, closed, merged)
+- Moving items to the appropriate columns based on state
 - Managing sprint assignments
 - Processing linked issues when PRs are merged
+
+## Configuration
+
+All automation is configured in `config/rules.yml`. The configuration includes:
+- Project settings
+- Monitored repositories and users
+- Business rules for automation
+- Performance settings
+
+See `TECHNICAL.md` for implementation details and `CONTRIBUTING.md` for development guidelines.
 
 ## Files
 
 - `project-board-sync.js`: The main script that runs the automation
-- `requirements.md`: The single source of truth for all automation rules
+- `config/rules.yml`: Source of truth for all automation rules
+- `TECHNICAL.md`: Implementation details and architecture
+- `CONTRIBUTING.md`: Development guidelines and processes
 - `FUTURE-IDEAS.md`: Ideas and plans for future enhancements
 - `fetch-user-assignments.js`: Utility to find issues and PRs assigned to users
 

@@ -15,7 +15,7 @@ This file tracks potential improvements and future work for the project-sync aut
 - Could use labels, PR title keywords, or file paths to determine appropriate assignee
 
 ### 3. User Assignment Configuration Options
-- Add configurable options for user assignment behavior in requirements.md
+- Add configurable options for user assignment behavior in rules.yml
 - Options could include:
   - `assignPRsToAuthor`: Whether to automatically assign PRs to their author
   - `inheritAssigneesForLinkedIssues`: Whether linked issues inherit PR assignees
@@ -32,7 +32,7 @@ This file tracks potential improvements and future work for the project-sync aut
 - Optionally, write a summary of all changes to a file for later review or rollback.
 
 ## 3. Unit Tests for Requirements Parsing and Item Selection
-- Add unit tests for the logic that parses requirements.md and selects issues/PRs for processing.
+- Add unit tests for the logic that parses rules.yml and selects issues/PRs for processing.
 - Ensure that changes to requirements or code do not break expected automation behavior.
 
 ## 4. Improve Test Coverage for Author Assignment
@@ -49,7 +49,7 @@ This file tracks potential improvements and future work for the project-sync aut
 - Make it easier to add new rules or support more organizations in the future.
 
 ## 6. Support for More Organizations or Custom Rules
-- Allow configuration of additional organizations or custom rules in requirements.md.
+- Allow configuration of additional organizations or custom rules in rules.yml
 - Make the script more flexible for multi-org or multi-project use cases.
 
 ## 7. Enhanced Logging and Diagnostics
@@ -63,7 +63,7 @@ This file tracks potential improvements and future work for the project-sync aut
 - Build a simple web dashboard to visualize project sync status, recent changes, errors, and upcoming sprints.
 
 ## 10. Configurable Batch Size and Rate Limits
-- Allow batch size and API rate limit settings to be configured via requirements.md or environment variables for easier tuning.
+- Allow batch size and API rate limit settings to be configured via rules.yml or environment variables for easier tuning.
 
 ## 11. Self-Check/Healthcheck Command
 - Add a command to verify that all required fields, columns, and sprints exist and are correctly configured before running automation.
@@ -88,9 +88,9 @@ This file tracks potential improvements and future work for the project-sync aut
 
 ## 18. Better Documentation of Linked Issue Inheritance (COMPLETED)
 - ✅ Fixed issue with linked issues not inheriting properties from PRs that weren't authored by GITHUB_AUTHOR
-- ✅ Updated requirements.md to clarify linked issue inheritance rules for status, sprint, and assignments
+- ✅ Updated rules.yml to clarify linked issue inheritance rules for status, sprint, and assignments
 - ✅ Added tests to verify correct inheritance behavior
-- ✅ Improved documentation in requirements.md regarding assignment inheritance for linked issues
+- ✅ Improved documentation in rules.yml regarding assignment inheritance for linked issues
 - ✅ Enhanced code to transfer PR assignees to linked issues (instead of just PR author)
 - Implementation completed in May 2025 to fix issue #76 not being properly moved to Done when PR #78 was merged
 
