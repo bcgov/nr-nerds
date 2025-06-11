@@ -6,7 +6,7 @@
  */
 
 const { validateEnvironment } = require('../src/index');
-const { ConfigLoader } = require('../src/config/loader');
+const ConfigLoader = require('../src/config/loader');
 const path = require('path');
 
 async function validateConfiguration() {
