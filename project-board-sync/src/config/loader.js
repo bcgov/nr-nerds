@@ -2,6 +2,12 @@
  * @fileoverview Configuration loader for project board sync
  * @see /src/index.js for project conventions and architecture
  * 
+ * @directive Always run all tests after modifying this file:
+ * ```bash
+ * npm test
+ * ```
+ * This file affects all rule processing, so full test coverage is essential.
+ * 
  * Module Conventions:
  * - YAML-based configuration in rules.yml
  * - Schema validation enforced for all configs

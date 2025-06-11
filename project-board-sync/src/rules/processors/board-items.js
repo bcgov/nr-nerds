@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Processor for board addition rules
+ * 
+ * @directive Always run tests after modifying this file:
+ * ```bash
+ * npm test -- processors/board-items.test.js
+ * npm test -- processors/real-scenarios.test.js
+ * ```
+ * Changes here can affect core board item processing logic.
+ */
+
 const { loadBoardRules } = require('../../config/board-rules');
 const { log } = require('../../utils/log');
 const { RuleValidation } = require('./validation');

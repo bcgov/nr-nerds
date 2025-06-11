@@ -1,3 +1,13 @@
+/**
+ * @fileoverview JSON Schema for project board sync configuration
+ * 
+ * @directive Always run schema validation tests after changes:
+ * ```bash
+ * npm test -- config/loader.test.js
+ * ```
+ * Schema changes can affect all rule validation.
+ */
+
 const schema = {
   type: 'object',
   required: ['version', 'project', 'rules', 'technical'],

@@ -1,3 +1,14 @@
+/**
+ * @fileoverview Processor for column management rules
+ * 
+ * @directive Always run tests after modifying this file:
+ * ```bash
+ * npm test -- processors/column-rules.test.js
+ * npm test -- processors/real-scenarios.test.js
+ * ```
+ * Changes here can affect how items move between columns.
+ */
+
 const { loadBoardRules } = require('../../config/board-rules');
 const { RuleValidation } = require('./validation');
 

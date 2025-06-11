@@ -182,7 +182,7 @@ async function processColumnAssignment(item, projectItemId, projectId) {
 /**
  * Implementation of Rule Set 2: Which Columns Items Go To?
  * 
- * Rules from requirements.md:
+ * Rules from rules.yml:
  * | Item Type | Trigger Condition | Action        | Skip Condition         |
  * |-----------|-------------------|---------------|------------------------|
  * | PR        | Column=None       | Column=Active | Column=Any already set |

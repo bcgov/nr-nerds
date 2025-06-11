@@ -5,7 +5,7 @@ const { processBoardItemRules } = require('./processors/board-items');
 /**
  * Implementation of Rule Set 1: Which Items are Added to the Project Board?
  * 
- * Rules from requirements.md:
+ * Rules from rules.yml:
  * | Item Type | Trigger Condition             | Action               | Skip Condition     |
  * |-----------|-------------------------------|----------------------|--------------------|
  * | PR        | Authored by monitored user    | Add to project board | Already in project |

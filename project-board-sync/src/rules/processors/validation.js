@@ -1,5 +1,11 @@
 /**
  * @fileoverview Shared validation utilities for rule processors
+ * 
+ * @directive Always run the full test suite after making changes to validation rules:
+ * ```bash
+ * npm test
+ * ```
+ * This ensures that changes don't break existing rule validation logic.
  */
 
 const { StepVerification } = require('../../utils/verification-steps');
