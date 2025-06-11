@@ -132,7 +132,7 @@ rules:
     - name: "Author Assignment"
       description: "Add PR author as assignee"
       trigger:
-        type: "PR"
+        type: "PullRequest"
         condition: "item.author === monitored.user"
       action: "add_assignee"
       value: "item.author"

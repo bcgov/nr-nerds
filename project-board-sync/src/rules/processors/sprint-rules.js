@@ -1,7 +1,6 @@
 const { loadBoardRules } = require('../../config/board-rules');
-const { RuleValidation } = require('./validation');
-
-const validator = new RuleValidation();
+const { validator } = require('./shared-validator');
+const { log } = require('../../utils/log');
 
 /**
  * Process rules for managing item sprints in the project board
@@ -20,14 +19,12 @@ function processSprintRules(item) {
                 continue;
             }
 
-            // Check each trigger
-            for (const trigger of rule.triggers) {
-                if (validator.validateItemCondition(item, trigger)) {
-                    actions.push({
-                        action: `set_sprint: ${rule.targetSprint}`,
-                        params: { item }
-                    });
-                }
+            // Check trigger conditions
+            if (validator.validateItemCondition(item, rule.trigger)) {
+                actions.push({
+                    action: `set_sprint: ${rule.value}`,
+                    params: { item }
+                });
             }
         } catch (error) {
             log.error(`Error processing sprint rule: ${error.message}`);
