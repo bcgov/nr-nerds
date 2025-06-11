@@ -26,25 +26,33 @@ rules:
   board_items:
     - name: "PR by Author"
       description: "Add PRs authored by monitored user"
-      trigger: "item.type === 'PullRequest' && item.author === monitored.user"
+      trigger:
+        type: "PullRequest"
+        condition: "item.author === monitored.user"
       action: "add_to_board"
       skip_if: "item.inProject"
 
     - name: "PR by Assignment"
       description: "Add PRs assigned to monitored user"
-      trigger: "item.type === 'PullRequest' && item.assignees.includes(monitored.user)"
+      trigger:
+        type: "PullRequest"
+        condition: "item.assignees.includes(monitored.user)"
       action: "add_to_board"
       skip_if: "item.inProject"
 
     - name: "PR by Repository"
       description: "Add PRs from monitored repositories"
-      trigger: "item.type === 'PullRequest' && monitored.repos.includes(item.repository)"
+      trigger:
+        type: "PullRequest"
+        condition: "monitored.repos.includes(item.repository)"
       action: "add_to_board"
       skip_if: "item.inProject"
 
     - name: "Issue by Repository"
       description: "Add issues from monitored repositories"
-      trigger: "item.type === 'Issue' && monitored.repos.includes(item.repository)"
+      trigger:
+        type: "Issue"
+        condition: "monitored.repos.includes(item.repository)"
       action: "add_to_board"
       skip_if: "item.inProject"
 
@@ -52,21 +60,27 @@ rules:
   columns:
     - name: "PR New to Active"
       description: "Move PRs from New to Active"
-      trigger: "item.type === 'PullRequest' && item.column === 'New'"
+      trigger:
+        type: "PullRequest"
+        condition: "item.column === 'New'"
       action: "set_column"
       value: "Active"
       skip_if: "item.column !== 'New'"
 
     - name: "PR No Column"
       description: "Set new PRs to Active"
-      trigger: "item.type === 'PullRequest' && !item.column"
+      trigger:
+        type: "PullRequest"
+        condition: "!item.column"
       action: "set_column"
       value: "Active"
       skip_if: "item.column"
 
     - name: "Issue No Column"
       description: "Set new issues to New"
-      trigger: "item.type === 'Issue' && !item.column"
+      trigger:
+        type: "Issue"
+        condition: "!item.column"
       action: "set_column"
       value: "New"
       skip_if: "item.column"
@@ -75,14 +89,18 @@ rules:
   sprints:
     - name: "Active Sprint Assignment"
       description: "Assign current sprint in Next/Active columns"
-      trigger: "item.column === 'Next' || item.column === 'Active'"
+      trigger:
+        type: ["PR", "Issue"]
+        condition: "item.column === 'Next' || item.column === 'Active'"
       action: "set_sprint"
       value: "current"
       skip_if: "item.sprint === 'current'"
 
     - name: "Done Sprint Assignment"
       description: "Assign sprint in Done column"
-      trigger: "item.column === 'Done'"
+      trigger:
+        type: ["PR", "Issue"]
+        condition: "item.column === 'Done'"
       action: "set_sprint"
       value: "current"
       skip_if: "item.sprint"
@@ -91,7 +109,9 @@ rules:
   linked_issues:
     - name: "Linked Issue Inheritance"
       description: "Sync linked issues with PR state"
-      trigger: "item.type === 'LinkedIssue' && !item.pr.closed && item.pr.merged"
+      trigger:
+        type: "LinkedIssue"
+        condition: "!item.pr.closed && item.pr.merged"
       action: ["inherit_column", "inherit_assignees"]
       skip_if: "item.column === item.pr.column && item.assignees === item.pr.assignees"
 
@@ -99,7 +119,9 @@ rules:
   assignees:
     - name: "Author Assignment"
       description: "Add PR author as assignee"
-      trigger: "item.type === 'PullRequest' && item.author === monitored.user"
+      trigger:
+        type: "PullRequest"
+        condition: "item.author === monitored.user"
       action: "add_assignee"
       value: "item.author"
       skip_if: "item.assignees.includes(item.author)"
