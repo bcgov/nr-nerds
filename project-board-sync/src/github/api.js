@@ -9,11 +9,20 @@ const octokit = new Octokit({
   auth: process.env.GH_TOKEN
 });
 
-// Create authenticated GraphQL client
+// Create authenticated GraphQL client with debug logging
 const graphqlWithAuth = graphql.defaults({
   headers: {
     authorization: `bearer ${process.env.GH_TOKEN}`,
   },
+  request: {
+    fetch: (url, options) => {
+      log.debug('GraphQL Request:', JSON.stringify(options.body, null, 2));
+      return fetch(url, options).then(response => {
+        log.debug('GraphQL Response:', response.status);
+        return response;
+      });
+    }
+  }
 });
 
 // Cache field IDs per project to reduce API calls
@@ -144,44 +153,59 @@ async function getProjectItems(projectId) {
  */
 async function isItemInProject(nodeId, projectId) {
   try {
-    // Force cache invalidation for recently added items
+    // First check the cache
     const projectItems = await getProjectItems(projectId, true);
     const projectItemId = projectItems.get(nodeId);
 
-    // Double check with a direct query if not found, to handle eventual consistency
-    if (!projectItemId) {
-      const result = await graphqlWithAuth(`
-        query($projectId: ID!, $nodeId: ID!) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              items(first: 1, filter: { content: { id: { eq: $nodeId } } }) {
-                nodes {
-                  id
+    // If found in cache, return immediately
+    if (projectItemId) {
+      return {
+        isInProject: true,
+        projectItemId
+      };
+    }
+
+    // If not in cache, query the project items directly
+    const result = await graphqlWithAuth(`
+      query($projectId: ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100) {
+              nodes {
+                id
+                content {
+                  ... on PullRequest {
+                    id
+                  }
+                  ... on Issue {
+                    id
+                  }
                 }
               }
             }
           }
         }
-      `, {
-        projectId,
-        nodeId
-      });
-
-      const directProjectItemId = result.node?.items?.nodes?.[0]?.id;
-      if (directProjectItemId) {
-        // Update cache with the found item
-        projectItems.set(nodeId, directProjectItemId);
-        return {
-          isInProject: true,
-          projectItemId: directProjectItemId
-        };
       }
+    `, {
+      projectId
+    });
+
+    // Find the item that matches our nodeId
+    const matchingItem = result.node?.items?.nodes?.find(item => 
+      item.content?.id === nodeId
+    );
+
+    if (matchingItem) {
+      // Update cache with the found item
+      projectItems.set(nodeId, matchingItem.id);
+      return {
+        isInProject: true,
+        projectItemId: matchingItem.id
+      };
     }
 
-    return projectItemId ? {
-      isInProject: true,
-      projectItemId
-    } : { isInProject: false };
+    return { isInProject: false };
+
   } catch (error) {
     log.error(`Failed to check if item ${nodeId} is in project: ${error.message}`);
     throw error;
