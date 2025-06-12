@@ -1,5 +1,5 @@
-const ConfigLoader = require('./loader');
 const path = require('path');
+const ConfigLoader = require('./loader');
 
 /**
  * Load the board rules configuration.
