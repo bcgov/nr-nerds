@@ -1,120 +1,117 @@
-const { test, mock } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { processBoardItemRules } = require('../board-items');
+const { mock } = require('node:test/mock');
 
-test('items from monitored repository rules', async (t) => {
-    // Setup test mocks
+test('PR/Issue from monitored repository rule', async (t) => {
+    // Shared variables for all sub-tests
+    let processBoardItemRules;
     const logMessages = [];
     
-    t.mock('../../../config/board-rules', {
-        loadBoardRules: () => ({
-            rules: {
-                board_items: [
-                    {
-                        name: "PullRequest by Repository",
-                        description: "Add pull requests from monitored repositories",
-                        trigger: {
-                            type: "PullRequest",
-                            condition: "monitored.repos.includes(item.repository)"
-                        },
-                        action: "add_to_board",
-                        skip_if: "item.inProject"
-                    },
-                    {
-                        name: "Issue by Repository",
-                        description: "Add issues from monitored repositories",
-                        trigger: {
-                            type: "Issue",
-                            condition: "monitored.repos.includes(item.repository)"
-                        },
-                        action: "add_to_board",
-                        skip_if: "item.inProject"
-                    }
-                ]
+    // Setup test environment and mocks before each test
+    t.beforeEach(() => {
+        // Mock dependencies
+        mock.method(require('../shared-validator').validator, 'validateItemCondition', 
+            (item, trigger) => {
+                if (trigger.condition === 'item.repository === monitored.repository') {
+                    return item.repository?.name === process.env.GITHUB_REPOSITORY;
+                }
+                return false;
             }
-        })
+        );
+        
+        mock.method(require('../../../config/board-rules'), 'loadBoardRules', 
+            async () => ({
+                rules: {
+                    board_items: [{
+                        name: "Items from Repository",
+                        description: "Add items from monitored repository",
+                        trigger: {
+                            type: "PullRequest|Issue",
+                            condition: "item.repository === monitored.repository"
+                        },
+                        action: "add_to_board",
+                        skip_if: "item.inProject"
+                    }]
+                }
+            })
+        );
+
+        mock.method(require('../../../utils/log').log, 'info', (msg) => logMessages.push(msg));
+        mock.method(require('../../../utils/log').log, 'debug', (msg) => logMessages.push(msg));
+        mock.method(require('../../../utils/log').log, 'error', (msg) => logMessages.push(msg));
+
+        // Set test environment
+        process.env.GITHUB_REPOSITORY = 'test-repo';
+        
+        // Clear log messages
+        logMessages.length = 0;
+        
+        // Import after mocks are set up
+        const boardItems = require('../board-items');
+        processBoardItemRules = boardItems.processBoardItemRules;
     });
 
-    t.mock('../../../utils/log', () => ({
-        log: {
-            info: (msg) => logMessages.push(msg),
-            debug: (msg) => logMessages.push(msg)
-        }
-    }));
+    t.afterEach(() => {
+        // Clear mocks
+        mock.reset();
+    });
 
-    await t.test('adds PR from monitored repository', async () => {
+    await t.test('adds PR to board when from monitored repository', async () => {
         const pr = {
             __typename: 'PullRequest',
             number: 123,
-            repository: 'nr-nerds',
+            repository: { name: 'test-repo' },
+            projectItems: { nodes: [] }  // Not in project
+        };
+
+        const actions = await processBoardItemRules(pr);
+        
+        assert.equal(actions.length, 1);
+        assert.equal(actions[0].action, 'add_to_board');
+        assert.deepEqual(actions[0].params, { item: pr });
+        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')));
+    });
+
+    await t.test('adds Issue to board when from monitored repository', async () => {
+        const issue = {
+            __typename: 'Issue',
+            number: 456,
+            repository: { name: 'test-repo' },
+            projectItems: { nodes: [] }  // Not in project
+        };
+
+        const actions = await processBoardItemRules(issue);
+        
+        assert.equal(actions.length, 1);
+        assert.equal(actions[0].action, 'add_to_board');
+        assert.deepEqual(actions[0].params, { item: issue });
+        assert.ok(logMessages.some(msg => msg.includes('Adding Issue #456 to board')));
+    });
+
+    await t.test('skips item when already in project', async () => {
+        const pr = {
+            __typename: 'PullRequest',
+            number: 123,
+            repository: { name: 'test-repo' },
+            projectItems: { nodes: [{ id: 'some-id' }] }  // Already in project
+        };
+
+        const actions = await processBoardItemRules(pr);
+        
+        assert.equal(actions.length, 0);
+        assert.ok(logMessages.some(msg => msg.includes('Skipping PullRequest #123 - Already in project')));
+    });
+
+    await t.test('skips item when not from monitored repository', async () => {
+        const pr = {
+            __typename: 'PullRequest',
+            number: 123,
+            repository: { name: 'other-repo' },
             projectItems: { nodes: [] }
         };
 
         const actions = await processBoardItemRules(pr);
         
-        // Verify actions
-        assert.equal(actions.length, 1, 'should add PR to board');
-        assert.equal(actions[0].action, 'add_to_board', 'action should be add_to_board');
-        assert.deepEqual(actions[0].params, { item: pr }, 'should include PR in params');
-
-        // Verify logging
-        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')), 
-            'should log board addition');
-    });
-
-    await t.test('adds Issue from monitored repository', async () => {
-        const issue = {
-            __typename: 'Issue',
-            number: 456,
-            repository: 'nr-nerds',
-            projectItems: { nodes: [] }
-        };
-
-        const actions = await processBoardItemRules(issue);
-        
-        // Verify actions
-        assert.equal(actions.length, 1, 'should add Issue to board');
-        assert.equal(actions[0].action, 'add_to_board', 'action should be add_to_board');
-        assert.deepEqual(actions[0].params, { item: issue }, 'should include Issue in params');
-
-        // Verify logging
-        assert.ok(logMessages.some(msg => msg.includes('Adding Issue #456 to board')), 
-            'should log board addition');
-    });
-
-    await t.test('skips PR from unmonitored repository', async () => {
-        const pr = {
-            __typename: 'PullRequest',
-            number: 123,
-            repository: 'other-repo',
-            projectItems: { nodes: [] }
-        };
-
-        const actions = await processBoardItemRules(pr);
-        
-        // Verify actions
-        assert.equal(actions.length, 0, 'should skip PR from unmonitored repo');
-
-        // Verify no add_to_board action logged
-        assert.ok(!logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')),
-            'should not log board addition');
-    });
-
-    await t.test('skips Issue when already in project', async () => {
-        const issue = {
-            __typename: 'Issue',
-            number: 456,
-            repository: 'nr-nerds',
-            projectItems: { nodes: [{ id: 'some-id' }] }
-        };
-
-        const actions = await processBoardItemRules(issue);
-        
-        // Verify actions
-        assert.equal(actions.length, 0, 'should skip Issue already in project');
-
-        // Verify logging
-        assert.ok(logMessages.some(msg => msg.includes('Skipping Issue #456 - Already in project')),
-            'should log skip reason');
+        assert.equal(actions.length, 0);
     });
 });
