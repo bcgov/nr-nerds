@@ -4,6 +4,9 @@
   "description": "GitHub project board automation based on configurable rules",
   "main": "src/index.js",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "validate": "node scripts/validate.js",
     "test": "node --test \"src/**/__tests__/*.test.js\" \"test/**/*.test.js\"",
