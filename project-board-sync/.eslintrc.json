@@ -1,0 +1,16 @@
+{
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "extends": "eslint:recommended",
+  "rules": {
+    "no-restricted-imports": ["error", {
+      "patterns": ["jest", "**/jest", "jest/*"]
+    }],
+    "no-restricted-globals": ["error", {
+      "name": "jest",
+      "message": "Use node:test instead of Jest. See testing docs in CONTRIBUTING.md"
+    }]
+  }
+}

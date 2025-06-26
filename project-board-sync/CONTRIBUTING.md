@@ -8,7 +8,7 @@ When working with this repository:
 3. Do not modify files in `src/` when working on tests - this ensures test fixes don't accidentally change implementation behavior
 4. Use the Change Proposal Format below to plan changes
 5. Proceed with changes when ALL verification steps pass
-6. Stop and ask ONLY if:
+6. Stop and ask ONLY IF:
    - Changes might affect implementation files
    - Verification steps fail
    - You're unsure about the approach
@@ -152,3 +152,66 @@ Good PR description:
 
 Bad PR description:
 > "Fixed how assignees work and improved column handling"
+
+## Automation Rules Contribution
+
+### How to Contribute to Automation Rules
+
+We welcome contributions from anyone interested in improving or extending this automation!
+
+1. **To propose a change to the automation rules:**
+   - Open a GitHub pull request modifying `config/rules.yml`
+   - Or open a GitHub issue describing your suggestion
+   
+2. **To add your repository to the Monitored Repositories list:**
+   - Simply add your repo name to the list in `config/rules.yml`
+   - No approval required—if it's in the list, it will be included!
+
+### Rule Adherence and Quality
+
+The following principles must be followed to maintain strict adherence to requirements:
+
+1. **Rules Are Explicit** - If something isn't in the rules tables in `config/rules.yml`, it should not be implemented.
+2. **No Implicit Behavior** - All automation must map directly to a rule.
+3. **Test Against Rules** - Tests must verify behavior against these requirements, not implementation.
+
+If you find yourself making assumptions about how something should work:
+1. Check if there's an explicit rule for it
+2. If not, propose an addition to `config/rules.yml` first
+3. Only implement after the rule is documented
+
+### Questions and Help
+- Tag a maintainer in an issue or discussion
+- Reach out in your team's preferred channel
+
+Please keep our documentation clear and user-friendly for everyone. Thank you for helping make our automation better!
+
+## Testing Guidelines
+
+This project uses Node's built-in `node:test` module. **DO NOT USE JEST.**
+
+Example of proper test mocking:
+```javascript
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+
+test('feature test', async (t) => {
+    // Mock dependencies inside the test
+    t.mock('./my-module', {
+        myFunction: () => 'mocked result'
+    });
+    
+    // Test environment setup
+    process.env.MY_VAR = 'test';
+    
+    await t.test('specific case', async () => {
+        // Your test code here
+    });
+});
+```
+
+Common test patterns:
+1. Always use `node:test` for testing
+2. Place mocks inside the test function using `t.mock()`
+3. Use `assert` from `node:assert/strict`
+4. Group related test cases using nested `t.test()`
