@@ -44,7 +44,7 @@ const { graphql } = require('@octokit/graphql');
  * @test {verifyNoMutations} Confirms query is read-only
  */
 async function fetchBoardData() {
-  // Uses GH_TOKEN from environment
+  // Uses GITHUB_TOKEN from environment
   const { node } = await graphql({
     query: `
       query {
@@ -91,7 +91,7 @@ async function fetchBoardData() {
       }
     `,
     headers: {
-      authorization: `token ${process.env.GH_TOKEN}`
+      authorization: `token ${process.env.GITHUB_TOKEN}`
     }
   });
 

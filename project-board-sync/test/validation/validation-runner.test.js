@@ -10,9 +10,9 @@ test('ValidationRunner', async (t) => {
   const originalEnv = { ...process.env };
 
   t.beforeEach(() => {
-    process.env = { 
+    process.env = {
       ...originalEnv,
-      GH_TOKEN: 'test-token'
+      GITHUB_TOKEN: 'test-token'
     };
   });
 
@@ -34,11 +34,11 @@ test('ValidationRunner', async (t) => {
   });
 
   await t.test('handles environment validation failure', async () => {
-    delete process.env.GH_TOKEN;
+    delete process.env.GITHUB_TOKEN;
     const result = await ValidationRunner.runValidations();
-    assert.equal(result.success, false, 'Should fail with missing GH_TOKEN');
+    assert.equal(result.success, false, 'Should fail with missing GITHUB_TOKEN');
     assert.equal(result.results.environment, false, 'Should indicate environment validation failed');
-    assert.ok(result.error.includes('GH_TOKEN'), 'Should include error about missing token');
+    assert.ok(result.error.includes('GITHUB_TOKEN'), 'Should include error about missing token');
   });
 
   await t.test('validates project ID consistency', async () => {

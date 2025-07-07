@@ -43,7 +43,7 @@ Before running the full sync, you can validate your environment and configuratio
 
 ```bash
 # Set required environment variables
-export GH_TOKEN=your_github_token
+export GITHUB_TOKEN=your_github_token
 export GITHUB_AUTHOR=your_github_username
 
 # Run just the preflight checks to validate configuration
@@ -66,7 +66,7 @@ To run the project sync automation:
 
 ```bash
 # Set required environment variables
-export GH_TOKEN=your_github_token
+export GITHUB_TOKEN=your_github_token
 export GITHUB_AUTHOR=your_github_username
 
 # Run with verbose output (recommended for troubleshooting)

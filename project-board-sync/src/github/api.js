@@ -6,13 +6,13 @@ const { log } = require('../utils/log');
  * GitHub API client setup
  */
 const octokit = new Octokit({
-  auth: process.env.GH_TOKEN
+  auth: process.env.GITHUB_TOKEN
 });
 
 // Create authenticated GraphQL client with debug logging
 const graphqlWithAuth = graphql.defaults({
   headers: {
-    authorization: `bearer ${process.env.GH_TOKEN}`,
+    authorization: `bearer ${process.env.GITHUB_TOKEN}`,
   },
   request: {
     fetch: (url, options) => {
@@ -43,7 +43,7 @@ const projectItemsCache = new Map();
 async function getColumnOptionId(projectId, columnName) {
   // Create a composite cache
   const cacheKey = `${projectId}:${columnName}`;
-  
+
   // Check if we have this column option ID cached
   if (columnOptionIdCache.has(cacheKey)) {
     return columnOptionIdCache.get(cacheKey);
@@ -130,7 +130,7 @@ async function getProjectItems(projectId) {
 
     const projectItems = result.node?.items?.nodes || [];
     totalItems += projectItems.length;
-    
+
     for (const item of projectItems) {
       if (item.content?.id) {
         items.set(item.content.id, item.id);
@@ -191,7 +191,7 @@ async function isItemInProject(nodeId, projectId) {
     });
 
     // Find the item that matches our nodeId
-    const matchingItem = result.node?.items?.nodes?.find(item => 
+    const matchingItem = result.node?.items?.nodes?.find(item =>
       item.content?.id === nodeId
     );
 
@@ -252,10 +252,10 @@ async function addItemToProject(nodeId, projectId) {
 async function getRecentItems(org, repos, monitoredUser) {
   // Calculate 24 hours ago in ISO format
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  
+
   const queries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
   const searchQuery = queries.join(' ');
-  
+
   const result = await graphqlWithAuth(`
     query($searchQuery: String!) {
       search(query: $searchQuery, type: ISSUE, first: 100) {
@@ -332,10 +332,10 @@ async function getItemColumn(projectId, itemId) {
   });
 
   const fieldValues = result.item?.fieldValues.nodes || [];
-  const statusValue = fieldValues.find(value => 
+  const statusValue = fieldValues.find(value =>
     value.field && value.field.name === 'Status'
   );
-  
+
   return statusValue ? statusValue.name : null;
 }
 
@@ -398,7 +398,7 @@ async function setItemColumn(projectId, projectItemId, optionId) {
 async function getFieldId(projectId, fieldName) {
   // Use composite key for cache
   const cacheKey = `${projectId}:${fieldName}`;
-  
+
   if (fieldIdCache.has(cacheKey)) {
     log.debug(`Using cached field ID for ${fieldName} in project ${projectId}`);
     return fieldIdCache.get(cacheKey);
@@ -425,7 +425,7 @@ async function getFieldId(projectId, fieldName) {
   if (!result.node.field || !result.node.field.id) {
     throw new Error(`Field '${fieldName}' not found in project or doesn't have an ID`);
   }
-  
+
   const fieldId = result.node.field.id;
   fieldIdCache.set(cacheKey, fieldId);
   return fieldId;

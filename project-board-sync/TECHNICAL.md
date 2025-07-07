@@ -63,7 +63,7 @@ Default board settings (can be overridden via environment):
 ### Environment Variables
 Required:
 - `GITHUB_AUTHOR`: Monitored user for PR/Issue tracking
-- `GH_TOKEN`: GitHub API token with required permissions
+- `GITHUB_TOKEN`: GitHub API token with required permissions
 
 Optional:
 - `PROJECT_ID`: Override default project board
