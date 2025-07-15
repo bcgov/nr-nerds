@@ -82,7 +82,7 @@ class ValidationRunner {
 
     // Test state updates
     const initialState = StateVerifier.getState(testItem);
-    if (!initialState.column === 'None') {
+    if (initialState.column !== 'None') {
       throw new Error('Initial state validation failed');
     }
 
