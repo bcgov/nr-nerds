@@ -57,6 +57,15 @@ class StepVerification {
   }
 
   /**
+   * Check if a step has been completed (non-throwing version)
+   * @param {string} step - The step identifier to check
+   * @returns {boolean} True if the step has been completed
+   */
+  isStepCompleted(step) {
+    return this.completedSteps.has(step);
+  }
+
+  /**
    * Check if all required steps are completed
    * @returns {boolean} True if all required steps are complete
    */

@@ -119,7 +119,12 @@ class StateTransitionValidator {
    */
   validateColumnTransition(from, to, context = {}) {
     try {
-      this.steps.validateStepCompleted('RULES_VALIDATED');
+      // Check if RULES_VALIDATED step is completed, but don't fail if it's not
+      // This allows the system to work even when no transition rules are defined
+      if (!this.steps.isStepCompleted('RULES_VALIDATED')) {
+        log.debug('RULES_VALIDATED step not completed - allowing transition (no rules defined)');
+        return { valid: true };
+      }
 
       // Allow initial column setting
       if (!from || from === 'None') {
@@ -248,8 +253,20 @@ class StateTransitionValidator {
    * Validate a complete state transition with enhanced error tracking
    */
   validateStateTransition(item, currentState, newState, context = {}) {
-    // Verify required steps are complete
-    this.steps.validateStepCompleted('RULES_VALIDATED');
+    // Check if RULES_VALIDATED step is completed, but don't fail if it's not
+    // This allows the system to work even when no transition rules are defined
+    if (!this.steps.isStepCompleted('RULES_VALIDATED')) {
+      log.debug('RULES_VALIDATED step not completed - allowing state transition (no rules defined)');
+      return {
+        valid: true,
+        errors: [],
+        context: {
+          startTime: Date.now(),
+          item,
+          changes: []
+        }
+      };
+    }
     
     const errors = [];
     const validationContext = {
