@@ -11,6 +11,17 @@
 const { log } = require('../../utils/log');
 
 class RuleValidation {
+    constructor() {
+        // Initialize monitored repositories for repository-based conditions
+        this.monitoredRepos = new Set([
+            'bcgov/action-builder-ghcr',
+            'bcgov/nr-nerds', 
+            'bcgov/quickstart-openshift',
+            'bcgov/quickstart-openshift-backends',
+            'bcgov/quickstart-openshift-helpers'
+        ]);
+    }
+
     /**
      * Validate item condition based on rule requirements
      */
@@ -27,6 +38,28 @@ class RuleValidation {
                 const monitoredUser = process.env.GITHUB_AUTHOR;
                 const result = item.author?.login === monitoredUser;
                 log.debug(`Author check: ${item.author?.login} === ${monitoredUser} -> ${result}`);
+                return result;
+            }
+
+            // Repository condition - NEW
+            if (condition.condition === "monitored.repos.includes(item.repository)") {
+                const result = this.monitoredRepos.has(item.repository?.nameWithOwner);
+                log.debug(`Repository check: ${item.repository?.nameWithOwner} in monitored repos -> ${result}`);
+                return result;
+            }
+
+            // Assignee condition - NEW
+            if (condition.condition === "item.assignees.includes(monitored.user)") {
+                const monitoredUser = process.env.GITHUB_AUTHOR;
+                const result = item.assignees?.nodes?.some(a => a.login === monitoredUser) || false;
+                log.debug(`Assignee check: ${item.assignees?.nodes?.map(a => a.login).join(', ')} includes ${monitoredUser} -> ${result}`);
+                return result;
+            }
+
+            // Column condition - NEW
+            if (condition.condition === "!item.column") {
+                const result = !item.column || item.column === 'None';
+                log.debug(`No column check: ${item.column} -> ${result}`);
                 return result;
             }
 

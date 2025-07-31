@@ -243,32 +243,64 @@ async function addItemToProject(nodeId, projectId) {
 }
 
 /**
- * Get items updated in the last 24 hours for monitored repositories
- * @param {string} org - The GitHub organization
- * @param {string[]} repos - List of repository names to monitor
- * @param {string} monitoredUser - The GitHub username to monitor
+ * Get recent items (PRs and Issues) from monitored repositories and authored by monitored user
+ * @param {string} org - Organization name
+ * @param {Array<string>} repos - List of repository names
+ * @param {string} monitoredUser - GitHub username to monitor
  * @returns {Promise<Array>} - List of items (PRs and Issues)
  */
 async function getRecentItems(org, repos, monitoredUser) {
   // Calculate 24 hours ago in ISO format
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-  const queries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
-  const searchQuery = queries.join(' ');
+  // Search for items in monitored repositories
+  const repoQueries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
+  const repoSearchQuery = repoQueries.join(' ');
+  
+  // Search for PRs authored by monitored user in ANY repository
+  const authorSearchQuery = `author:${monitoredUser} updated:>${since}`;
 
-  const result = await graphqlWithAuth(`
+  const results = [];
+
+  // Get items from monitored repositories
+  if (repoSearchQuery) {
+    const repoResult = await graphqlWithAuth(`
+      query($searchQuery: String!) {
+        search(query: $searchQuery, type: ISSUE, first: 100) {
+          nodes {
+            __typename
+            ... on Issue {
+              id
+              number
+              repository { nameWithOwner }
+              author { login }
+              assignees(first: 5) { nodes { login } }
+              updatedAt
+            }
+            ... on PullRequest {
+              id
+              number
+              repository { nameWithOwner }
+              author { login }
+              assignees(first: 5) { nodes { login } }
+              updatedAt
+            }
+          }
+        }
+      }
+    `, {
+      searchQuery: repoSearchQuery
+    });
+    
+    results.push(...repoResult.search.nodes);
+  }
+
+  // Get PRs authored by monitored user in any repository
+  const authorResult = await graphqlWithAuth(`
     query($searchQuery: String!) {
       search(query: $searchQuery, type: ISSUE, first: 100) {
         nodes {
           __typename
-          ... on Issue {
-            id
-            number
-            repository { nameWithOwner }
-            author { login }
-            assignees(first: 5) { nodes { login } }
-            updatedAt
-          }
           ... on PullRequest {
             id
             number
@@ -281,10 +313,20 @@ async function getRecentItems(org, repos, monitoredUser) {
       }
     }
   `, {
-    searchQuery
+    searchQuery: authorSearchQuery
   });
+  
+  results.push(...authorResult.search.nodes);
 
-  return result.search.nodes;
+  // Remove duplicates based on item ID
+  const seen = new Set();
+  return results.filter(item => {
+    if (seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
 }
 
 /**
