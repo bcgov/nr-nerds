@@ -52,6 +52,7 @@ const { processSprintAssignment } = require('./rules/sprints');
 const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues');
 const { StepVerification } = require('./utils/verification-steps');
+const { EnvironmentValidator } = require('./utils/environment-validator');
 
 // Initialize environment validation steps
 const envValidator = new StepVerification([
@@ -67,10 +68,13 @@ envValidator.addStepDependencies('LABELS_CONFIGURED', [ 'PROJECT_CONFIGURED' ]);
 StepVerification.envValidator = envValidator;
 
 /**
- * Validate required environment variables
- * @throws {Error} If any required variables are missing
+ * Validate required environment variables and return configuration
+ * 
+ * @async
+ * @returns {Promise<Object>} A configuration object containing validated environment settings
+ * @throws {Error} If any required variables are missing or validation fails
  */
-function validateEnvironment() {
+async function validateEnvironment() {
   const { StateVerifier } = require('./utils/state-verifier');
 
   // Initialize base state tracking
@@ -80,29 +84,34 @@ function validateEnvironment() {
   // Initialize validator
   StateVerifier.getTransitionValidator(); // This marks TRANSITION_VALIDATOR_CONFIGURED
 
-  // Validate GitHub token
-  if (!process.env.GITHUB_TOKEN) {
-    throw new Error('GITHUB_TOKEN environment variable is required');
+  try {
+    // Use centralized environment validation
+    const envConfig = await EnvironmentValidator.validateAll();
+    
+    // Mark validation steps as complete
+    envValidator.markStepComplete('TOKEN_CONFIGURED');
+    StateVerifier.steps.markStepComplete('TOKEN_CONFIGURED');
+    
+    envValidator.markStepComplete('PROJECT_CONFIGURED');
+    StateVerifier.steps.markStepComplete('PROJECT_CONFIGURED');
+    
+    envValidator.markStepComplete('LABELS_CONFIGURED');
+    StateVerifier.steps.markStepComplete('LABELS_CONFIGURED');
+
+    // Complete state validation setup after environment is confirmed valid
+    StateVerifier.steps.markStepComplete('RULES_INITIALIZED');
+    StateVerifier.steps.markStepComplete('DEPENDENCIES_VERIFIED');
+    StateVerifier.steps.markStepComplete('STATE_VALIDATED');
+    StateVerifier.steps.markStepComplete('STATE_VERIFIED');
+    
+    return envConfig;
+  } catch (error) {
+    // Re-throw with enhanced context
+    throw new Error(
+      `Environment validation failed:\n${error.message}\n\n` +
+      `Please check your environment variables and try again.`
+    );
   }
-  envValidator.markStepComplete('TOKEN_CONFIGURED');
-  StateVerifier.steps.markStepComplete('TOKEN_CONFIGURED');
-
-  // PROJECT_ID can have a default value from rules.yml
-  if (!process.env.PROJECT_ID && !process.env.DEFAULT_PROJECT_ID) {
-    log.warning('No PROJECT_ID provided, using default from rules.yml: PVT_kwDOAA37OM4AFuzg');
-  }
-  envValidator.markStepComplete('PROJECT_CONFIGURED');
-  StateVerifier.steps.markStepComplete('PROJECT_CONFIGURED');
-
-  // Optional label configuration has defaults
-  envValidator.markStepComplete('LABELS_CONFIGURED');
-  StateVerifier.steps.markStepComplete('LABELS_CONFIGURED');
-
-  // Complete state validation setup after environment is confirmed valid
-  StateVerifier.steps.markStepComplete('RULES_INITIALIZED');
-  StateVerifier.steps.markStepComplete('DEPENDENCIES_VERIFIED');
-  StateVerifier.steps.markStepComplete('STATE_VALIDATED');
-  StateVerifier.steps.markStepComplete('STATE_VERIFIED');
 }
 
 /**
@@ -116,9 +125,10 @@ function validateEnvironment() {
  */
 async function main() {
   try {
-    validateEnvironment();
+    // Validate environment and get configuration
+    const envConfig = await validateEnvironment();
 
-    // Initialize context
+    // Initialize context with validated environment config
     const context = {
       org: 'bcgov',
       repos: [
@@ -129,16 +139,20 @@ async function main() {
         'quickstart-openshift-helpers'
       ],
       monitoredUser: process.env.GITHUB_AUTHOR,
-      projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg'
+      projectId: envConfig.projectId,
+      verbose: envConfig.verbose,
+      strictMode: envConfig.strictMode
     };
 
     log.info('Starting Project Board Sync...');
     log.info(`User: ${context.monitoredUser}`);
+    log.info(`Project: ${context.projectId}`);
 
     // Initialize state tracking
-    process.env.VERBOSE && log.info('State tracking enabled');
+    if (context.verbose) {
+      log.info('State tracking enabled');
+    }
     const startTime = new Date();
-    log.info(`Project: ${context.projectId}`);
     log.info('Monitored Repos: ' + context.repos.map(r => `${context.org}/${r}`).join(', '));
 
     // Process items according to our enhanced rules
