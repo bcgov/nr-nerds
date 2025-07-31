@@ -1,17 +1,19 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { processColumnRules } = require('../column-rules');
+const { setupTestEnvironment } = require('../../../../test/setup');
 
 test('processColumnRules', async (t) => {
+    // Setup test environment
+    setupTestEnvironment();
+    
     await t.test('sets PR column to Active when no column set', () => {
         const pr = {
             __typename: 'PullRequest',
+            author: { login: 'DerekRoberts' },
+            column: null, // No column set
             projectItems: {
-                nodes: [{
-                    fieldValues: {
-                        nodes: [] // No column set
-                    }
-                }]
+                nodes: []
             }
         };
 
@@ -25,15 +27,10 @@ test('processColumnRules', async (t) => {
     await t.test('sets PR column to Active when in New column', () => {
         const pr = {
             __typename: 'PullRequest',
+            author: { login: 'DerekRoberts' },
+            column: 'New', // In New column
             projectItems: {
-                nodes: [{
-                    fieldValues: {
-                        nodes: [{
-                            field: { name: 'Status' },
-                            name: 'New'
-                        }]
-                    }
-                }]
+                nodes: []
             }
         };
 
@@ -47,12 +44,10 @@ test('processColumnRules', async (t) => {
     await t.test('sets Issue column to New when no column set', () => {
         const issue = {
             __typename: 'Issue',
+            author: { login: 'DerekRoberts' },
+            column: null, // No column set
             projectItems: {
-                nodes: [{
-                    fieldValues: {
-                        nodes: [] // No column set
-                    }
-                }]
+                nodes: []
             }
         };
 
@@ -66,15 +61,10 @@ test('processColumnRules', async (t) => {
     await t.test('skips PR when column is already set except New', () => {
         const pr = {
             __typename: 'PullRequest',
+            author: { login: 'DerekRoberts' },
+            column: 'Active', // Already set to Active
             projectItems: {
-                nodes: [{
-                    fieldValues: {
-                        nodes: [{
-                            field: { name: 'Status' },
-                            name: 'Active'
-                        }]
-                    }
-                }]
+                nodes: []
             }
         };
 
@@ -86,15 +76,10 @@ test('processColumnRules', async (t) => {
     await t.test('skips Issue when column is already set', () => {
         const issue = {
             __typename: 'Issue',
+            author: { login: 'DerekRoberts' },
+            column: 'New', // Already set to New
             projectItems: {
-                nodes: [{
-                    fieldValues: {
-                        nodes: [{
-                            field: { name: 'Status' },
-                            name: 'New'
-                        }]
-                    }
-                }]
+                nodes: []
             }
         };
 

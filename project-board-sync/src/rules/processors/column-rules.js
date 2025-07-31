@@ -19,11 +19,11 @@ const { log } = require('../../utils/log');
  * @returns {Array<{action: string, params: Object}>} List of actions to take
  */
 function processColumnRules(item) {
-    const rules = loadBoardRules();
+    const config = loadBoardRules();
     const actions = [];
     validator.steps.markStepComplete('RULE_CONFIG_LOADED');
 
-    for (const rule of rules.columns) {
+    for (const rule of config.rules.columns) {
         try {
             // Skip rule if conditions not met
             if (rule.skipIf && validator.validateSkipRule(item, rule.skipIf)) {

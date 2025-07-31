@@ -20,6 +20,10 @@ class RuleValidation {
             'bcgov/quickstart-openshift-backends',
             'bcgov/quickstart-openshift-helpers'
         ]);
+        
+        // Delegate step tracking to StateVerifier
+        const { StateVerifier } = require('../../utils/state-verifier');
+        this.steps = StateVerifier.steps;
     }
 
     /**

@@ -3,16 +3,19 @@ const assert = require('node:assert/strict');
 const { processBoardItemRules } = require('../board-items');
 const { processColumnRules } = require('../column-rules');
 const { processSprintRules } = require('../sprint-rules');
-
-// Mock environment variable
-process.env.GITHUB_AUTHOR = 'DerekRoberts';
+const { setupTestEnvironment } = require('../../../../test/setup');
 
 test('real scenarios', async (t) => {
+    // Setup test environment
+    setupTestEnvironment();
+    
     await t.test('PR 98: authored by DerekRoberts, no column or assignee', () => {
         const pr = {
             __typename: 'PullRequest',
             author: { login: 'DerekRoberts' },
             repository: { nameWithOwner: 'bcgov/nr-nerds' },
+            column: null,
+            sprint: null,
             projectItems: { nodes: [] }, // Not in project yet
             assignees: { nodes: [] } // No assignees
         };
@@ -31,16 +34,7 @@ test('real scenarios', async (t) => {
         // Once in Active column, should get sprint assignment
         const prWithColumn = {
             ...pr,
-            projectItems: {
-                nodes: [{
-                    fieldValues: {
-                        nodes: [{
-                            field: { name: 'Status' },
-                            name: 'Active'
-                        }]
-                    }
-                }]
-            }
+            column: 'Active'
         };
         const sprintActions = processSprintRules(prWithColumn);
         assert.equal(sprintActions.length, 1, 'should set sprint');
