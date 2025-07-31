@@ -108,10 +108,10 @@ const schema = {
           properties: {
             type: {
               oneOf: [
-                { type: 'string', enum: ['PR', 'Issue', 'LinkedIssue'] },
+                { type: 'string', enum: ['PullRequest', 'Issue', 'LinkedIssue'] },
                 { 
                   type: 'array',
-                  items: { type: 'string', enum: ['PR', 'Issue', 'LinkedIssue'] }
+                  items: { type: 'string', enum: ['PullRequest', 'Issue', 'LinkedIssue'] }
                 }
               ]
             },

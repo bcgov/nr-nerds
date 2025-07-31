@@ -60,8 +60,8 @@ const envValidator = new StepVerification([
   'LABELS_CONFIGURED'
 ]);
 
-envValidator.addStepDependencies('PROJECT_CONFIGURED', ['TOKEN_CONFIGURED']);
-envValidator.addStepDependencies('LABELS_CONFIGURED', ['PROJECT_CONFIGURED']);
+envValidator.addStepDependencies('PROJECT_CONFIGURED', [ 'TOKEN_CONFIGURED' ]);
+envValidator.addStepDependencies('LABELS_CONFIGURED', [ 'PROJECT_CONFIGURED' ]);
 
 // Static reference to allow access from other modules
 StepVerification.envValidator = envValidator;
@@ -76,13 +76,13 @@ function validateEnvironment() {
   // Initialize base state tracking
   StateVerifier.steps.markStepComplete('STATE_TRACKING_INITIALIZED');
   StateVerifier.steps.markStepComplete('VERIFICATION_PROGRESS_SETUP');
-  
+
   // Initialize validator
   StateVerifier.getTransitionValidator(); // This marks TRANSITION_VALIDATOR_CONFIGURED
 
   // Validate GitHub token
-  if (!process.env.GH_TOKEN) {
-    throw new Error('GH_TOKEN environment variable is required');
+  if (!process.env.GITHUB_TOKEN) {
+    throw new Error('GITHUB_TOKEN environment variable is required');
   }
   envValidator.markStepComplete('TOKEN_CONFIGURED');
   StateVerifier.steps.markStepComplete('TOKEN_CONFIGURED');
@@ -97,7 +97,7 @@ function validateEnvironment() {
   // Optional label configuration has defaults
   envValidator.markStepComplete('LABELS_CONFIGURED');
   StateVerifier.steps.markStepComplete('LABELS_CONFIGURED');
-  
+
   // Complete state validation setup after environment is confirmed valid
   StateVerifier.steps.markStepComplete('RULES_INITIALIZED');
   StateVerifier.steps.markStepComplete('DEPENDENCIES_VERIFIED');
@@ -134,7 +134,7 @@ async function main() {
 
     log.info('Starting Project Board Sync...');
     log.info(`User: ${context.monitoredUser}`);
-    
+
     // Initialize state tracking
     process.env.VERBOSE && log.info('State tracking enabled');
     const startTime = new Date();
@@ -167,9 +167,9 @@ async function main() {
 
         // Assign sprint if needed
         const sprintResult = await processSprintAssignment(
-          item, 
-          item.projectItemId, 
-          context.projectId, 
+          item,
+          item.projectItemId,
+          context.projectId,
           columnResult.newStatus
         );
         if (sprintResult.changed) {
@@ -192,7 +192,7 @@ async function main() {
           log.info(`[Main] Calling processLinkedIssues for PR #${item.number} (${item.repository.nameWithOwner})`);
           const targetColumn = columnResult.newStatus || columnResult.currentStatus;
           const targetSprint = sprintResult.newSprint;
-          
+
           const linkedResult = await processLinkedIssues(
             {
               ...item,
@@ -271,7 +271,7 @@ if (require.main === module) {
   });
 }
 
-module.exports = { 
+module.exports = {
   main,
-  validateEnvironment 
+  validateEnvironment
 };

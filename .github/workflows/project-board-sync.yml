@@ -28,7 +28,7 @@ jobs:
         
       - name: Run Tests
         env:
-          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
         working-directory: project-board-sync
         run: |
@@ -37,7 +37,7 @@ jobs:
        
       - name: Run Project Board Sync
         env:
-          GH_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           VERBOSE: true
         working-directory: project-board-sync
         run: GITHUB_AUTHOR=${{ github.actor }} npm run start

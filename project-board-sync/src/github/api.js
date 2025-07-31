@@ -6,14 +6,23 @@ const { log } = require('../utils/log');
  * GitHub API client setup
  */
 const octokit = new Octokit({
-  auth: process.env.GH_TOKEN
+  auth: process.env.GITHUB_TOKEN
 });
 
-// Create authenticated GraphQL client
+// Create authenticated GraphQL client with debug logging
 const graphqlWithAuth = graphql.defaults({
   headers: {
-    authorization: `bearer ${process.env.GH_TOKEN}`,
+    authorization: `bearer ${process.env.GITHUB_TOKEN}`,
   },
+  request: {
+    fetch: (url, options) => {
+      log.debug('GraphQL Request:', JSON.stringify(options.body, null, 2));
+      return fetch(url, options).then(response => {
+        log.debug('GraphQL Response:', response.status);
+        return response;
+      });
+    }
+  }
 });
 
 // Cache field IDs per project to reduce API calls
@@ -34,7 +43,7 @@ const projectItemsCache = new Map();
 async function getColumnOptionId(projectId, columnName) {
   // Create a composite cache
   const cacheKey = `${projectId}:${columnName}`;
-  
+
   // Check if we have this column option ID cached
   if (columnOptionIdCache.has(cacheKey)) {
     return columnOptionIdCache.get(cacheKey);
@@ -121,7 +130,7 @@ async function getProjectItems(projectId) {
 
     const projectItems = result.node?.items?.nodes || [];
     totalItems += projectItems.length;
-    
+
     for (const item of projectItems) {
       if (item.content?.id) {
         items.set(item.content.id, item.id);
@@ -144,44 +153,59 @@ async function getProjectItems(projectId) {
  */
 async function isItemInProject(nodeId, projectId) {
   try {
-    // Force cache invalidation for recently added items
+    // First check the cache
     const projectItems = await getProjectItems(projectId, true);
     const projectItemId = projectItems.get(nodeId);
 
-    // Double check with a direct query if not found, to handle eventual consistency
-    if (!projectItemId) {
-      const result = await graphqlWithAuth(`
-        query($projectId: ID!, $nodeId: ID!) {
-          node(id: $projectId) {
-            ... on ProjectV2 {
-              items(first: 1, filter: { content: { id: { eq: $nodeId } } }) {
-                nodes {
-                  id
+    // If found in cache, return immediately
+    if (projectItemId) {
+      return {
+        isInProject: true,
+        projectItemId
+      };
+    }
+
+    // If not in cache, query the project items directly
+    const result = await graphqlWithAuth(`
+      query($projectId: ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            items(first: 100) {
+              nodes {
+                id
+                content {
+                  ... on PullRequest {
+                    id
+                  }
+                  ... on Issue {
+                    id
+                  }
                 }
               }
             }
           }
         }
-      `, {
-        projectId,
-        nodeId
-      });
-
-      const directProjectItemId = result.node?.items?.nodes?.[0]?.id;
-      if (directProjectItemId) {
-        // Update cache with the found item
-        projectItems.set(nodeId, directProjectItemId);
-        return {
-          isInProject: true,
-          projectItemId: directProjectItemId
-        };
       }
+    `, {
+      projectId
+    });
+
+    // Find the item that matches our nodeId
+    const matchingItem = result.node?.items?.nodes?.find(item =>
+      item.content?.id === nodeId
+    );
+
+    if (matchingItem) {
+      // Update cache with the found item
+      projectItems.set(nodeId, matchingItem.id);
+      return {
+        isInProject: true,
+        projectItemId: matchingItem.id
+      };
     }
 
-    return projectItemId ? {
-      isInProject: true,
-      projectItemId
-    } : { isInProject: false };
+    return { isInProject: false };
+
   } catch (error) {
     log.error(`Failed to check if item ${nodeId} is in project: ${error.message}`);
     throw error;
@@ -219,32 +243,64 @@ async function addItemToProject(nodeId, projectId) {
 }
 
 /**
- * Get items updated in the last 24 hours for monitored repositories
- * @param {string} org - The GitHub organization
- * @param {string[]} repos - List of repository names to monitor
- * @param {string} monitoredUser - The GitHub username to monitor
+ * Get recent items (PRs and Issues) from monitored repositories and authored by monitored user
+ * @param {string} org - Organization name
+ * @param {Array<string>} repos - List of repository names
+ * @param {string} monitoredUser - GitHub username to monitor
  * @returns {Promise<Array>} - List of items (PRs and Issues)
  */
 async function getRecentItems(org, repos, monitoredUser) {
   // Calculate 24 hours ago in ISO format
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  // Search for items in monitored repositories
+  const repoQueries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
+  const repoSearchQuery = repoQueries.join(' ');
   
-  const queries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
-  const searchQuery = queries.join(' ');
-  
-  const result = await graphqlWithAuth(`
+  // Search for PRs authored by monitored user in ANY repository
+  const authorSearchQuery = `author:${monitoredUser} updated:>${since}`;
+
+  const results = [];
+
+  // Get items from monitored repositories
+  if (repoSearchQuery) {
+    const repoResult = await graphqlWithAuth(`
+      query($searchQuery: String!) {
+        search(query: $searchQuery, type: ISSUE, first: 100) {
+          nodes {
+            __typename
+            ... on Issue {
+              id
+              number
+              repository { nameWithOwner }
+              author { login }
+              assignees(first: 5) { nodes { login } }
+              updatedAt
+            }
+            ... on PullRequest {
+              id
+              number
+              repository { nameWithOwner }
+              author { login }
+              assignees(first: 5) { nodes { login } }
+              updatedAt
+            }
+          }
+        }
+      }
+    `, {
+      searchQuery: repoSearchQuery
+    });
+    
+    results.push(...repoResult.search.nodes);
+  }
+
+  // Get PRs authored by monitored user in any repository
+  const authorResult = await graphqlWithAuth(`
     query($searchQuery: String!) {
       search(query: $searchQuery, type: ISSUE, first: 100) {
         nodes {
           __typename
-          ... on Issue {
-            id
-            number
-            repository { nameWithOwner }
-            author { login }
-            assignees(first: 5) { nodes { login } }
-            updatedAt
-          }
           ... on PullRequest {
             id
             number
@@ -257,10 +313,20 @@ async function getRecentItems(org, repos, monitoredUser) {
       }
     }
   `, {
-    searchQuery
+    searchQuery: authorSearchQuery
   });
+  
+  results.push(...authorResult.search.nodes);
 
-  return result.search.nodes;
+  // Remove duplicates based on item ID
+  const seen = new Set();
+  return results.filter(item => {
+    if (seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
 }
 
 /**
@@ -308,10 +374,10 @@ async function getItemColumn(projectId, itemId) {
   });
 
   const fieldValues = result.item?.fieldValues.nodes || [];
-  const statusValue = fieldValues.find(value => 
+  const statusValue = fieldValues.find(value =>
     value.field && value.field.name === 'Status'
   );
-  
+
   return statusValue ? statusValue.name : null;
 }
 
@@ -374,7 +440,7 @@ async function setItemColumn(projectId, projectItemId, optionId) {
 async function getFieldId(projectId, fieldName) {
   // Use composite key for cache
   const cacheKey = `${projectId}:${fieldName}`;
-  
+
   if (fieldIdCache.has(cacheKey)) {
     log.debug(`Using cached field ID for ${fieldName} in project ${projectId}`);
     return fieldIdCache.get(cacheKey);
@@ -401,7 +467,7 @@ async function getFieldId(projectId, fieldName) {
   if (!result.node.field || !result.node.field.id) {
     throw new Error(`Field '${fieldName}' not found in project or doesn't have an ID`);
   }
-  
+
   const fieldId = result.node.field.id;
   fieldIdCache.set(cacheKey, fieldId);
   return fieldId;

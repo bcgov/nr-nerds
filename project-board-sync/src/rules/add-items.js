@@ -23,7 +23,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
   const addedItems = [];
   const skippedItems = [];
   const monitoredRepos = new Set(repos.map(repo => `${org}/${repo}`));
-  log.info(`📋 Monitoring repositories:\n${[...monitoredRepos].map(r => `  • ${r}`).join('\n')}\n`, true);
+  log.info(`📋 Monitoring repositories:\n${[ ...monitoredRepos ].map(r => `  • ${r}`).join('\n')}\n`, true);
 
   for (const item of items) {
     try {
@@ -37,19 +37,19 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
       const isMonitoredRepo = monitoredRepos.has(item.repository.nameWithOwner);
       const isAuthoredByUser = item.author?.login === monitoredUser;
       const isAssignedToUser = item.assignees?.nodes?.some(a => a.login === monitoredUser) || false;
-      
+
       log.info('  Checking conditions:', true);
       log.info(`  ├─ In monitored repo? ${isMonitoredRepo ? '✓ Yes' : '✗ No'}`, true);
       if (item.__typename === 'PullRequest') {
         log.info(`  ├─ Authored by ${monitoredUser}? ${isAuthoredByUser ? '✓ Yes' : '✗ No'}`, true);
         log.info(`  └─ Assigned to ${monitoredUser}? ${isAssignedToUser ? '✓ Yes' : '✗ No'}\n`, true);
       }
-      
+
       // Check if we should process this item based on rules
       const boardActions = await processBoardItemRules(item, { monitoredUser });
       const shouldProcess = boardActions.length > 0;
       const addReason = item.__typename === 'PullRequest'
-        ? isAuthoredByUser 
+        ? isAuthoredByUser
           ? 'PR is authored by monitored user'
           : isAssignedToUser
             ? 'PR is assigned to monitored user'
@@ -59,7 +59,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
         : isMonitoredRepo
           ? 'Issue is in a monitored repository'
           : 'Issue does not meet any criteria';
-      
+
       if (!shouldProcess) {
         skippedItems.push({
           type: item.__typename,
@@ -75,7 +75,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
       log.info('  Checking project board status...', true);
       const { isInProject, projectItemId: existingItemId } = await isItemInProject(item.id, projectId);
       let projectItemId = existingItemId;
-      
+
       // Process all board actions
       log.info('\n  Processing board actions:', true);
       for (const action of boardActions) {
@@ -83,17 +83,17 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
           log.info(`    • Skipping add_to_board - Already in project board`, true);
           continue;
         }
-        
+
         // If we need to add to board and item isn't in project yet
         if (action.action === 'add_to_board' && !isInProject) {
           log.info('  ✨ Action Required: Add to project board', true);
           projectItemId = await addItemToProject(item.id, projectId);
-          
+
           // Add delay after adding to project to handle eventual consistency
           log.info('  ⏳ Waiting for GitHub to process the addition...', true);
           await new Promise(resolve => setTimeout(resolve, VERIFY_DELAY_MS));
         }
-        
+
         log.info(`    • Action: ${action.action}`, true);
         log.info(`      Parameters: ${JSON.stringify(action.params)}`, true);
       }
@@ -118,7 +118,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
 
       // If this is an authentication error, stop processing
       if (error.message.includes('Bad credentials') || error.message.includes('Not authenticated')) {
-        throw new Error('GitHub authentication failed. Please check GH_TOKEN environment variable.');
+        throw new Error('GitHub authentication failed. Please check GITHUB_TOKEN environment variable.');
       }
     }
   }
@@ -127,7 +127,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
   log.info('\n📊 Processing Summary', true);
   log.info(`━━━━━━━━━━━━━━━━━━━`, true);
   log.info(`Total items processed: ${items.length}`, true);
-  
+
   if (addedItems.length > 0) {
     log.info('\n✓ Items Added/Updated:', true);
     addedItems.forEach(item => {
@@ -135,7 +135,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
       log.info(`    └─ ${item.reason}`, true);
     });
   }
-  
+
   if (skippedItems.length > 0) {
     log.info('\nℹ Items Skipped:', true);
     skippedItems.forEach(item => {
@@ -143,7 +143,7 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
       log.info(`    └─ ${item.reason}`, true);
     });
   }
-  
+
   log.info('\n━━━━━━━━━━━━━━━━━━━\n', true);
 
   return { addedItems, skippedItems };
@@ -176,8 +176,8 @@ async function processItemForProject(item, projectId, context) {
 
   // Add to project
   const newProjectItemId = await addItemToProject(item.id, projectId);
-  return { 
-    added: true, 
+  return {
+    added: true,
     projectItemId: newProjectItemId,
     reason: `Added as ${item.__typename} from ${item.repository.nameWithOwner}`
   };
@@ -211,13 +211,13 @@ function shouldAddItemToProject(item, monitoredUser, monitoredRepos) {
   // Check PR-specific conditions
   if (item.__typename === 'PullRequest') {
     const isAuthor = item.author?.login === monitoredUser;
-    
+
     log.debug(`PR #${item.number}:
       - Author: ${item.author?.login || 'unknown'}
       - Is author? ${isAuthor}
       - Is assignee? ${isAssignee}
       - In monitored repo? ${isMonitoredRepo}`);
-    
+
     return isAuthor || isAssignee;
   }
 

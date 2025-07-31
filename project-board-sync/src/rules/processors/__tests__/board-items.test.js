@@ -1,11 +1,20 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-// Simple mock for board rules - just one rule to start with
+// Mock rules to match the structure in rules.yml
 const mockRules = {
-    boardItems: [{
-        triggers: ['item.author.login === process.env.GITHUB_AUTHOR']
-    }]
+    rules: {
+        board_items: [{
+            name: "PullRequest by Author",
+            description: "Add pull requests authored by monitored user",
+            trigger: {
+                type: "PullRequest",
+                condition: "item.author === monitored.user"
+            },
+            action: "add_to_board",
+            skip_if: "item.inProject"
+        }]
+    }
 };
 
 // Override the board rules module before requiring the module under test

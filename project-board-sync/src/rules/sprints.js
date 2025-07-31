@@ -59,6 +59,8 @@ async function getItemSprint(projectId, itemId) {
  */
 async function getCurrentSprint(projectId) {
   const today = new Date().toISOString();
+  log.info('Getting current sprint:');
+  log.info(`  • Current date: ${today}`);
   
   const result = await octokit.graphql(`
     query($projectId: ID!) {
@@ -83,18 +85,24 @@ async function getCurrentSprint(projectId) {
   `, { projectId });
 
   const iterations = result.node.field.configuration.iterations;
+  log.info(`  • Found ${iterations.length} sprints`);
+  
   const currentSprint = iterations.find(sprint => {
     const start = new Date(sprint.startDate);
     const end = new Date(start);
     end.setDate(end.getDate() + sprint.duration);
     const now = new Date();
-    return now >= start && now < end;
+    const isCurrentSprint = now >= start && now < end;
+    log.debug(`  • Sprint "${sprint.title}": ${start.toISOString()} to ${end.toISOString()} - ${isCurrentSprint ? 'CURRENT' : 'not current'}`);
+    return isCurrentSprint;
   });
 
   if (!currentSprint) {
+    log.error('  • No active sprint found matching current date');
     throw new Error('No active sprint found');
   }
 
+  log.info(`  • Current sprint: ${currentSprint.title} (${currentSprint.id})`);
   return {
     sprintId: currentSprint.id,
     title: currentSprint.title
@@ -110,8 +118,12 @@ async function getCurrentSprint(projectId) {
  * @returns {Promise<{changed: boolean, newSprint?: string}>}
  */
 async function processSprintAssignment(item, projectItemId, projectId, currentColumn) {
+  log.info(`Processing sprint assignment for ${item.__typename} #${item.number}:`);
+  log.info(`  • Current column: ${currentColumn}`);
+
   // Only process items in Next, Active, or Done columns
   if (!['Next', 'Active', 'Done'].includes(currentColumn)) {
+    log.info(`  • Skip: Not in Next, Active, or Done column (${currentColumn})`);
     return { 
       changed: false, 
       reason: 'Not in Next, Active, or Done column' 
@@ -121,73 +133,77 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
   // Get current sprint assignment
   const { sprintId: currentSprintId, sprintTitle: currentSprintTitle } = 
     await getItemSprint(projectId, projectItemId);
+  log.info(`  • Current sprint: ${currentSprintTitle || 'None'} (${currentSprintId || 'None'})`);
 
   // Get active sprint
-  const { sprintId: activeSprintId, title: activeSprintTitle } = 
-    await getCurrentSprint(projectId);
+  try {
+    const { sprintId: activeSprintId, title: activeSprintTitle } = 
+      await getCurrentSprint(projectId);
+    log.info(`  • Active sprint: ${activeSprintTitle} (${activeSprintId})`);
 
-  // Check skip conditions
-  if (currentColumn === 'Done') {
-    // For Done: skip if any sprint is set
-    if (currentSprintId) {
-      return {
-        changed: false,
-        reason: `Item in Done has sprint set (${currentSprintTitle})`
-      };
+    // Check skip conditions - different rules for Done vs Active/Next
+    if (currentColumn === 'Done') {
+      // For Done: skip if ANY sprint is set
+      if (currentSprintId) {
+        log.info(`  • Skip: Item in Done has a sprint set (${currentSprintTitle})`);
+        return {
+          changed: false,
+          reason: `Item in Done has sprint set (${currentSprintTitle})`
+        };
+      }
     }
-  } else {
-    // For Next/Active: skip if current sprint is already set
-    if (currentSprintId === activeSprintId) {
-      return {
-        changed: false,
-        reason: 'Item already assigned to current sprint'
-      };
-    }
-  }
+    // For Active/Next: No skip conditions - always set to current sprint
 
-  // Get the Sprint field ID
-  const sprintFieldResult = await octokit.graphql(`
-    query($projectId: ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          field(name: "Sprint") {
-            ... on ProjectV2IterationField {
-              id
+    // Get the Sprint field ID
+    const sprintFieldResult = await octokit.graphql(`
+      query($projectId: ID!) {
+        node(id: $projectId) {
+          ... on ProjectV2 {
+            field(name: "Sprint") {
+              ... on ProjectV2IterationField {
+                id
+              }
             }
           }
         }
       }
-    }
-  `, { projectId });
-  
-  const sprintFieldId = sprintFieldResult.node.field.id;
-  
-  // Set the sprint
-  await octokit.graphql(`
-    mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
-      updateProjectV2ItemFieldValue(input: {
-        projectId: $projectId
-        itemId: $itemId
-        fieldId: $fieldId
-        value: { iterationId: $iterationId }
-      }) {
-        projectV2Item {
-          id
+    }`, { projectId });
+    
+    const sprintFieldId = sprintFieldResult.node.field.id;
+    log.info(`  • Action: Assigning to sprint ${activeSprintTitle}`);
+    
+    // Set the sprint
+    await octokit.graphql(`
+      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
+        updateProjectV2ItemFieldValue(input: {
+          projectId: $projectId
+          itemId: $itemId
+          fieldId: $fieldId
+          value: { iterationId: $iterationId }
+        }) {
+          projectV2Item {
+            id
+          }
         }
       }
-    }
-  `, {
-    projectId,
-    itemId: projectItemId,
-    fieldId: sprintFieldId,
-    iterationId: activeSprintId
-  });
+    `, {
+      projectId,
+      itemId: projectItemId,
+      fieldId: sprintFieldId,
+      iterationId: activeSprintId
+    });
 
-  return {
-    changed: true,
-    newSprint: activeSprintId,
-    reason: `Assigned to current sprint (${activeSprintTitle})`
-  };
+    return {
+      changed: true,
+      newSprint: activeSprintId,
+      reason: `Assigned to current sprint (${activeSprintTitle})`
+    };
+
+  } catch (error) {
+    log.error(`  • Error: Failed to process sprint assignment: ${error.message}`);
+    log.error(error.stack);
+    throw error;
+  }
 }
 
 module.exports = {
