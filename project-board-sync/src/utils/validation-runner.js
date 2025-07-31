@@ -22,7 +22,7 @@ class ValidationRunner {
 
     try {
       // 1. Environment validation
-      validateEnvironment();
+      await validateEnvironment();
       results.environment = true;
       log.info('✓ Environment validation passed');
 
