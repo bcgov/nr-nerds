@@ -68,8 +68,11 @@ envValidator.addStepDependencies('LABELS_CONFIGURED', [ 'PROJECT_CONFIGURED' ]);
 StepVerification.envValidator = envValidator;
 
 /**
- * Validate required environment variables
- * @throws {Error} If any required variables are missing
+ * Validate required environment variables and return configuration
+ * 
+ * @async
+ * @returns {Promise<Object>} A configuration object containing validated environment settings
+ * @throws {Error} If any required variables are missing or validation fails
  */
 async function validateEnvironment() {
   const { StateVerifier } = require('./utils/state-verifier');
