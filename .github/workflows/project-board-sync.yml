@@ -26,14 +26,13 @@ jobs:
         working-directory: project-board-sync
         run: npm ci
         
-      - name: Run Tests
+      - name: Run Validation
         env:
           GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
+          GITHUB_AUTHOR: ${{ github.actor }}
           VERBOSE: true
         working-directory: project-board-sync
-        run: |
-          npm run test:state
-          npm run test:validator
+        run: npm run validate
        
       - name: Run Project Board Sync
         env:
