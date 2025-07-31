@@ -2,12 +2,12 @@
 # This is the single source of truth for automation rules.
 # Changes here will be applied on the next sync run.
 
-version: '1.0'
+version: "1.0"
 
 project:
-  id: 'PVT_kwDOAA37OM4AFuzg'  # Will be configurable via URL in future
-  type: 'ProjectV2'
-  organization: 'bcgov'
+  id: "PVT_kwDOAA37OM4AFuzg" # Will be configurable via URL in future
+  type: "ProjectV2"
+  organization: "bcgov"
   repositories:
     - action-builder-ghcr
     - nr-nerds
@@ -17,9 +17,9 @@ project:
 
 monitored:
   users:
-    - name: 'GITHUB_AUTHOR'
-      type: 'env'
-      description: 'Current GitHub user from environment'
+    - name: "GITHUB_AUTHOR"
+      type: "env"
+      description: "Current GitHub user from environment"
 
 rules:
   # Rule Set 1: Which Items are Added to Project Board
@@ -115,7 +115,7 @@ rules:
         condition: "item.column === 'Done'"
       action: "set_sprint"
       value: "current"
-      skip_if: "item.sprint"
+      skip_if: "item.sprint === 'current'"
 
   # Rule Set 4: Linked Issue Rules
   linked_issues:
@@ -127,7 +127,7 @@ rules:
       action: ["inherit_column", "inherit_assignees"]
       skip_if: "item.column === item.pr.column && item.assignees === item.pr.assignees"
 
-  # Rule Set 5: Assignee Rules  
+  # Rule Set 5: Assignee Rules
   assignees:
     - name: "Author Assignment"
       description: "Add PR author as assignee"
