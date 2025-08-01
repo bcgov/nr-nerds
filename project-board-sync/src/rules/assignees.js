@@ -178,6 +178,14 @@ async function processAssignees(item, projectId, itemId) {
   }
 
   const { repository, number } = itemDetails.content;
+  
+  // Validate repository format before splitting
+  if (!repository || 
+      typeof repository.nameWithOwner !== 'string' || 
+      !repository.nameWithOwner.includes('/')) {
+    throw new Error(`Invalid repository.nameWithOwner format for item ${itemId}: ${repository?.nameWithOwner}`);
+  }
+  
   const [owner, repo] = repository.nameWithOwner.split('/');
   const isPullRequest = itemDetails.type === 'PullRequest';
   
@@ -204,11 +212,15 @@ async function processAssignees(item, projectId, itemId) {
   const action = assigneeActions[0];
   
   let assigneeToAdd = action.params.assignee;
-  // Support template variable substitution for assignee value
-  if (typeof assigneeToAdd === 'string' && assigneeToAdd.includes('${item.author}')) {
-    assigneeToAdd = assigneeToAdd.replace('${item.author}', item.author?.login || '');
-  } else if (assigneeToAdd === 'item.author') {
-    assigneeToAdd = item.author?.login;
+  
+  // Unified template variable substitution
+  if (typeof assigneeToAdd === 'string') {
+    // Support both ${item.author} and item.author formats
+    if (assigneeToAdd.includes('${item.author}')) {
+      assigneeToAdd = assigneeToAdd.replace('${item.author}', item.author?.login || '');
+    } else if (assigneeToAdd === 'item.author') {
+      assigneeToAdd = item.author?.login;
+    }
   }
   
   if (!assigneeToAdd) {

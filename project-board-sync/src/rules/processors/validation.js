@@ -22,9 +22,10 @@ class RuleValidation {
         ]);
         
         // Simple steps tracking for validation
+        // Enhanced step tracking for validation
         this.steps = {
             markStepComplete: (step) => {
-                // Simple step tracking for validation
+                log.debug(`Validation step completed: ${step}`);
             }
         };
     }

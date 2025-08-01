@@ -23,6 +23,12 @@ function processAssigneeRules(item) {
     const actions = [];
     validator.steps.markStepComplete('RULE_CONFIG_LOADED');
 
+    // Validate config structure before processing
+    if (!config.rules || !Array.isArray(config.rules.assignees)) {
+        log.warn('Assignee rules configuration missing or not an array; skipping assignee processing.');
+        return actions;
+    }
+
     for (const rule of config.rules.assignees) {
         try {
             // Skip rule if conditions not met
