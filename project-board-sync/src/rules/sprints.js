@@ -121,12 +121,12 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
   log.info(`Processing sprint assignment for ${item.__typename} #${item.number}:`);
   log.info(`  • Current column: ${currentColumn}`);
 
-  // Only process items in Next, Active, or Done columns
-  if (!['Next', 'Active', 'Done'].includes(currentColumn)) {
-    log.info(`  • Skip: Not in Next, Active, or Done column (${currentColumn})`);
+  // Only process items in Next, Active, Done, or Waiting columns
+  if (!['Next', 'Active', 'Done', 'Waiting'].includes(currentColumn)) {
+    log.info(`  • Skip: Not in Next, Active, Done, or Waiting column (${currentColumn})`);
     return { 
       changed: false, 
-      reason: 'Not in Next, Active, or Done column' 
+      reason: 'Not in Next, Active, Done, or Waiting column' 
     };
   }
 

@@ -108,6 +108,15 @@ rules:
       value: "current"
       skip_if: "item.sprint === 'current'"
 
+    - name: "Waiting Sprint Assignment"
+      description: "Assign current sprint to items in Waiting column (only if no sprint set)"
+      trigger:
+        type: ["PullRequest", "Issue"]
+        condition: "item.column === 'Waiting'"
+      action: "set_sprint"
+      value: "current"
+      skip_if: "item.sprint"
+
     - name: "Done Sprint Assignment"
       description: "Assign sprint in Done column"
       trigger:

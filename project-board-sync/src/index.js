@@ -184,7 +184,7 @@ async function main() {
           item,
           item.projectItemId,
           context.projectId,
-          columnResult.newStatus
+          columnResult.newStatus || columnResult.currentStatus
         );
         if (sprintResult.changed) {
           log.info(`Set sprint for ${itemRef} to ${sprintResult.newSprint}`);
