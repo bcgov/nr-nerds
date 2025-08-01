@@ -1,7 +1,6 @@
 /**
- * @fileoverview Shared validation instance for rule processors
- * All rule processors should use this shared validator to ensure
- * validation steps are properly synchronized across processors.
+ * @fileoverview Shared validator for rule processing
+ * Provides validation methods used by multiple rule processors
  */
 
 const { RuleValidation } = require('./validation');

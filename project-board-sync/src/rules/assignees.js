@@ -1,5 +1,6 @@
 const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
+const { processAssigneeRules } = require('./processors/assignee-rules');
 
 /**
  * Get details about a project item including its linked content
@@ -101,98 +102,44 @@ async function getItemAssignees(projectId, itemId) {
     itemId
   });
 
-  const assigneeValues = result.item?.fieldValues.nodes || [];
-  const assignees = assigneeValues.flatMap(value => 
-    value.users?.nodes?.map(user => user.login) || []
-  );
+  const fieldValues = result.item?.fieldValues.nodes || [];
+  const assigneeValue = fieldValues.find(v => v.field?.name === 'Assignees');
+  
+  if (!assigneeValue) {
+    return [];
+  }
 
-  return assignees;
+  return assigneeValue.users?.nodes?.map(u => u.login) || [];
 }
 
 /**
  * Set assignees for a project item
  * @param {string} projectId - The project board ID
  * @param {string} itemId - The project item ID
- * @param {string[]} assigneeLogins - GitHub usernames to assign
+ * @param {string[]} assigneeLogins - Array of assignee logins
  * @returns {Promise<void>}
  */
 async function setItemAssignees(projectId, itemId, assigneeLogins) {
-  // First get the project fields
-  const result = await octokit.graphql(`
-    query($projectId: ID!) {
-      node(id: $projectId) {
-        ... on ProjectV2 {
-          fields(first: 20) {
-            nodes {
-              ... on ProjectV2Field {
-                id
-                name
-              }
-              ... on ProjectV2FieldCommon {
-                id
-                name
-              }
-            }
-          }
-        }
-      }
-    }
-  `, {
-    projectId
-  });
-
-  const assigneesField = result.node.fields.nodes.find(
-    field => field.name === "Assignees"
-  );
-
-  if (!assigneesField) {
-    throw new Error('Assignees field not found in project');
-  }
-
-  const fieldId = assigneesField.id;
-
-  // Now set the assignees
-  // First get user IDs from logins
-  const userIdsResult = await Promise.all(
-    assigneeLogins.map(async (login) => {
-      const result = await octokit.graphql(`
-        query($login: String!) {
-          user(login: $login) {
-            id
-          }
-        }
-      `, { login });
-      return result.user.id;
-    })
-  );
-
   try {
-    // Get item details to get the repository name and issue/PR number
+    // Get item details to get repository and number
     const itemDetails = await getItemDetails(itemId);
-    
     if (!itemDetails || !itemDetails.content) {
       throw new Error(`Could not get details for item ${itemId}`);
     }
-    
+
     const { repository, number } = itemDetails.content;
-    if (!repository || !repository.nameWithOwner) {
-      throw new Error(`Repository information not available for item ${itemId}`);
-    }
-    
-    // Use REST API to set assignees directly on the issue/PR
-    // Parse the owner/repo from nameWithOwner (format: "owner/repo")
     const [owner, repo] = repository.nameWithOwner.split('/');
-    
-    log.info(`Setting assignees for ${repository.nameWithOwner}#${number} to: ${assigneeLogins.join(', ')}`, true);
-    
-    // Update Issue/PR assignees
-    if (itemDetails.type === 'PullRequest') {
+    const isPullRequest = itemDetails.type === 'PullRequest';
+
+    // Set assignees on the actual PR/Issue (this is what matters most)
+    if (isPullRequest) {
       await octokit.rest.pulls.update({
         owner,
         repo,
         pull_number: number,
         assignees: assigneeLogins
       });
+      log.info(`Successfully set assignees on PR: ${assigneeLogins.join(', ')}`);
     } else {
       await octokit.rest.issues.update({
         owner,
@@ -200,52 +147,8 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
         issue_number: number,
         assignees: assigneeLogins
       });
+      log.info(`Successfully set assignees on Issue: ${assigneeLogins.join(', ')}`);
     }
-    
-    log.info(`Successfully updated Issue/PR assignees for ${repository.nameWithOwner}#${number}`, true);
-
-    // Get user node IDs from GitHub usernames
-    const userIds = await Promise.all(
-      assigneeLogins.map(async (login) => {
-        const result = await octokit.graphql(`
-          query($login: String!) {
-            user(login: $login) {
-              id
-            }
-          }
-        `, { login });
-        return result.user.id;
-      })
-    );
-
-    // Update project board assignees
-    for (const userId of userIds) {
-      await octokit.graphql(`
-        mutation ($projectId: ID!, $itemId: ID!, $fieldId: ID!, $userId: ID!) {
-          updateProjectV2ItemFieldValue(
-            input: {
-              projectId: $projectId
-              itemId: $itemId
-              fieldId: $fieldId
-              value: { 
-                users: [$userId]
-              }
-            }
-          ) {
-            projectV2Item {
-              id
-            }
-          }
-        }
-      `, {
-        projectId,
-        itemId,
-        fieldId,
-        userId
-      });
-    }
-    
-    log.info(`Successfully updated project board assignees for ${repository.nameWithOwner}#${number}`, true);
   } catch (error) {
     log.error(`Failed to update assignees: ${error.message}`, true);
     throw new Error(`Failed to update assignees: ${error.message}`);
@@ -255,17 +158,9 @@ async function setItemAssignees(projectId, itemId, assigneeLogins) {
 /**
  * Implementation of Rule Set 5: Assignee Rules
  * 
- * Rules:
- * - PRs should have at least one assignee
- * - If no assignee is set, assign to PR author
- * - Linked issues inherit assignees from their linked PRs
+ * Uses YAML configuration to determine assignee actions
  * 
  * @param {Object} item - The PR or Issue
- * @param {string} item.id - The item's node ID
- * @param {string} item.__typename - The type of item ('PullRequest' or 'Issue')
- * @param {number} item.number - The PR or issue number
- * @param {Object} item.author - The author information
- * @param {string} item.author.login - The author's GitHub username
  * @param {string} projectId - The project board ID
  * @param {string} itemId - The project item ID
  * @returns {Promise<{changed: boolean, assignees: string[], reason: string}>}
@@ -283,6 +178,14 @@ async function processAssignees(item, projectId, itemId) {
   }
 
   const { repository, number } = itemDetails.content;
+  
+  // Validate repository format before splitting
+  if (!repository || 
+      typeof repository.nameWithOwner !== 'string' || 
+      !repository.nameWithOwner.includes('/')) {
+    throw new Error(`Invalid repository.nameWithOwner format for item ${itemId}: ${repository?.nameWithOwner}`);
+  }
+  
   const [owner, repo] = repository.nameWithOwner.split('/');
   const isPullRequest = itemDetails.type === 'PullRequest';
   
@@ -294,45 +197,60 @@ async function processAssignees(item, projectId, itemId) {
   const repoAssignees = issueOrPrData.data.assignees.map(a => a.login);
   log.info(`  • Current assignees in Issue/PR: ${repoAssignees.join(', ') || 'none'}`, true);
 
-  const authorLogin = item.author?.login || item.user?.login || issueOrPrData.data.user.login;
-  const monitoredUser = process.env.GITHUB_AUTHOR || (global.TEST_CONFIG && global.TEST_CONFIG.monitoredUser);
-
-  if (isPullRequest && authorLogin === monitoredUser) {
-    log.info(`Processing assignees for PR #${item.number}:`, true);
-    log.info(`  • Author: ${authorLogin}`, true);
-    log.info(`  • Current assignees: ${currentAssignees.join(', ') || 'none'}`, true);
-
-      // Check if author is already assigned in both places
-    const isAssignedInProject = currentAssignees.includes(authorLogin);
-    const isAssignedInRepo = repoAssignees.includes(authorLogin);
-
-    if (isAssignedInProject && isAssignedInRepo) {
-      log.info('  • Author already assigned everywhere - skipping', true);
-      return {
-        changed: false,
-        assignees: currentAssignees,
-        reason: 'Author already assigned'
-      };
-    }
-
-    // Author is not assigned, so add them while preserving any existing assignees
-    const targetAssignees = [...new Set([...currentAssignees, authorLogin])];
-    log.info(`  • Setting assignees: ${targetAssignees.join(', ')}`, true);
-
-    // Set assignees both in project and in the actual PR/Issue
-    await setItemAssignees(projectId, itemId, targetAssignees);
-
+  // Process assignee rules from YAML config
+  const assigneeActions = processAssigneeRules(item);
+  
+  if (assigneeActions.length === 0) {
     return {
-      changed: true,
-      assignees: targetAssignees,
-      reason: 'Added PR author as assignee'
+      changed: false,
+      assignees: currentAssignees,
+      reason: 'No assignee rules triggered'
     };
   }
 
+  // Apply the first assignee action (assuming one assignee rule per item)
+  const action = assigneeActions[0];
+  
+  let assigneeToAdd = action.params.assignee;
+  
+  // Unified template variable substitution
+  if (typeof assigneeToAdd === 'string') {
+    // Support both ${item.author} and item.author formats
+    if (assigneeToAdd.includes('${item.author}')) {
+      assigneeToAdd = assigneeToAdd.replace('${item.author}', item.author?.login || '');
+    } else if (assigneeToAdd === 'item.author') {
+      assigneeToAdd = item.author?.login;
+    }
+  }
+  
+  if (!assigneeToAdd) {
+    return {
+      changed: false,
+      assignees: currentAssignees,
+      reason: 'No valid assignee found'
+    };
+  }
+
+  // Check if assignee is already set
+  if (currentAssignees.includes(assigneeToAdd)) {
+    return {
+      changed: false,
+      assignees: currentAssignees,
+      reason: `Assignee ${assigneeToAdd} already assigned`
+    };
+  }
+
+  // Add the assignee
+  const targetAssignees = [...new Set([...currentAssignees, assigneeToAdd])];
+  log.info(`  • Setting assignees: ${targetAssignees.join(', ')}`, true);
+
+  // Set assignees both in project and in the actual PR/Issue
+  await setItemAssignees(projectId, itemId, targetAssignees);
+
   return {
-    changed: false,
-    assignees: currentAssignees,
-    reason: 'No assignee changes needed'
+    changed: true,
+    assignees: targetAssignees,
+    reason: `Added ${assigneeToAdd} as assignee`
   };
 }
 

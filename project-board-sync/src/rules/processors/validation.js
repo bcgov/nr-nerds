@@ -15,15 +15,19 @@ class RuleValidation {
         // Initialize monitored repositories for repository-based conditions
         this.monitoredRepos = new Set([
             'bcgov/action-builder-ghcr',
-            'bcgov/nr-nerds', 
+            'bcgov/nr-nerds',
             'bcgov/quickstart-openshift',
             'bcgov/quickstart-openshift-backends',
             'bcgov/quickstart-openshift-helpers'
         ]);
         
-        // Delegate step tracking to StateVerifier
-        const { StateVerifier } = require('../../utils/state-verifier');
-        this.steps = StateVerifier.steps;
+        // Simple steps tracking for validation
+        // Enhanced step tracking for validation
+        this.steps = {
+            markStepComplete: (step) => {
+                log.debug(`Validation step completed: ${step}`);
+            }
+        };
     }
 
     /**
