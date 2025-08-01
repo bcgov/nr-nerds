@@ -122,7 +122,7 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
   log.info(`  • Current column: ${currentColumn}`);
 
   // Only process items in Next, Active, Done, or Waiting columns
-  if (!['Next', 'Active', 'Done', 'Waiting'].includes(currentColumn)) {
+  if (!ELIGIBLE_COLUMNS.includes(currentColumn)) {
     log.info(`  • Skip: Not in Next, Active, Done, or Waiting column (${currentColumn})`);
     return { 
       changed: false, 
