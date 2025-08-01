@@ -115,9 +115,9 @@ class RuleValidation {
             }
 
             // Linked issue conditions
-            if (condition.condition === "!item.pr.closed && item.pr.merged") {
-                const result = !item.pr?.closed && item.pr?.merged;
-                log.debug(`Linked PR check: !${item.pr?.closed} && ${item.pr?.merged} -> ${result}`);
+            if (condition.condition === "!item.pr.closed || item.pr.merged") {
+                const result = !item.pr?.closed || item.pr?.merged;
+                log.debug(`Linked PR check: !${item.pr?.closed} || ${item.pr?.merged} -> ${result}`);
                 return result;
             }
 
