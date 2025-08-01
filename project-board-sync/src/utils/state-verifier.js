@@ -419,8 +419,10 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
           return afterState;
         } catch (error) {
           if (!error.isRetryable) {
-            error.addRecoveryStep('Check API access and permissions');
-            error.addRecoveryStep('Verify project board configuration');
+            if (error instanceof StateVerifierError) {
+              error.addRecoveryStep('Check API access and permissions');
+              error.addRecoveryStep('Verify project board configuration');
+            }
           }
           throw error;
         }
@@ -484,6 +486,30 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
         return steps;
       default:
         return [`Verify ${aspect} configuration and permissions`];
+    }
+  }
+
+  static getStateAspectMismatchMessage(aspect, expected, actual) {
+    switch (aspect) {
+      case 'column':
+        return `Column mismatch: expected "${expected}" but got "${actual}"`;
+      case 'sprint':
+        return `Sprint mismatch: expected "${expected}" but got "${actual}"`;
+      case 'assignees':
+        const expectedSet = new Set(expected);
+        const actualSet = new Set(actual);
+        const missing = expected.filter(a => !actualSet.has(a));
+        const extra = actual.filter(a => !expectedSet.has(a));
+        let message = 'Assignee mismatch:';
+        if (missing.length > 0) {
+          message += ` missing ${missing.join(', ')}`;
+        }
+        if (extra.length > 0) {
+          message += ` extra ${extra.join(', ')}`;
+        }
+        return message;
+      default:
+        return `${aspect} mismatch: expected "${expected}" but got "${actual}"`;
     }
   }
 

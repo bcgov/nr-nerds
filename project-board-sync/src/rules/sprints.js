@@ -1,6 +1,9 @@
 const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
+// Columns eligible for sprint assignment
+const ELIGIBLE_COLUMNS = ['Next', 'Active', 'Done', 'Waiting'];
+
 /**
  * Get current sprint information for a project item
  * @param {string} projectId - The project board ID
@@ -121,12 +124,12 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
   log.info(`Processing sprint assignment for ${item.__typename} #${item.number}:`);
   log.info(`  • Current column: ${currentColumn}`);
 
-  // Only process items in Next, Active, or Done columns
-  if (!['Next', 'Active', 'Done'].includes(currentColumn)) {
-    log.info(`  • Skip: Not in Next, Active, or Done column (${currentColumn})`);
+  // Only process items in Next, Active, Done, or Waiting columns
+  if (!ELIGIBLE_COLUMNS.includes(currentColumn)) {
+    log.info(`  • Skip: Not in Next, Active, Done, or Waiting column (${currentColumn})`);
     return { 
       changed: false, 
-      reason: 'Not in Next, Active, or Done column' 
+      reason: 'Not in Next, Active, Done, or Waiting column' 
     };
   }
 

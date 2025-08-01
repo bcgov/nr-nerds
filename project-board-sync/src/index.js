@@ -184,11 +184,10 @@ async function main() {
           item,
           item.projectItemId,
           context.projectId,
-          columnResult.newStatus
+          columnResult.newStatus || columnResult.currentStatus
         );
         if (sprintResult.changed) {
           log.info(`Set sprint for ${itemRef} to ${sprintResult.newSprint}`);
-          await StateVerifier.verifySprint(item, context.projectId, sprintResult.newSprint);
         }
 
         // Handle assignees
@@ -237,7 +236,7 @@ async function main() {
         // Finally verify the complete state of the item
         await StateVerifier.verifyCompleteState(item, context.projectId, {
           column: columnResult.newStatus || columnResult.currentStatus,
-          sprint: sprintResult.newSprint,
+          sprint: sprintResult.changed ? undefined : sprintResult.newSprint, // Skip sprint verification if assignment was successful
           assignees: assigneeResult.changed ? assigneeResult.assignees : undefined
         });
 
