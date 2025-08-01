@@ -202,7 +202,14 @@ async function processAssignees(item, projectId, itemId) {
 
   // Apply the first assignee action (assuming one assignee rule per item)
   const action = assigneeActions[0];
-  const assigneeToAdd = action.params.assignee === 'item.author' ? item.author?.login : action.params.assignee;
+  
+  let assigneeToAdd = action.params.assignee;
+  // Support template variable substitution for assignee value
+  if (typeof assigneeToAdd === 'string' && assigneeToAdd.includes('${item.author}')) {
+    assigneeToAdd = assigneeToAdd.replace('${item.author}', item.author?.login || '');
+  } else if (assigneeToAdd === 'item.author') {
+    assigneeToAdd = item.author?.login;
+  }
   
   if (!assigneeToAdd) {
     return {
