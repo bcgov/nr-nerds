@@ -1,6 +1,9 @@
 const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
 
+// Columns eligible for sprint assignment
+const ELIGIBLE_COLUMNS = ['Next', 'Active', 'Done', 'Waiting'];
+
 /**
  * Get current sprint information for a project item
  * @param {string} projectId - The project board ID
