@@ -2,17 +2,9 @@
 # This is the single source of truth for automation rules.
 # Changes here will be applied on the next sync run.
 
-version: "1.0"
-
 project:
   id: "PVT_kwDOAA37OM4AFuzg" # Will be configurable via URL in future
-  type: "ProjectV2"
 
-automation:
-  # Rules that follow the user across all repositories
-  user_scope:
-    monitored_user: "GITHUB_AUTHOR"
-    rules:
 automation:
   # Rules that follow the user across all repositories
   user_scope:
