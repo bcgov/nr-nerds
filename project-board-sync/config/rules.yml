@@ -7,145 +7,148 @@ version: "1.0"
 project:
   id: "PVT_kwDOAA37OM4AFuzg" # Will be configurable via URL in future
   type: "ProjectV2"
-  organization: "bcgov"
-  repositories:
-    - action-builder-ghcr
-    - nr-nerds
-    - quickstart-openshift
-    - quickstart-openshift-backends
-    - quickstart-openshift-helpers
 
-monitored:
-  users:
-    - name: "GITHUB_AUTHOR"
-      type: "env"
-      description: "Current GitHub user from environment"
+automation:
+  # Rules that follow the user across all repositories
+  user_scope:
+    monitored_user: "GITHUB_AUTHOR"
+    rules:
+automation:
+  # Rules that follow the user across all repositories
+  user_scope:
+    monitored_user: "GITHUB_AUTHOR"
+    rules:
+      # Board addition rules
+      board_items:
+        - name: "authored_pull_requests"
+          description: "Add pull requests authored by monitored user"
+          action: "add_to_board"
+          skip_if: "item.inProject"
 
-rules:
-  # Rule Set 1: Which Items are Added to Project Board
-  board_items:
-    - name: "PullRequest by Author"
-      description: "Add pull requests authored by monitored user"
-      trigger:
-        type: "PullRequest"
-        condition: "item.author === monitored.user"
-      action: "add_to_board"
-      skip_if: "item.inProject"
+        - name: "assigned_pull_requests"
+          description: "Add pull requests assigned to monitored user"
+          action: "add_to_board"
+          skip_if: "item.inProject"
 
-    - name: "PullRequest by Assignment"
-      description: "Add pull requests assigned to monitored user"
-      trigger:
-        type: "PullRequest"
-        condition: "item.assignees.includes(monitored.user)"
-      action: "add_to_board"
-      skip_if: "item.inProject"
+      # Assignee rules
+      assignees:
+        - name: "assign_authored_prs"
+          description: "Add PR author as assignee"
+          trigger:
+            type: "PullRequest"
+            condition: "item.author === monitored.user"
+          action: "add_assignee"
+          value: "item.author"
+          skip_if: "item.assignees.includes(item.author)"
 
-    - name: "PullRequest by Repository"
-      description: "Add pull requests from monitored repositories"
-      trigger:
-        type: "PullRequest"
-        condition: "monitored.repos.includes(item.repository)"
-      action: "add_to_board"
-      skip_if: "item.inProject"
+  # Rules limited to specific repositories
+  repository_scope:
+    organization: "bcgov"
+    repositories:
+      - action-builder-ghcr
+      - nr-nerds
+      - quickstart-openshift
+      - quickstart-openshift-backends
+      - quickstart-openshift-helpers
+    
+    rules:
+      # Board addition rules
+      board_items:
+        - name: "repository_pull_requests"
+          description: "Add pull requests from monitored repositories"
+          trigger:
+            type: "PullRequest"
+            condition: "monitored.repos.includes(item.repository)"
+          action: "add_to_board"
+          skip_if: "item.inProject"
 
-    - name: "Issue by Repository"
-      description: "Add issues from monitored repositories"
-      trigger:
-        type: "Issue"
-        condition: "monitored.repos.includes(item.repository)"
-      action: "add_to_board"
-      skip_if: "item.inProject"
+        - name: "repository_issues"
+          description: "Add issues from monitored repositories"
+          trigger:
+            type: "Issue"
+            condition: "monitored.repos.includes(item.repository)"
+          action: "add_to_board"
+          skip_if: "item.inProject"
 
-  # Rule Set 2: Column Assignment Rules
-  columns:
-    - name: "PullRequest New to Active"
-      description: "Move pull requests from New to Active"
-      trigger:
-        type: "PullRequest"
-        condition: "item.column === 'New'"
-      action: "set_column"
-      value: "Active"
-      skip_if: "item.column !== 'New'"
-      validTransitions:
-        - from: "New"
-          to: "Active"
-          conditions: []
+      # Column assignment rules
+      columns:
+        - name: "new_pull_requests_to_active"
+          description: "Move pull requests from New to Active"
+          trigger:
+            type: "PullRequest"
+            condition: "item.column === 'New'"
+          action: "set_column"
+          value: "Active"
+          skip_if: "item.column !== 'New'"
+          validTransitions:
+            - from: "New"
+              to: "Active"
+              conditions: []
 
-    - name: "PullRequest No Column"
-      description: "Set new pull requests to Active"
-      trigger:
-        type: "PullRequest"
-        condition: "!item.column"
-      action: "set_column"
-      value: "Active"
-      skip_if: "item.column"
-      validTransitions:
-        - from: "None"
-          to: "Active"
-          conditions: []
+        - name: "pull_requests_no_column"
+          description: "Set new pull requests to Active"
+          trigger:
+            type: "PullRequest"
+            condition: "!item.column"
+          action: "set_column"
+          value: "Active"
+          skip_if: "item.column"
+          validTransitions:
+            - from: "None"
+              to: "Active"
+              conditions: []
 
-    - name: "Issue No Column"
-      description: "Set new issues to New"
-      trigger:
-        type: "Issue"
-        condition: "!item.column"
-      action: "set_column"
-      value: "New"
-      skip_if: "item.column"
-      validTransitions:
-        - from: "None"
-          to: "New"
-          conditions: []
+        - name: "issues_no_column"
+          description: "Set new issues to New"
+          trigger:
+            type: "Issue"
+            condition: "!item.column"
+          action: "set_column"
+          value: "New"
+          skip_if: "item.column"
+          validTransitions:
+            - from: "None"
+              to: "New"
+              conditions: []
 
-  # Rule Set 3: Sprint Assignment Rules
-  sprints:
-    - name: "Active Sprint Assignment"
-      description: "Assign current sprint in Next/Active columns"
-      trigger:
-        type: ["PullRequest", "Issue"]
-        condition: "item.column === 'Next' || item.column === 'Active'"
-      action: "set_sprint"
-      value: "current"
-      skip_if: "item.sprint === 'current'"
+      # Sprint assignment rules
+      sprints:
+        - name: "active_sprint_assignment"
+          description: "Assign current sprint in Next/Active columns"
+          trigger:
+            type: ["PullRequest", "Issue"]
+            condition: "item.column === 'Next' || item.column === 'Active'"
+          action: "set_sprint"
+          value: "current"
+          skip_if: "item.sprint === 'current'"
 
-    - name: "Waiting Sprint Assignment"
-      description: "Assign current sprint to items in Waiting column (only if no sprint set)"
-      trigger:
-        type: ["PullRequest", "Issue"]
-        condition: "item.column === 'Waiting'"
-      action: "set_sprint"
-      value: "current"
-      skip_if: "item.sprint != null"
+        - name: "waiting_sprint_assignment"
+          description: "Assign current sprint to items in Waiting column (only if no sprint set)"
+          trigger:
+            type: ["PullRequest", "Issue"]
+            condition: "item.column === 'Waiting'"
+          action: "set_sprint"
+          value: "current"
+          skip_if: "item.sprint != null"
 
-    - name: "Done Sprint Assignment"
-      description: "Assign sprint in Done column"
-      trigger:
-        type: ["PullRequest", "Issue"]
-        condition: "item.column === 'Done'"
-      action: "set_sprint"
-      value: "current"
-      skip_if: "item.sprint === 'current'"
+        - name: "done_sprint_assignment"
+          description: "Assign sprint in Done column"
+          trigger:
+            type: ["PullRequest", "Issue"]
+            condition: "item.column === 'Done'"
+          action: "set_sprint"
+          value: "current"
+          skip_if: "item.sprint === 'current'"
 
-  # Rule Set 4: Linked Issue Rules
-  linked_issues:
-    - name: "Linked Issue Inheritance"
-      description: "Sync linked issues with PR state"
-      trigger:
-        type: "LinkedIssue"
-        condition: "!item.pr.closed || item.pr.merged"
-      action: ["inherit_column", "inherit_assignees"]
-      skip_if: "item.column === item.pr.column && item.assignees === item.pr.assignees"
-
-  # Rule Set 5: Assignee Rules
-  assignees:
-    - name: "Author Assignment"
-      description: "Add PR author as assignee"
-      trigger:
-        type: "PullRequest"
-        condition: "item.author === monitored.user"
-      action: "add_assignee"
-      value: "item.author"
-      skip_if: "item.assignees.includes(item.author)"
+      # Linked issue rules
+      linked_issues:
+        - name: "linked_issue_inheritance"
+          description: "Sync linked issues with PR state"
+          trigger:
+            type: "LinkedIssue"
+            condition: "!item.pr.closed || item.pr.merged"
+          action: ["inherit_column", "inherit_assignees"]
+          skip_if: "item.column === item.pr.column && item.assignees === item.pr.assignees"
 
 technical:
   batch_size: 10
