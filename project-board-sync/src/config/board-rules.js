@@ -22,6 +22,11 @@ function loadBoardRules(context = {}) {
             organization: config.automation.repository_scope.organization,
             repositories: config.automation.repository_scope.repositories
         };
+
+        // Extract monitored user from structured format for backward compatibility
+        if (config.automation.user_scope?.monitored_user?.name) {
+            config.monitoredUser = config.automation.user_scope.monitored_user.name;
+        }
     }
 
     return config;

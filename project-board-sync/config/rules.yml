@@ -8,7 +8,10 @@ project:
 automation:
   # Rules that follow the user across all repositories
   user_scope:
-    monitored_user: "GITHUB_AUTHOR"
+    monitored_user:
+      name: "GITHUB_AUTHOR"
+      type: "env"
+      description: "GitHub username of the monitored user, provided via environment variable"
     rules:
       # Board addition rules
       board_items:

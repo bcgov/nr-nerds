@@ -27,7 +27,15 @@ const schema = {
           type: 'object',
           required: [ 'monitored_user', 'rules' ],
           properties: {
-            monitored_user: { type: 'string' },
+            monitored_user: {
+              type: 'object',
+              required: [ 'name', 'type', 'description' ],
+              properties: {
+                name: { type: 'string' },
+                type: { type: 'string', enum: [ 'env', 'static' ] },
+                description: { type: 'string' }
+              }
+            },
             rules: { $ref: '#/definitions/ruleGroups' }
           }
         },
