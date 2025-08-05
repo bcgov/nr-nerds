@@ -8,23 +8,29 @@ test('ConfigLoader', async (t) => {
     const loader = new ConfigLoader();
     const config = loader.load(path.join(__dirname, '../../../config/rules.yml'));
 
-    // Basic structure checks
-    assert.ok(config.version, 'has version');
+    // Basic structure checks - no version field in new structure
     assert.ok(config.project, 'has project section');
-    assert.ok(config.rules, 'has rules section');
+    assert.ok(config.automation, 'has automation section');
     assert.ok(config.technical, 'has technical section');
 
     // Project settings
-    assert.equal(config.project.organization, 'bcgov', 'correct organization');
     assert.equal(config.project.id, 'PVT_kwDOAA37OM4AFuzg', 'correct project ID');
-    assert.ok(Array.isArray(config.project.repositories), 'has repository list');
-    assert.ok(config.project.repositories.includes('nr-nerds'), 'includes current repo');
 
-    // Rules structure
-    const ruleSections = ['board_items', 'columns', 'sprints', 'linked_issues', 'assignees'];
+    // Automation structure
+    assert.ok(config.automation.user_scope, 'has user_scope');
+    assert.ok(config.automation.repository_scope, 'has repository_scope');
+    assert.equal(config.automation.repository_scope.organization, 'bcgov', 'correct organization');
+    assert.ok(Array.isArray(config.automation.repository_scope.repositories), 'has repository list');
+    assert.ok(config.automation.repository_scope.repositories.includes('nr-nerds'), 'includes current repo');
+
+    // After normalization through loadBoardRules, check merged rules
+    const { loadBoardRules } = require('../board-rules');
+    const normalizedConfig = loadBoardRules();
+
+    const ruleSections = [ 'board_items', 'columns', 'sprints', 'linked_issues', 'assignees' ];
     for (const section of ruleSections) {
-      assert.ok(Array.isArray(config.rules[section]), `has ${section} rules`);
-      assert.ok(config.rules[section].length > 0, `${section} has rules defined`);
+      assert.ok(Array.isArray(normalizedConfig.rules[ section ]), `has ${section} rules`);
+      assert.ok(normalizedConfig.rules[ section ].length > 0, `${section} has rules defined`);
     }
 
     // Technical settings

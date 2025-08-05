@@ -27,8 +27,7 @@ const { log, Logger } = require('./log');
 const verifierLog = new Logger();
 const { getItemColumn, isItemInProject } = require('../github/api');
 const { getItemSprint } = require('../rules/sprints');
-const assigneesModule = require('../rules/assignees');
-const { getItemAssignees } = assigneesModule;
+const { getItemAssignees, setItemAssignees, getItemDetails } = require('../rules/assignees');
 const { StateChangeTracker } = require('./state-changes');
 const { VerificationProgress } = require('./verification-progress');
 const { StateTransitionValidator } = require('./state-transition-validator');
@@ -66,7 +65,7 @@ class StateVerifier {
   static progress = new VerificationProgress();
   static stateMap = new Map();
   static transitionValidator = null;
-  
+
   // Enhanced step verification with validation dependencies
   static steps = new StepVerification([
     'STATE_TRACKING_INITIALIZED',
@@ -80,10 +79,10 @@ class StateVerifier {
 
   static {
     // Enhanced step dependencies with validation requirements
-    StateVerifier.steps.addStepDependencies('VERIFICATION_PROGRESS_SETUP', ['STATE_TRACKING_INITIALIZED']);
-    StateVerifier.steps.addStepDependencies('RULES_INITIALIZED', ['TRANSITION_VALIDATOR_CONFIGURED']);
-    StateVerifier.steps.addStepDependencies('STATE_VALIDATED', ['RULES_INITIALIZED', 'DEPENDENCIES_VERIFIED']);
-    StateVerifier.steps.addStepDependencies('STATE_VERIFIED', ['STATE_VALIDATED']);
+    StateVerifier.steps.addStepDependencies('VERIFICATION_PROGRESS_SETUP', [ 'STATE_TRACKING_INITIALIZED' ]);
+    StateVerifier.steps.addStepDependencies('RULES_INITIALIZED', [ 'TRANSITION_VALIDATOR_CONFIGURED' ]);
+    StateVerifier.steps.addStepDependencies('STATE_VALIDATED', [ 'RULES_INITIALIZED', 'DEPENDENCIES_VERIFIED' ]);
+    StateVerifier.steps.addStepDependencies('STATE_VERIFIED', [ 'STATE_VALIDATED' ]);
   }
 
   static getTransitionValidator() {
@@ -161,7 +160,7 @@ class StateVerifier {
     if (!this.stateMap.has(key)) {
       this.stateMap.set(key, {
         inProject: item.projectItems?.nodes?.length > 0,
-        projectItemId: item.projectItems?.nodes?.[0]?.id || null,
+        projectItemId: item.projectItems?.nodes?.[ 0 ]?.id || null,
         assignees: [],
         column: 'None',
         sprint: 'None'
@@ -182,7 +181,7 @@ class StateVerifier {
   static async verifyAddition(item, projectId) {
     this.tracker.startTracking(item);
     const beforeState = this.getState(item);
-    
+
     return this.retryWithTracking(
       item,
       'Project Addition',
@@ -193,11 +192,11 @@ class StateVerifier {
           log.info(`Retry ${attempt}: Waiting ${delay}ms before checking project status...`);
           await new Promise(resolve => setTimeout(resolve, delay));
         }
-        
+
         const { isInProject, projectItemId } = await isItemInProject(item.id, projectId);
-        const afterState = this.updateState(item, { 
-          inProject: true, 
-          projectItemId 
+        const afterState = this.updateState(item, {
+          inProject: true,
+          projectItemId
         });
 
         this.tracker.recordChange(
@@ -273,7 +272,7 @@ Current: "${currentColumn}"`);
         // Get assignees from both project board and Issue/PR
         const projectAssignees = await getItemAssignees(projectId, item.projectItemId);
         const itemDetails = await getItemDetails(item.projectItemId);
-        
+
         if (!itemDetails || !itemDetails.content) {
           verifierLog.error(`Could not get details for item ${item.projectItemId}`);
           throw new Error(`Could not get details for item ${item.projectItemId}`);
@@ -281,11 +280,11 @@ Current: "${currentColumn}"`);
 
         // Get Issue/PR assignees via REST API
         const { repository, number } = itemDetails.content;
-        const [owner, repo] = repository.nameWithOwner.split('/');
-        const issueOrPrData = itemDetails.type === 'PullRequest' 
+        const [ owner, repo ] = repository.nameWithOwner.split('/');
+        const issueOrPrData = itemDetails.type === 'PullRequest'
           ? await octokit.rest.pulls.get({ owner, repo, pull_number: number })
           : await octokit.rest.issues.get({ owner, repo, issue_number: number });
-        
+
         const repoAssignees = issueOrPrData.data.assignees.map(a => a.login);
 
         // Verify both are in sync
@@ -301,11 +300,11 @@ Current: "${currentColumn}"`);
         // Compare project board assignees with expected
         const missingInProject = expectedAssignees.filter(a => !projectAssignees.includes(a));
         const extraInProject = projectAssignees.filter(a => !expectedAssignees.includes(a));
-        
+
         // Compare Issue/PR assignees with expected
         const missingInRepo = expectedAssignees.filter(a => !repoAssignees.includes(a));
-        const extraInRepo = repoAssignees.filter(a => !expectedAssignees.includes(a));          if (missingInProject.length > 0 || extraInProject.length > 0 || 
-            missingInRepo.length > 0 || extraInRepo.length > 0) {
+        const extraInRepo = repoAssignees.filter(a => !expectedAssignees.includes(a)); if (missingInProject.length > 0 || extraInProject.length > 0 ||
+          missingInRepo.length > 0 || extraInRepo.length > 0) {
           throw new Error(`Assignee mismatch for ${item.type} #${item.number}:
 ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.join(', ')}\n` : ''}${extraInProject.length > 0 ? `Extra in project board: ${extraInProject.join(', ')}\n` : ''}${missingInRepo.length > 0 ? `Missing in Issue/PR: ${missingInRepo.join(', ')}\n` : ''}${extraInRepo.length > 0 ? `Extra in Issue/PR: ${extraInRepo.join(', ')}` : ''}`);
         }
@@ -320,11 +319,11 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
   static async verifyCompleteState(item, projectId, expectedState) {
     // Validate required steps
     this.steps.validateStepCompleted('RULES_INITIALIZED');
-    
+
     const itemRef = `${item.type}#${item.number}`;
     const totalSteps = Object.keys(expectedState).length;
     this.progress.startOperation('Complete Verification', itemRef, totalSteps);
-    
+
     const beforeState = this.getState(item);
 
     // Enhanced state transition validation
@@ -371,22 +370,22 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
 
           // Enhanced state verification with detailed error messages
           const mismatches = [];
-          ['column', 'sprint', 'assignees'].forEach(aspect => {
-            if (expectedState[aspect]) {
-              const success = this.verifyStateAspect(aspect, expectedState[aspect], afterState[aspect]);
+          [ 'column', 'sprint', 'assignees' ].forEach(aspect => {
+            if (expectedState[ aspect ]) {
+              const success = this.verifyStateAspect(aspect, expectedState[ aspect ], afterState[ aspect ]);
               this.progress.recordStep('Complete Verification', itemRef,
-                `Verify ${aspect}: ${JSON.stringify(expectedState[aspect])}`, success);
+                `Verify ${aspect}: ${JSON.stringify(expectedState[ aspect ])}`, success);
 
               if (!success) {
                 const mismatchMessage = this.getStateAspectMismatchMessage(
                   aspect,
-                  expectedState[aspect],
-                  afterState[aspect]
+                  expectedState[ aspect ],
+                  afterState[ aspect ]
                 );
                 mismatches.push({
                   aspect,
                   message: mismatchMessage,
-                  recovery: this.getRecoverySteps(aspect, expectedState[aspect], afterState[aspect])
+                  recovery: this.getRecoverySteps(aspect, expectedState[ aspect ], afterState[ aspect ])
                 });
               }
             }
@@ -414,7 +413,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
           );
 
           log.info(`✓ Complete state verified for ${itemRef} (attempt ${attempt}/3)`);
-          
+
           this.steps.markStepComplete('STATE_VERIFIED');
           return afterState;
         } catch (error) {
@@ -450,8 +449,8 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
           return expected.length === actual.length &&
             expected.every(a => actualSet.has(a)) &&
             actual.every(a => expectedSet.has(a));
-        default:      verifierLog.warning(`Unknown state aspect: ${aspect}`);
-      return false;
+        default: verifierLog.warning(`Unknown state aspect: ${aspect}`);
+          return false;
       }
     } catch (error) {
       verifierLog.error(`Error verifying ${aspect}: ${error.message}`);
@@ -485,7 +484,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
         }
         return steps;
       default:
-        return [`Verify ${aspect} configuration and permissions`];
+        return [ `Verify ${aspect} configuration and permissions` ];
     }
   }
 
@@ -539,7 +538,7 @@ ${missingInProject.length > 0 ? `Missing in project board: ${missingInProject.jo
    Current State: ${JSON.stringify(lastState, null, 2)}
    Error: ${error.message}
    Recovery Steps:\n${error.recoverySteps?.map(s => `   - ${s}`).join('\n') || '   None provided'}
-   Retrying in ${delay/1000}s...`);
+   Retrying in ${delay / 1000}s...`);
           await sleep(delay);
           continue;
         }
