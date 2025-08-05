@@ -24,8 +24,15 @@ function loadBoardRules(context = {}) {
         };
 
         // Extract monitored user from structured format for backward compatibility
-        if (config.automation.user_scope?.monitored_user?.name) {
-            config.monitoredUser = config.automation.user_scope.monitored_user.name;
+        if (config.automation.user_scope?.monitored_user) {
+            const monitoredUserConfig = config.automation.user_scope.monitored_user;
+            if (monitoredUserConfig.type === 'static') {
+                // Use static value directly
+                config.monitoredUser = monitoredUserConfig.name;
+            } else if (monitoredUserConfig.type === 'env') {
+                // Use environment variable (existing behavior)
+                config.monitoredUser = process.env[ monitoredUserConfig.name ] || monitoredUserConfig.name;
+            }
         }
     }
 

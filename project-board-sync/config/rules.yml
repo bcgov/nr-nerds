@@ -9,9 +9,9 @@ automation:
   # Rules that follow the user across all repositories
   user_scope:
     monitored_user:
-      name: "GITHUB_AUTHOR"
-      type: "env"
-      description: "GitHub username of the monitored user, provided via environment variable"
+      name: "DerekRoberts"
+      type: "static"
+      description: "Primary developer for project board automation"
     rules:
       # Board addition rules
       board_items:
