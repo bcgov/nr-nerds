@@ -24,16 +24,12 @@ function loadBoardRules(context = {}) {
         };
 
         // Extract monitored user from structured format for backward compatibility
-        if (config.automation.user_scope?.monitored_user) {
-            const monitoredUserConfig = config.automation.user_scope.monitored_user;
-            if (monitoredUserConfig.type === 'static') {
-                // Use static value directly
-                config.monitoredUser = monitoredUserConfig.name;
-            } else if (monitoredUserConfig.type === 'env') {
-                // Use environment variable (existing behavior)
-                config.monitoredUser = process.env[ monitoredUserConfig.name ] || monitoredUserConfig.name;
-            }
+        const monitoredUser = getMonitoredUser(config.automation);
+        if (monitoredUser) {
+            config.monitoredUser = monitoredUser;
         }
+        // Note: If no monitored user is configured, config.monitoredUser will be undefined
+        // This is handled gracefully by the rule processors
     }
 
     return config;
@@ -53,17 +49,52 @@ function mergeRuleScopes(automation) {
         assignees: []
     };
 
-    // Merge user scope rules
-    if (automation.user_scope?.rules) {
-        mergeRuleGroup(merged, automation.user_scope.rules);
+    // Check if monitored user is properly configured
+    const monitoredUser = getMonitoredUser(automation);
+    
+    if (monitoredUser) {
+        // Merge user scope rules only if monitored user is configured
+        if (automation.user_scope?.rules) {
+            mergeRuleGroup(merged, automation.user_scope.rules);
+        }
+    } else {
+        // Log warning and skip user-scope rules
+        console.warn('⚠️  No monitored user configured. Skipping user-scope rules (board_items, assignees that depend on user).');
+        console.warn('   To enable user-based rules, configure monitored_user in automation.user_scope');
     }
 
-    // Merge repository scope rules
+    // Merge repository scope rules (always included)
     if (automation.repository_scope?.rules) {
         mergeRuleGroup(merged, automation.repository_scope.rules);
     }
 
     return merged;
+}
+
+/**
+ * Extract monitored user from automation configuration
+ * @param {object} automation The automation configuration
+ * @returns {string|null} The monitored user name or null if not configured
+ */
+function getMonitoredUser(automation) {
+    if (!automation.user_scope?.monitored_user) {
+        return null;
+    }
+
+    const monitoredUserConfig = automation.user_scope.monitored_user;
+    
+    if (monitoredUserConfig.type === 'static') {
+        return monitoredUserConfig.name;
+    } else if (monitoredUserConfig.type === 'env') {
+        const envValue = process.env[monitoredUserConfig.name];
+        if (!envValue) {
+            console.warn(`⚠️  Environment variable ${monitoredUserConfig.name} is not set`);
+            return null;
+        }
+        return envValue;
+    }
+    
+    return null;
 }
 
 /**
