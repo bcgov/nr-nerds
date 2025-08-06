@@ -20,7 +20,7 @@ const { validator } = require('./shared-validator');
  */
 async function processBoardItemRules(item) {
     try {
-        const config = await loadBoardRules();
+        const config = loadBoardRules();
         const actions = [];
 
         for (const rule of config.rules.board_items) {

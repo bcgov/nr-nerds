@@ -9,16 +9,17 @@ const mockRules = {
             description: "Add pull requests authored by monitored user",
             trigger: {
                 type: "PullRequest",
-                condition: "item.author === monitored.user"
+                condition: "monitored.users.includes(item.author)"
             },
             action: "add_to_board",
             skip_if: "item.inProject"
         }]
-    }
+    },
+    monitoredUsers: ['test-user']
 };
 
 // Override the board rules module before requiring the module under test
-require('../../../config/board-rules').loadBoardRules = async () => mockRules;
+require('../../../config/board-rules').loadBoardRules = () => mockRules;
 
 // Now require the module under test
 const { processBoardItemRules } = require('../board-items');

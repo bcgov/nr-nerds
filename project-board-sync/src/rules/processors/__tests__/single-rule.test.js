@@ -25,7 +25,7 @@ test('PR authored by monitored user rule', async (t) => {
             exports: {
                 validator: {
                     validateItemCondition: (item, trigger) => {
-                        if (trigger.condition === 'item.author === monitored.user') {
+                        if (trigger.condition === 'monitored.users.includes(item.author)') {
                             return item.author?.login === process.env.GITHUB_AUTHOR;
                         }
                         return false;
@@ -36,19 +36,20 @@ test('PR authored by monitored user rule', async (t) => {
 
         require.cache[ rulesPath ] = {
             exports: {
-                loadBoardRules: async () => ({
+                loadBoardRules: () => ({
                     rules: {
                         board_items: [ {
                             name: "PullRequest by Author",
                             description: "Add pull requests authored by monitored user",
                             trigger: {
                                 type: "PullRequest",
-                                condition: "item.author === monitored.user"
+                                condition: "monitored.users.includes(item.author)"
                             },
                             action: "add_to_board",
                             skip_if: "item.inProject"
                         } ]
-                    }
+                    },
+                    monitoredUsers: ['DerekRoberts']
                 })
             }
         };
@@ -57,7 +58,8 @@ test('PR authored by monitored user rule', async (t) => {
             exports: {
                 log: {
                     info: (msg) => logMessages.push(msg),
-                    debug: (msg) => logMessages.push(msg)
+                    debug: (msg) => logMessages.push(msg),
+                    error: (msg) => logMessages.push(msg)
                 }
             }
         };

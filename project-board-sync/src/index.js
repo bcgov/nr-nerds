@@ -50,7 +50,7 @@ const { processAddItems } = require('./rules/add-items');
 const { processColumnAssignment } = require('./rules/columns');
 const { processSprintAssignment } = require('./rules/sprints');
 const { processAssignees } = require('./rules/assignees');
-const { processLinkedIssues } = require('./rules/linked-issues');
+const { processLinkedIssues } = require('./rules/linked-issues-processor');
 const { StepVerification } = require('./utils/verification-steps');
 const { EnvironmentValidator } = require('./utils/environment-validator');
 

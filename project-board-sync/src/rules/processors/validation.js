@@ -8,18 +8,21 @@
  * This ensures that changes don't break existing rule validation logic.
  */
 
+const { loadBoardRules } = require('../../config/board-rules');
 const { log } = require('../../utils/log');
 
 class RuleValidation {
     constructor() {
-        // Initialize monitored repositories for repository-based conditions
-        this.monitoredRepos = new Set([
-            'bcgov/action-builder-ghcr',
-            'bcgov/nr-nerds',
-            'bcgov/quickstart-openshift',
-            'bcgov/quickstart-openshift-backends',
-            'bcgov/quickstart-openshift-helpers'
-        ]);
+        // Load configuration for monitored users and repositories
+        const config = loadBoardRules();
+        
+        // Initialize monitored repositories from config
+        this.monitoredRepos = new Set(
+            config.project?.repositories?.map(repo => `${config.project.organization}/${repo}`) || []
+        );
+        
+        // Initialize monitored users from config
+        this.monitoredUsers = new Set(config.monitoredUsers || []);
         
         // Simple steps tracking for validation
         // Enhanced step tracking for validation
@@ -54,9 +57,15 @@ class RuleValidation {
 
             // Author condition
             if (condition.condition === "item.author === monitored.user") {
-                const monitoredUser = process.env.GITHUB_AUTHOR;
-                const result = item.author?.login === monitoredUser;
-                log.debug(`Author check: ${item.author?.login} === ${monitoredUser} -> ${result}`);
+                const result = this.monitoredUsers.has(item.author?.login);
+                log.debug(`Author check: ${item.author?.login} in monitored users -> ${result}`);
+                return result;
+            }
+
+            // New monitored users condition
+            if (condition.condition === "monitored.users.includes(item.author)") {
+                const result = this.monitoredUsers.has(item.author?.login);
+                log.debug(`Monitored users check: ${item.author?.login} in monitored users -> ${result}`);
                 return result;
             }
 
@@ -69,9 +78,15 @@ class RuleValidation {
 
             // Assignee condition - NEW
             if (condition.condition === "item.assignees.includes(monitored.user)") {
-                const monitoredUser = process.env.GITHUB_AUTHOR;
-                const result = item.assignees?.nodes?.some(a => a.login === monitoredUser) || false;
-                log.debug(`Assignee check: ${item.assignees?.nodes?.map(a => a.login).join(', ')} includes ${monitoredUser} -> ${result}`);
+                const result = item.assignees?.nodes?.some(a => this.monitoredUsers.has(a.login)) || false;
+                log.debug(`Assignee check: ${item.assignees?.nodes?.map(a => a.login).join(', ')} includes monitored user -> ${result}`);
+                return result;
+            }
+
+            // New monitored users assignee condition
+            if (condition.condition === "item.assignees.some(assignee => monitored.users.includes(assignee))") {
+                const result = item.assignees?.nodes?.some(a => this.monitoredUsers.has(a.login)) || false;
+                log.debug(`Monitored users assignee check: ${item.assignees?.nodes?.map(a => a.login).join(', ')} includes monitored user -> ${result}`);
                 return result;
             }
 

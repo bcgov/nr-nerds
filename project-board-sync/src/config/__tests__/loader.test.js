@@ -18,10 +18,10 @@ test('ConfigLoader', async (t) => {
 
     // Automation structure
     assert.ok(config.automation.user_scope, 'has user_scope');
-    assert.ok(config.automation.user_scope.monitored_user, 'has monitored_user');
-    assert.ok(config.automation.user_scope.monitored_user.name, 'has monitored user name');
-    assert.ok([ 'static', 'env' ].includes(config.automation.user_scope.monitored_user.type), 'has valid user type');
-    assert.ok(config.automation.user_scope.monitored_user.description, 'has user description');
+    assert.ok(config.automation.user_scope.monitored_users, 'has monitored_users');
+    assert.ok(Array.isArray(config.automation.user_scope.monitored_users), 'monitored_users is an array');
+    assert.ok(config.automation.user_scope.monitored_users.length > 0, 'has at least one monitored user');
+    assert.ok(config.automation.user_scope.monitored_users.includes('DerekRoberts'), 'includes DerekRoberts');
     assert.ok(config.automation.repository_scope, 'has repository_scope');
     assert.equal(config.automation.repository_scope.organization, 'bcgov', 'correct organization');
     assert.ok(Array.isArray(config.automation.repository_scope.repositories), 'has repository list');
