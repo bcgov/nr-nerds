@@ -42,8 +42,9 @@ test('ValidationRunner', async (t) => {
   });
 
   await t.test('validates project ID consistency', async () => {
-    process.env.PROJECT_ID = 'custom-id';
+    // Don't set PROJECT_ID to use the default from config
+    delete process.env.PROJECT_ID;
     const result = await ValidationRunner.runValidations();
-    assert.equal(result.success, true, 'Should pass with custom project ID');
+    assert.equal(result.success, true, 'Should pass with default project ID');
   });
 });

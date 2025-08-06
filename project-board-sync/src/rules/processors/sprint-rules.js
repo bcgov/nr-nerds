@@ -15,7 +15,7 @@ function processSprintRules(item) {
     for (const rule of config.rules.sprints) {
         try {
             // Skip rule if conditions not met
-            if (rule.skipIf && validator.validateSkipRule(item, rule.skipIf)) {
+            if (rule.skip_if && validator.validateSkipRule(item, rule.skip_if)) {
                 continue;
             }
 

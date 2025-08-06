@@ -125,7 +125,7 @@ const schema = {
     },
     rule: {
       type: 'object',
-      required: [ 'name' ],
+      required: [ 'name', 'trigger', 'action' ],
       properties: {
         name: { type: 'string' },
         description: { type: 'string' },

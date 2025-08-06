@@ -73,7 +73,7 @@ function mergeRuleScopes(automation) {
  */
 function mergeRuleGroup(merged, ruleGroup) {
     Object.keys(ruleGroup).forEach(ruleType => {
-        if (merged[ ruleType ] && Array.isArray(ruleGroup[ ruleType ])) {
+        if (Array.isArray(ruleGroup[ ruleType ])) {
             merged[ ruleType ].push(...ruleGroup[ ruleType ]);
         }
     });

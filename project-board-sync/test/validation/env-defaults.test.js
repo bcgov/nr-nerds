@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { EnvironmentValidator } = require('../../src/utils/environment-validator');
+const { loadBoardRules } = require('../../src/config/board-rules');
 
 // Store original env
 const originalEnv = { ...process.env };
@@ -14,10 +15,12 @@ test('environment validation with defaults', async (t) => {
   t.beforeEach(resetEnv);
   t.afterEach(resetEnv);
 
+  const config = await loadBoardRules();
+
   await t.test('works with default project ID', async () => {
     // Only set required variables
     process.env.GITHUB_TOKEN = 'test-token';
-    process.env.GITHUB_AUTHOR = 'DerekRoberts';
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
     delete process.env.PROJECT_ID;
 
     // Should not throw with default project ID
@@ -32,7 +35,7 @@ test('environment validation with defaults', async (t) => {
 
   await t.test('works with custom project ID', async () => {
     process.env.GITHUB_TOKEN = 'test-token';
-    process.env.GITHUB_AUTHOR = 'DerekRoberts';
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
     process.env.PROJECT_ID = 'custom-id';
 
     try {
@@ -46,7 +49,7 @@ test('environment validation with defaults', async (t) => {
 
   await t.test('fails without GITHUB_TOKEN', async () => {
     delete process.env.GITHUB_TOKEN;
-    process.env.GITHUB_AUTHOR = 'DerekRoberts';
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
 
     try {
       await EnvironmentValidator.validateAll();
@@ -60,8 +63,8 @@ test('environment validation with defaults', async (t) => {
   await t.test('preserves backwards compatibility', async () => {
     // Test that old environment setups still work
     process.env.GITHUB_TOKEN = 'test-token';
-    process.env.GITHUB_AUTHOR = 'DerekRoberts';
-    process.env.PROJECT_ID = 'PVT_kwDOAA37OM4AFuzg';
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
+    process.env.PROJECT_ID = config.projectId;
 
     try {
       await EnvironmentValidator.validateAll();

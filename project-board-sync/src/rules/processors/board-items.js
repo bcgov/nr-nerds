@@ -32,7 +32,10 @@ async function processBoardItemRules(item) {
                 }
 
                 // Check type and author match (trigger condition)
-                if (item.__typename === rule.trigger.type && 
+                const allowedTypes = rule.trigger.type.split('|');
+                const typeMatches = allowedTypes.includes(item.__typename);
+                
+                if (typeMatches && 
                     validator.validateItemCondition(item, rule.trigger)) {
                     actions.push({
                         action: 'add_to_board',

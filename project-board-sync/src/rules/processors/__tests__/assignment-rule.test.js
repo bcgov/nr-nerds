@@ -1,6 +1,5 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { mock } = require('node:test/mock');
 
 test('PR assigned to monitored user rule', async (t) => {
     // Shared variables for all sub-tests
@@ -9,36 +8,52 @@ test('PR assigned to monitored user rule', async (t) => {
     
     // Setup test environment and mocks before each test
     t.beforeEach(() => {
-        // Mock dependencies
-        mock.method(require('../shared-validator').validator, 'validateItemCondition', 
-            (item, trigger) => {
-                if (trigger.condition === 'item.assignees includes monitored.user') {
-                    return item.assignees?.nodes?.some(a => a.login === process.env.GITHUB_ASSIGNEE);
-                }
-                return false;
-            }
-        );
+        // Mock dependencies using require.cache
+        const sharedValidatorPath = require.resolve('../shared-validator');
+        const boardRulesPath = require.resolve('../../../config/board-rules');
+        const logPath = require.resolve('../../../utils/log');
         
-        mock.method(require('../../../config/board-rules'), 'loadBoardRules', 
-            async () => ({
-                rules: {
-                    board_items: [{
-                        name: "PullRequest by Assignee",
-                        description: "Add pull requests assigned to monitored user",
-                        trigger: {
-                            type: "PullRequest",
-                            condition: "item.assignees includes monitored.user"
-                        },
-                        action: "add_to_board",
-                        skip_if: "item.inProject"
-                    }]
+        require.cache[sharedValidatorPath] = {
+            exports: {
+                validator: {
+                    validateItemCondition: (item, trigger) => {
+                        if (trigger.condition === 'item.assignees includes monitored.user') {
+                            return item.assignees?.nodes?.some(a => a.login === process.env.GITHUB_ASSIGNEE);
+                        }
+                        return false;
+                    }
                 }
-            })
-        );
+            }
+        };
+        
+        require.cache[boardRulesPath] = {
+            exports: {
+                loadBoardRules: async () => ({
+                    rules: {
+                        board_items: [{
+                            name: "PullRequest by Assignee",
+                            description: "Add pull requests assigned to monitored user",
+                            trigger: {
+                                type: "PullRequest",
+                                condition: "item.assignees includes monitored.user"
+                            },
+                            action: "add_to_board",
+                            skip_if: "item.inProject"
+                        }]
+                    }
+                })
+            }
+        };
 
-        mock.method(require('../../../utils/log').log, 'info', (msg) => logMessages.push(msg));
-        mock.method(require('../../../utils/log').log, 'debug', (msg) => logMessages.push(msg));
-        mock.method(require('../../../utils/log').log, 'error', (msg) => logMessages.push(msg));
+        require.cache[logPath] = {
+            exports: {
+                log: {
+                    info: (msg) => logMessages.push(msg),
+                    debug: (msg) => logMessages.push(msg),
+                    error: (msg) => logMessages.push(msg)
+                }
+            }
+        };
 
         // Set test environment
         process.env.GITHUB_ASSIGNEE = 'testAssignee';
@@ -53,7 +68,9 @@ test('PR assigned to monitored user rule', async (t) => {
 
     t.afterEach(() => {
         // Clear mocks
-        mock.reset();
+        delete require.cache[require.resolve('../shared-validator')];
+        delete require.cache[require.resolve('../../../config/board-rules')];
+        delete require.cache[require.resolve('../../../utils/log')];
     });
 
     await t.test('adds PR to board when assigned to monitored user', async () => {
