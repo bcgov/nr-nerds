@@ -1,8 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { processBoardItemRules } = require('../unified-rule-processor');
-const { processColumnRules } = require('../column-rules');
-const { processSprintRules } = require('../sprint-rules');
+const { 
+    processBoardItemRules,
+    processColumnRules,
+    processSprintRules
+} = require('../unified-rule-processor');
 const { setupTestEnvironment } = require('../../../../test/setup');
 
 test('real scenarios', async (t) => {
@@ -27,7 +29,7 @@ test('real scenarios', async (t) => {
         assert.equal(boardActions[1].action, 'add_to_board', 'should add to board');
 
         // Process through column rules
-        const columnActions = processColumnRules(pr);
+        const columnActions = await processColumnRules(pr);
         assert.equal(columnActions.length, 1, 'should set column');
         assert.equal(columnActions[0].action, 'set_column: Active', 'should set to Active');
 
@@ -36,7 +38,7 @@ test('real scenarios', async (t) => {
             ...pr,
             column: 'Active'
         };
-        const sprintActions = processSprintRules(prWithColumn);
+        const sprintActions = await processSprintRules(prWithColumn);
         assert.equal(sprintActions.length, 1, 'should set sprint');
         assert.equal(sprintActions[0].action, 'set_sprint: current', 'should set current sprint');
     });

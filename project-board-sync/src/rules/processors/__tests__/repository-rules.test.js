@@ -21,6 +21,17 @@ test('PR/Issue from monitored repository rule', async (t) => {
                             return item.repository?.name === process.env.GITHUB_REPOSITORY;
                         }
                         return false;
+                    },
+                    validateSkipRule: (item, skipIf) => {
+                        if (skipIf === "item.inProject") {
+                            return item.projectItems?.nodes?.length > 0;
+                        }
+                        return false;
+                    },
+                    steps: {
+                        markStepComplete: (step) => {
+                            // Mock implementation
+                        }
                     }
                 }
             }
@@ -86,7 +97,7 @@ test('PR/Issue from monitored repository rule', async (t) => {
         assert.equal(actions.length, 1);
         assert.equal(actions[0].action, 'add_to_board');
         assert.deepEqual(actions[0].params, { item: pr });
-        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')));
+        assert.ok(logMessages.some(msg => msg.includes('Rule Items from Repository triggered for PullRequest #123')));
     });
 
     await t.test('adds Issue to board when from monitored repository', async () => {
@@ -102,7 +113,7 @@ test('PR/Issue from monitored repository rule', async (t) => {
         assert.equal(actions.length, 1);
         assert.equal(actions[0].action, 'add_to_board');
         assert.deepEqual(actions[0].params, { item: issue });
-        assert.ok(logMessages.some(msg => msg.includes('Adding Issue #456 to board')));
+        assert.ok(logMessages.some(msg => msg.includes('Rule Items from Repository triggered for Issue #456')));
     });
 
     await t.test('skips item when already in project', async () => {
