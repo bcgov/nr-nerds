@@ -124,8 +124,9 @@ async function processAllRules(item) {
         const actions = [];
         validator.steps.markStepComplete('RULE_CONFIG_LOADED');
 
-        // Process all rule types
-        const ruleTypes = ['board_items', 'columns', 'sprints', 'assignees', 'linked_issues'];
+        // Process all rule types dynamically from configuration
+        const config = loadBoardRules();
+        const ruleTypes = Object.keys(config.rules || {});
         
         for (const ruleType of ruleTypes) {
             const ruleActions = await processRuleType(item, ruleType);
