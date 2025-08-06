@@ -10,8 +10,6 @@ automation:
   user_scope:
     monitored_users:
       - DerekRoberts
-      - SomebodyElse
-      - SomebodyElse2
     rules:
       # Board addition rules
       board_items:
