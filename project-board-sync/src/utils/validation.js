@@ -123,7 +123,7 @@ function validateRules(rules) {
   validateType(rules, 'object', 'rules');
 
   // Validate required rule sections
-  const requiredSections = Object.keys(rules);
+  const requiredSections = ['board_items', 'columns', 'sprints', 'linked_issues', 'assignees'];
   requiredSections.forEach(section => {
     validateRequired(rules[section], `rules.${section}`);
     validateType(rules[section], 'array', `rules.${section}`);

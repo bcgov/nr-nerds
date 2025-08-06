@@ -40,6 +40,8 @@ async function processRuleType(item, ruleType) {
                 }
 
                 // Skip rule if conditions not met (backward compatibility for skipIf/skip_if)
+                // Support both 'skip_if' (legacy) and 'skipIf' (preferred) for backward compatibility.
+                // TODO: Standardize on 'skipIf' in future releases and migrate existing configs.
                 const skipCondition = rule.skip_if ?? rule.skipIf;
                 if (skipCondition && validator.validateSkipRule(item, skipCondition)) {
                     continue;
@@ -109,9 +111,15 @@ function formatAction(rule, ruleType) {
         case 'assignees':
             return `add_assignee: ${rule.value}`;
         case 'linked_issues':
-            return rule.action || 'link_issue';
+            if (!rule.action) {
+                throw new Error(`No action specified for linked_issues rule: ${JSON.stringify(rule)}`);
+            }
+            return rule.action;
         default:
-            return rule.action || 'unknown_action';
+            if (!rule.action) {
+                throw new Error(`No action specified for rule type '${ruleType}': ${JSON.stringify(rule)}`);
+            }
+            return rule.action;
     }
 }
 
