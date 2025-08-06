@@ -1,9 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { validateEnvironment } = require('../../src/index.js');
+const { loadBoardRules } = require('../../src/config/board-rules');
 
 test('environment validation', async (t) => {
   const originalEnv = { ...process.env };
+  const config = await loadBoardRules();
 
   t.afterEach(() => {
     process.env = { ...originalEnv };
@@ -11,7 +13,7 @@ test('environment validation', async (t) => {
 
   await t.test('accepts valid environment with required variables', async () => {
     process.env.GITHUB_TOKEN = 'test-token';
-    process.env.GITHUB_AUTHOR = 'DerekRoberts';
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
     process.env.PROJECT_ID = 'test-project';
     
     try {
@@ -25,7 +27,7 @@ test('environment validation', async (t) => {
 
   await t.test('accepts valid environment with default project ID', async () => {
     process.env.GITHUB_TOKEN = 'test-token';
-    process.env.GITHUB_AUTHOR = 'DerekRoberts';
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
     delete process.env.PROJECT_ID;
     
     try {

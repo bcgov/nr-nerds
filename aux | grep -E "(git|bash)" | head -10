@@ -1,0 +1,5 @@
+[33md0c2824[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mchore/ruleScope[m[33m, [m[1;31morigin/chore/ruleScope[m[33m)[m Hard code monitored user for now
+[33mff4aa1d[m More structured monitored_user
+[33mc276825[m refactor: implement scope-based rules organization
+[33ma338a45[m Remove unnecessary project type and manual version
+[33meb72c6b[m chore: refactor rules.yml again

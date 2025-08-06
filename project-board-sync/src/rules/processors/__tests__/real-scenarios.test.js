@@ -9,7 +9,7 @@ test('real scenarios', async (t) => {
     // Setup test environment
     setupTestEnvironment();
     
-    await t.test('PR 98: authored by DerekRoberts, no column or assignee', () => {
+    await t.test('PR 98: authored by DerekRoberts, no column or assignee', async () => {
         const pr = {
             __typename: 'PullRequest',
             author: { login: 'DerekRoberts' },
@@ -21,7 +21,7 @@ test('real scenarios', async (t) => {
         };
 
         // Process through board-items rules
-        const boardActions = processBoardItemRules(pr);
+        const boardActions = await processBoardItemRules(pr);
         assert.equal(boardActions.length, 2, 'should add PR to board (matches author and repo rules)');
         assert.equal(boardActions[0].action, 'add_to_board', 'should add to board');
         assert.equal(boardActions[1].action, 'add_to_board', 'should add to board');

@@ -1,26 +1,27 @@
 // Ensure test runner is available
-const test = require('node:test');
-if (!test) {
-    throw new Error('node:test module not available');
-}
-const { describe, it } = test;
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
-console.log('Test module loaded:', { describe: !!describe, it: !!it });
 
-describe('PR authored by monitored user rule', async () => {
+test('PR authored by monitored user rule', async (t) => {
     let processBoardItemRules;
+    let config;
+    let createMockPR;
     const logMessages = [];
-    
-    it('setup', async () => {
+
+    // Setup test environment and mocks before each test
+    t.beforeEach(() => {
         // Mock our dependencies
+        const { loadBoardRules } = require('../../../config/board-rules');
+
+        // Set up environment with config values
         process.env.GITHUB_AUTHOR = 'DerekRoberts';
-        
+
         // Set up fake module cache for mocks
         const validatorPath = require.resolve('../shared-validator');
         const rulesPath = require.resolve('../../../config/board-rules');
         const logPath = require.resolve('../../../utils/log');
-        
-        require.cache[validatorPath] = {
+
+        require.cache[ validatorPath ] = {
             exports: {
                 validator: {
                     validateItemCondition: (item, trigger) => {
@@ -32,12 +33,12 @@ describe('PR authored by monitored user rule', async () => {
                 }
             }
         };
-        
-        require.cache[rulesPath] = {
+
+        require.cache[ rulesPath ] = {
             exports: {
                 loadBoardRules: async () => ({
                     rules: {
-                        board_items: [{
+                        board_items: [ {
                             name: "PullRequest by Author",
                             description: "Add pull requests authored by monitored user",
                             trigger: {
@@ -46,13 +47,13 @@ describe('PR authored by monitored user rule', async () => {
                             },
                             action: "add_to_board",
                             skip_if: "item.inProject"
-                        }]
+                        } ]
                     }
                 })
             }
         };
-        
-        require.cache[logPath] = {
+
+        require.cache[ logPath ] = {
             exports: {
                 log: {
                     info: (msg) => logMessages.push(msg),
@@ -63,70 +64,76 @@ describe('PR authored by monitored user rule', async () => {
 
         // Import module under test
         try {
-            console.log('Loading board-items module...');
-            const boardItemsPath = require.resolve('../board-items');
-            console.log('Board items path:', boardItemsPath);
             const boardItems = require('../board-items');
-            console.log('Board items loaded:', Object.keys(boardItems));
             processBoardItemRules = boardItems.processBoardItemRules;
-            console.log('Process board items function:', typeof processBoardItemRules);
         } catch (err) {
             console.error('Failed to load board-items:', err);
             throw err;
         }
+
+        // Simple mock PR creation function
+        createMockPR = async (overrides = {}) => {
+            return {
+                __typename: 'PullRequest',
+                number: 123,
+                author: { login: 'DerekRoberts' },
+                repository: { nameWithOwner: 'test-org/test-repo' },
+                projectItems: { nodes: [] },
+                ...overrides
+            };
+        };
+
+        // Clear log messages
+        logMessages.length = 0;
     });
 
-    it('adds PR to board when authored by monitored user', async () => {
-        logMessages.length = 0;
-        
-        const testPR = {
-            __typename: 'PullRequest',
+    t.afterEach(() => {
+        // Clear mocks
+        delete require.cache[require.resolve('../shared-validator')];
+        delete require.cache[require.resolve('../../../config/board-rules')];
+        delete require.cache[require.resolve('../../../utils/log')];
+    });
+
+    await t.test('adds PR to board when authored by monitored user', async () => {
+        const testPR = await createMockPR({
             number: 123,
-            author: { login: 'DerekRoberts' },
-            repository: { nameWithOwner: 'test-org/nr-nerds' },
+            repository: { nameWithOwner: 'test-org/test-repo' },
             projectItems: { nodes: [] }
-        };
-        
+        });
+
         const actions = await processBoardItemRules(testPR);
-        
+
         assert.equal(actions.length, 1, 'should add PR to board');
-        assert.equal(actions[0].action, 'add_to_board', 'action should be add_to_board');
-        assert.deepEqual(actions[0].params, { item: testPR }, 'should include PR in params');
-        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')), 
+        assert.equal(actions[ 0 ].action, 'add_to_board', 'action should be add_to_board');
+        assert.deepEqual(actions[ 0 ].params, { item: testPR }, 'should include PR in params');
+        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')),
             'should log board addition');
     });
 
-    it('skips PR when already in project', async () => {
-        logMessages.length = 0;
-        
-        const testPR = {
-            __typename: 'PullRequest',
+    await t.test('skips PR when already in project', async () => {
+        const testPR = await createMockPR({
             number: 123,
-            author: { login: 'DerekRoberts' },
-            repository: { nameWithOwner: 'test-org/nr-nerds' },
-            projectItems: { nodes: [{ id: 'exists' }] }
-        };
-        
+            repository: { nameWithOwner: 'test-org/test-repo' },
+            projectItems: { nodes: [ { id: 'exists' } ] }
+        });
+
         const actions = await processBoardItemRules(testPR);
-        
+
         assert.equal(actions.length, 0, 'should skip PR already in project');
         assert.ok(logMessages.some(msg => msg.includes('Skipping PullRequest #123')),
             'should log skip reason');
     });
 
-    it('skips PR when author is not monitored user', async () => {
-        logMessages.length = 0;
-        
-        const testPR = {
-            __typename: 'PullRequest',
+    await t.test('skips PR when author is not monitored user', async () => {
+        const testPR = await createMockPR({
             number: 123,
             author: { login: 'otherUser' },
-            repository: { nameWithOwner: 'test-org/nr-nerds' },
+            repository: { nameWithOwner: 'test-org/test-repo' },
             projectItems: { nodes: [] }
-        };
-        
+        });
+
         const actions = await processBoardItemRules(testPR);
-        
+
         assert.equal(actions.length, 0, 'should skip PR from non-monitored author');
     });
 });

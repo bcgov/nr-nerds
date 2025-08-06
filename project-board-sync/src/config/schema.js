@@ -10,24 +10,66 @@
 
 const schema = {
   type: 'object',
-  required: ['version', 'project', 'rules', 'technical'],
+  required: [ 'project', 'automation', 'technical' ],
   properties: {
-    version: { type: 'string' },
     project: {
       type: 'object',
-      required: ['id', 'organization', 'repositories'],
+      required: [ 'id' ],
       properties: {
-        id: { type: 'string' },
-        organization: { type: 'string' },
-        repositories: {
-          type: 'array',
-          items: { type: 'string' }
+        id: { type: 'string' }
+      }
+    },
+    automation: {
+      type: 'object',
+      required: [ 'user_scope', 'repository_scope' ],
+      properties: {
+        user_scope: {
+          type: 'object',
+          required: [ 'monitored_users', 'rules' ],
+          properties: {
+            monitored_users: {
+              type: 'array',
+              items: { type: 'string' },
+              minItems: 1
+            },
+            rules: { $ref: '#/definitions/ruleGroups' }
+          }
+        },
+        repository_scope: {
+          type: 'object',
+          required: [ 'organization', 'repositories', 'rules' ],
+          properties: {
+            organization: { type: 'string' },
+            repositories: {
+              type: 'array',
+              items: { type: 'string' }
+            },
+            rules: { $ref: '#/definitions/ruleGroups' }
+          }
         }
       }
     },
-    rules: {
+    technical: {
       type: 'object',
-      required: ['board_items', 'columns', 'sprints', 'linked_issues', 'assignees'],
+      required: [ 'batch_size', 'batch_delay_seconds', 'update_window_hours', 'optimization' ],
+      properties: {
+        batch_size: { type: 'integer', minimum: 1 },
+        batch_delay_seconds: { type: 'integer', minimum: 0 },
+        update_window_hours: { type: 'integer', minimum: 1 },
+        optimization: {
+          type: 'object',
+          required: [ 'skip_unchanged', 'dedup_by_id' ],
+          properties: {
+            skip_unchanged: { type: 'boolean' },
+            dedup_by_id: { type: 'boolean' }
+          }
+        }
+      }
+    }
+  },
+  definitions: {
+    ruleGroups: {
+      type: 'object',
       properties: {
         board_items: {
           type: 'array',
@@ -35,20 +77,19 @@ const schema = {
         },
         columns: {
           type: 'array',
-          items: { 
+          items: {
             allOf: [
               { $ref: '#/definitions/rule' },
               {
                 type: 'object',
-                required: ['validTransitions'],
                 properties: {
                   validTransitions: {
                     type: 'array',
                     items: {
                       type: 'object',
-                      required: ['from', 'to', 'conditions'],
+                      required: [ 'from', 'to', 'conditions' ],
                       properties: {
-                        from: { 
+                        from: {
                           oneOf: [
                             { type: 'string' },
                             { type: 'array', items: { type: 'string' } }
@@ -78,40 +119,22 @@ const schema = {
         }
       }
     },
-    technical: {
-      type: 'object',
-      required: ['batch_size', 'batch_delay_seconds', 'update_window_hours', 'optimization'],
-      properties: {
-        batch_size: { type: 'integer', minimum: 1 },
-        batch_delay_seconds: { type: 'integer', minimum: 0 },
-        update_window_hours: { type: 'integer', minimum: 1 },
-        optimization: {
-          type: 'object',
-          required: ['skip_unchanged', 'dedup_by_id'],
-          properties: {
-            skip_unchanged: { type: 'boolean' },
-            dedup_by_id: { type: 'boolean' }
-          }
-        }
-      }
-    }
-  },
-  definitions: {
     rule: {
       type: 'object',
-      required: ['name', 'trigger', 'action'],
+      required: [ 'name', 'trigger', 'action' ],
       properties: {
         name: { type: 'string' },
+        description: { type: 'string' },
         trigger: {
           type: 'object',
-          required: ['type', 'condition'],
+          required: [ 'type', 'condition' ],
           properties: {
             type: {
               oneOf: [
-                { type: 'string', enum: ['PullRequest', 'Issue', 'LinkedIssue'] },
-                { 
+                { type: 'string', enum: [ 'PullRequest', 'Issue', 'LinkedIssue' ] },
+                {
                   type: 'array',
-                  items: { type: 'string', enum: ['PullRequest', 'Issue', 'LinkedIssue'] }
+                  items: { type: 'string', enum: [ 'PullRequest', 'Issue', 'LinkedIssue' ] }
                 }
               ]
             },
@@ -136,12 +159,13 @@ const schema = {
         action: {
           oneOf: [
             { type: 'string' },
-            { 
+            {
               type: 'array',
               items: { type: 'string' }
             }
           ]
         },
+        value: { type: 'string' },
         skip_if: { type: 'string' }
       }
     }

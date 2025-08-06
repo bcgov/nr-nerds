@@ -1,11 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { isItemInProject } = require('../src/github/api');
-
-// Set up test environment
-process.env.GITHUB_AUTHOR = 'DerekRoberts';
+const { loadBoardRules } = require('../src/config/board-rules');
 
 test('Verify existing item detection works correctly', async (t) => {
+    // Set up test environment
+    const config = await loadBoardRules();
+    process.env.GITHUB_AUTHOR = config.monitoredUser;
     // This is the PR we saw in the logs
     const prNodeId = 'PR_kwDOHWjA886cSajx'; // This is the node ID from the logs
     const projectId = 'PVT_kwDOAA37OM4AFuzg';
