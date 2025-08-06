@@ -32,6 +32,16 @@ const mockConfig = {
             action: "set_sprint",
             value: "current",
             skip_if: "item.sprint === 'current'"
+        }],
+        assignees: [{
+            name: "Test Assignee Rule",
+            trigger: {
+                type: "PullRequest",
+                condition: "monitored.users.includes(item.author)"
+            },
+            action: "add_assignee",
+            value: "item.author",
+            skip_if: "item.assignees.includes(item.author)"
         }]
     },
     monitoredUsers: ['test-user']
@@ -100,10 +110,11 @@ const {
     processRuleType,
     processColumnRules,
     processBoardItemRules,
-    processSprintRules
+    processSprintRules,
+    processAssigneeRules
 } = require('../unified-rule-processor');
 
-test('Unified Rule Processor - Column, Board, and Sprint Rules', async (t) => {
+test('Unified Rule Processor - Column, Board, Sprint, and Assignee Rules', async (t) => {
     await t.test('processRuleType processes column rules correctly', async () => {
         const item = {
             __typename: 'PullRequest',
@@ -149,6 +160,23 @@ test('Unified Rule Processor - Column, Board, and Sprint Rules', async (t) => {
         assert.equal(actions[0].params.item, item, 'Should include item in params');
     });
 
+    await t.test('processRuleType processes assignee rules correctly', async () => {
+        const item = {
+            __typename: 'PullRequest',
+            number: 123,
+            author: { login: 'test-user' },
+            assignees: { nodes: [] },
+            projectItems: { nodes: [] }
+        };
+
+        const actions = await processRuleType(item, 'assignees');
+        
+        assert.equal(actions.length, 1, 'Should process one assignee rule');
+        assert.equal(actions[0].action, 'add_assignee: item.author', 'Should have correct action');
+        assert.equal(actions[0].params.item, item, 'Should include item in params');
+        assert.equal(actions[0].params.assignee, 'item.author', 'Should include assignee in params');
+    });
+
     await t.test('processColumnRules works as backward compatibility', async () => {
         const item = {
             __typename: 'PullRequest',
@@ -191,6 +219,21 @@ test('Unified Rule Processor - Column, Board, and Sprint Rules', async (t) => {
         assert.equal(actions[0].action, 'set_sprint: current', 'Should have correct action');
     });
 
+    await t.test('processAssigneeRules works as backward compatibility', async () => {
+        const item = {
+            __typename: 'PullRequest',
+            number: 123,
+            author: { login: 'test-user' },
+            assignees: { nodes: [] },
+            projectItems: { nodes: [] }
+        };
+
+        const actions = await processAssigneeRules(item);
+        
+        assert.equal(actions.length, 1, 'Should process one assignee rule');
+        assert.equal(actions[0].action, 'add_assignee: item.author', 'Should have correct action');
+    });
+
     await t.test('skips board_items rules when already in project', async () => {
         const item = {
             __typename: 'PullRequest',
@@ -229,6 +272,20 @@ test('Unified Rule Processor - Column, Board, and Sprint Rules', async (t) => {
         const actions = await processRuleType(item, 'sprints');
         
         assert.equal(actions.length, 0, 'Should skip when sprint already set');
+    });
+
+    await t.test('skips assignee rules when assignee already set', async () => {
+        const item = {
+            __typename: 'PullRequest',
+            number: 123,
+            author: { login: 'test-user' },
+            assignees: { nodes: [{ login: 'test-user' }] }, // Already has assignee
+            projectItems: { nodes: [] }
+        };
+
+        const actions = await processRuleType(item, 'assignees');
+        
+        assert.equal(actions.length, 0, 'Should skip when assignee already set');
     });
 
     await t.test('handles empty rule types gracefully', async () => {

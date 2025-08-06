@@ -47,9 +47,16 @@ async function processRuleType(item, ruleType) {
                 // Check trigger conditions
                 if (validator.validateItemCondition(item, rule.trigger)) {
                     const action = formatAction(rule, ruleType);
+                    const params = { item };
+                    
+                    // Special handling for assignee rules
+                    if (ruleType === 'assignees') {
+                        params.assignee = rule.value;
+                    }
+                    
                     actions.push({
                         action,
-                        params: { item }
+                        params
                     });
                     log.info(`Rule ${rule.name} triggered for ${item.__typename} #${item.number}`);
                 }
@@ -83,7 +90,7 @@ function formatAction(rule, ruleType) {
         case 'board_items':
             return 'add_to_board';
         case 'assignees':
-            return `set_assignees: ${rule.value}`;
+            return `add_assignee: ${rule.value}`;
         case 'linked_issues':
             return rule.action || 'link_issue';
         default:
