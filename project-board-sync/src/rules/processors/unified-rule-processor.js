@@ -54,6 +54,22 @@ async function processRuleType(item, ruleType) {
                         params.assignee = rule.value;
                     }
                     
+                    // Special handling for linked issues rules
+                    if (ruleType === 'linked_issues') {
+                        const ruleActions = Array.isArray(rule.action) ? rule.action : [rule.action];
+                        params.rule = rule.name;
+                        params.actions = ruleActions;
+                        
+                        // Create separate action for each rule action
+                        for (const actionItem of ruleActions) {
+                            actions.push({
+                                action: actionItem,
+                                params
+                            });
+                        }
+                        continue; // Skip the default action push below
+                    }
+                    
                     actions.push({
                         action,
                         params
