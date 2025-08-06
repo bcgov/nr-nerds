@@ -55,13 +55,6 @@ class RuleValidation {
                 }
             }
 
-            // Author condition
-            if (condition.condition === "item.author === monitored.user") {
-                const result = this.monitoredUsers.has(item.author?.login);
-                log.debug(`Author check: ${item.author?.login} in monitored users -> ${result}`);
-                return result;
-            }
-
             // New monitored users condition
             if (condition.condition === "monitored.users.includes(item.author)") {
                 const result = this.monitoredUsers.has(item.author?.login);
@@ -73,13 +66,6 @@ class RuleValidation {
             if (condition.condition === "monitored.repos.includes(item.repository)") {
                 const result = this.monitoredRepos.has(item.repository?.nameWithOwner);
                 log.debug(`Repository check: ${item.repository?.nameWithOwner} in monitored repos -> ${result}`);
-                return result;
-            }
-
-            // Assignee condition - NEW
-            if (condition.condition === "item.assignees.includes(monitored.user)") {
-                const result = item.assignees?.nodes?.some(a => this.monitoredUsers.has(a.login)) || false;
-                log.debug(`Assignee check: ${item.assignees?.nodes?.map(a => a.login).join(', ')} includes monitored user -> ${result}`);
                 return result;
             }
 
