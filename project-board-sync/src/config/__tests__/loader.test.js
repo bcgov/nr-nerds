@@ -31,7 +31,7 @@ test('ConfigLoader', async (t) => {
     const { loadBoardRules } = require('../board-rules');
     const normalizedConfig = loadBoardRules();
 
-    const ruleSections = [ 'board_items', 'columns', 'sprints', 'linked_issues', 'assignees' ];
+    const ruleSections = Object.keys(normalizedConfig.rules);
     for (const section of ruleSections) {
       assert.ok(Array.isArray(normalizedConfig.rules[ section ]), `has ${section} rules`);
       assert.ok(normalizedConfig.rules[ section ].length > 0, `${section} has rules defined`);

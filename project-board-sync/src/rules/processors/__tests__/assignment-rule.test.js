@@ -21,6 +21,17 @@ test('PR assigned to monitored user rule', async (t) => {
                             return item.assignees?.nodes?.some(a => a.login === 'testAssignee');
                         }
                         return false;
+                    },
+                    validateSkipRule: (item, skipIf) => {
+                        if (skipIf === "item.inProject") {
+                            return item.projectItems?.nodes?.length > 0;
+                        }
+                        return false;
+                    },
+                    steps: {
+                        markStepComplete: (step) => {
+                            // Mock implementation
+                        }
                     }
                 }
             }
@@ -63,7 +74,7 @@ test('PR assigned to monitored user rule', async (t) => {
         logMessages.length = 0;
         
         // Import after mocks are set up
-        const boardItems = require('../board-items');
+        const boardItems = require('../unified-rule-processor');
         processBoardItemRules = boardItems.processBoardItemRules;
     });
 
@@ -89,7 +100,7 @@ test('PR assigned to monitored user rule', async (t) => {
         assert.equal(actions.length, 1);
         assert.equal(actions[0].action, 'add_to_board');
         assert.deepEqual(actions[0].params, { item: pr });
-        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')));
+        assert.ok(logMessages.some(msg => msg.includes('Rule PullRequest by Assignee triggered for PullRequest #123')));
     });
 
     await t.test('skips PR when already in project', async () => {

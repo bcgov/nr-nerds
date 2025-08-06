@@ -29,6 +29,17 @@ test('PR authored by monitored user rule', async (t) => {
                             return item.author?.login === process.env.GITHUB_AUTHOR;
                         }
                         return false;
+                    },
+                    validateSkipRule: (item, skipIf) => {
+                        if (skipIf === "item.inProject") {
+                            return item.projectItems?.nodes?.length > 0;
+                        }
+                        return false;
+                    },
+                    steps: {
+                        markStepComplete: (step) => {
+                            // Mock implementation
+                        }
                     }
                 }
             }
@@ -66,7 +77,7 @@ test('PR authored by monitored user rule', async (t) => {
 
         // Import module under test
         try {
-            const boardItems = require('../board-items');
+            const boardItems = require('../unified-rule-processor');
             processBoardItemRules = boardItems.processBoardItemRules;
         } catch (err) {
             console.error('Failed to load board-items:', err);
@@ -108,7 +119,7 @@ test('PR authored by monitored user rule', async (t) => {
         assert.equal(actions.length, 1, 'should add PR to board');
         assert.equal(actions[ 0 ].action, 'add_to_board', 'action should be add_to_board');
         assert.deepEqual(actions[ 0 ].params, { item: testPR }, 'should include PR in params');
-        assert.ok(logMessages.some(msg => msg.includes('Adding PullRequest #123 to board')),
+        assert.ok(logMessages.some(msg => msg.includes('Rule PullRequest by Author triggered for PullRequest #123')),
             'should log board addition');
     });
 

@@ -44,13 +44,25 @@ function loadBoardRules(context = {}) {
  * @returns {object} Merged rules object
  */
 function mergeRuleScopes(automation) {
-    const merged = {
-        board_items: [],
-        columns: [],
-        sprints: [],
-        linked_issues: [],
-        assignees: []
-    };
+    const merged = {};
+    
+    // Initialize merged object with all rule types from both scopes
+    const allRuleTypes = new Set();
+    
+    // Collect rule types from user scope
+    if (automation.user_scope?.rules) {
+        Object.keys(automation.user_scope.rules).forEach(ruleType => allRuleTypes.add(ruleType));
+    }
+    
+    // Collect rule types from repository scope
+    if (automation.repository_scope?.rules) {
+        Object.keys(automation.repository_scope.rules).forEach(ruleType => allRuleTypes.add(ruleType));
+    }
+    
+    // Initialize all rule types with empty arrays
+    allRuleTypes.forEach(ruleType => {
+        merged[ruleType] = [];
+    });
 
     // Check if monitored users are properly configured
     const monitoredUsers = getMonitoredUsers(automation);

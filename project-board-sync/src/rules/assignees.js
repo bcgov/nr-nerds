@@ -1,6 +1,6 @@
 const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
-const { processAssigneeRules } = require('./processors/assignee-rules');
+const { processAssigneeRules } = require('./processors/unified-rule-processor');
 
 /**
  * Get details about a project item including its linked content
@@ -198,7 +198,7 @@ async function processAssignees(item, projectId, itemId) {
   log.info(`  • Current assignees in Issue/PR: ${repoAssignees.join(', ') || 'none'}`, true);
 
   // Process assignee rules from YAML config
-  const assigneeActions = processAssigneeRules(item);
+  const assigneeActions = await processAssigneeRules(item);
   
   if (assigneeActions.length === 0) {
     return {
@@ -210,6 +210,9 @@ async function processAssignees(item, projectId, itemId) {
 
   // Apply the first assignee action (assuming one assignee rule per item)
   const action = assigneeActions[0];
+  
+  // Debug logging
+  log.info(`  • Action object: ${JSON.stringify(action)}`, true);
   
   let assigneeToAdd = action.params.assignee;
   
