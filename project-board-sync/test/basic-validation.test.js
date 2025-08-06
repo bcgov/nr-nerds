@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { RuleValidation } = require('../src/rules/processors/validation');
 
 // Set up test environment
-process.env.GITHUB_AUTHOR = 'test-user';
+process.env.GITHUB_AUTHOR = 'DerekRoberts';
 
 test('Basic condition validation works', async (t) => {
     const validator = new RuleValidation();
@@ -12,12 +12,12 @@ test('Basic condition validation works', async (t) => {
     const prWithAuthor = {
         __typename: 'PullRequest',
         number: 123,
-        author: { login: 'test-user' }
+        author: { login: 'DerekRoberts' }
     };
     
     const result1 = validator.validateItemCondition(prWithAuthor, {
         type: 'PullRequest',
-        condition: 'item.author === monitored.user'
+        condition: 'monitored.users.includes(item.author)'
     });
     assert.equal(result1, true, 'Author condition should pass');
     

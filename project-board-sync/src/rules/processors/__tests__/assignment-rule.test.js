@@ -17,8 +17,8 @@ test('PR assigned to monitored user rule', async (t) => {
             exports: {
                 validator: {
                     validateItemCondition: (item, trigger) => {
-                        if (trigger.condition === 'item.assignees includes monitored.user') {
-                            return item.assignees?.nodes?.some(a => a.login === process.env.GITHUB_ASSIGNEE);
+                        if (trigger.condition === 'item.assignees.some(assignee => monitored.users.includes(assignee))') {
+                            return item.assignees?.nodes?.some(a => a.login === 'testAssignee');
                         }
                         return false;
                     }
@@ -28,19 +28,20 @@ test('PR assigned to monitored user rule', async (t) => {
         
         require.cache[boardRulesPath] = {
             exports: {
-                loadBoardRules: async () => ({
+                loadBoardRules: () => ({
                     rules: {
                         board_items: [{
                             name: "PullRequest by Assignee",
                             description: "Add pull requests assigned to monitored user",
                             trigger: {
                                 type: "PullRequest",
-                                condition: "item.assignees includes monitored.user"
+                                condition: "item.assignees.some(assignee => monitored.users.includes(assignee))"
                             },
                             action: "add_to_board",
                             skip_if: "item.inProject"
                         }]
-                    }
+                    },
+                    monitoredUsers: ['testAssignee']
                 })
             }
         };
