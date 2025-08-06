@@ -78,14 +78,14 @@ function formatAction(rule, ruleType) {
     switch (ruleType) {
         case 'columns':
             return `set_column: ${rule.value}`;
-        case 'board_items':
-            return 'add_to_board';
         case 'sprints':
             return `set_sprint: ${rule.value}`;
+        case 'board_items':
+            return 'add_to_board';
         case 'assignees':
-            return `add_assignee: ${rule.value}`;
+            return `set_assignees: ${rule.value}`;
         case 'linked_issues':
-            return Array.isArray(rule.action) ? rule.action.join(', ') : rule.action;
+            return rule.action || 'link_issue';
         default:
             return rule.action || 'unknown_action';
     }
