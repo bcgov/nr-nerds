@@ -30,6 +30,15 @@ async function processRuleType(item, ruleType) {
         
         for (const rule of rules) {
             try {
+                // Special handling for board_items rules
+                if (ruleType === 'board_items') {
+                    // Skip if already in project (skip condition)
+                    if (item.projectItems?.nodes?.length > 0) {
+                        log.info(`Skipping ${item.__typename} #${item.number} - Already in project`);
+                        continue;
+                    }
+                }
+
                 // Skip rule if conditions not met
                 if (rule.skip_if && validator.validateSkipRule(item, rule.skip_if)) {
                     continue;

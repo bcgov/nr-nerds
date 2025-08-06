@@ -4,6 +4,15 @@ const assert = require('node:assert/strict');
 // Mock the dependencies
 const mockConfig = {
     rules: {
+        board_items: [{
+            name: "Test Board Rule",
+            trigger: {
+                type: "PullRequest",
+                condition: "monitored.users.includes(item.author)"
+            },
+            action: "add_to_board",
+            skip_if: "item.inProject"
+        }],
         columns: [{
             name: "Test Column Rule",
             trigger: {
@@ -31,14 +40,35 @@ require('../shared-validator').validator = {
         }
         
         // Then check condition
+        if (trigger.condition === "monitored.users.includes(item.author)") {
+            return item.author?.login === 'test-user';
+        }
         if (trigger.condition === "!item.column") {
             return !item.column;
+        }
+        if (trigger.condition === "item.column === 'Active'") {
+            return item.column === 'Active';
+        }
+        if (trigger.condition === "!item.pr.closed || item.pr.merged") {
+            return !item.pr?.closed || item.pr?.merged;
         }
         return false;
     },
     validateSkipRule: (item, skipIf) => {
+        if (skipIf === "item.inProject") {
+            return item.projectItems?.nodes?.length > 0;
+        }
         if (skipIf === "item.column") {
             return !!item.column;
+        }
+        if (skipIf === "item.sprint === 'current'") {
+            return item.sprint === 'current';
+        }
+        if (skipIf === "item.assignees.includes(item.author)") {
+            return item.assignees?.nodes?.some(a => a.login === item.author?.login);
+        }
+        if (skipIf === "item.column === item.pr.column && item.assignees === item.pr.assignees") {
+            return item.column === item.pr?.column && item.assignees === item.pr?.assignees;
         }
         return false;
     },
@@ -58,10 +88,11 @@ require('../../../utils/log').log = {
 // Now require the module under test
 const { 
     processRuleType,
-    processColumnRules
+    processColumnRules,
+    processBoardItemRules
 } = require('../unified-rule-processor');
 
-test('Unified Rule Processor - Column Rules', async (t) => {
+test('Unified Rule Processor - Column and Board Rules', async (t) => {
     await t.test('processRuleType processes column rules correctly', async () => {
         const item = {
             __typename: 'PullRequest',
@@ -77,6 +108,21 @@ test('Unified Rule Processor - Column Rules', async (t) => {
         assert.equal(actions[0].params.item, item, 'Should include item in params');
     });
 
+    await t.test('processRuleType processes board_items rules correctly', async () => {
+        const item = {
+            __typename: 'PullRequest',
+            number: 123,
+            author: { login: 'test-user' },
+            projectItems: { nodes: [] }
+        };
+
+        const actions = await processRuleType(item, 'board_items');
+        
+        assert.equal(actions.length, 1, 'Should process one board_items rule');
+        assert.equal(actions[0].action, 'add_to_board', 'Should have correct action');
+        assert.equal(actions[0].params.item, item, 'Should include item in params');
+    });
+
     await t.test('processColumnRules works as backward compatibility', async () => {
         const item = {
             __typename: 'PullRequest',
@@ -89,6 +135,33 @@ test('Unified Rule Processor - Column Rules', async (t) => {
         
         assert.equal(actions.length, 1, 'Should process one column rule');
         assert.equal(actions[0].action, 'set_column: Active', 'Should have correct action');
+    });
+
+    await t.test('processBoardItemRules works as backward compatibility', async () => {
+        const item = {
+            __typename: 'PullRequest',
+            number: 123,
+            author: { login: 'test-user' },
+            projectItems: { nodes: [] }
+        };
+
+        const actions = await processBoardItemRules(item);
+        
+        assert.equal(actions.length, 1, 'Should process one board_items rule');
+        assert.equal(actions[0].action, 'add_to_board', 'Should have correct action');
+    });
+
+    await t.test('skips board_items rules when already in project', async () => {
+        const item = {
+            __typename: 'PullRequest',
+            number: 123,
+            author: { login: 'test-user' },
+            projectItems: { nodes: [{ id: 'some-id' }] } // Already in project
+        };
+
+        const actions = await processRuleType(item, 'board_items');
+        
+        assert.equal(actions.length, 0, 'Should skip when already in project');
     });
 
     await t.test('skips rules when skip condition is met', async () => {
