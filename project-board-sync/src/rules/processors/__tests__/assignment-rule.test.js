@@ -63,7 +63,7 @@ test('PR assigned to monitored user rule', async (t) => {
         logMessages.length = 0;
         
         // Import after mocks are set up
-        const boardItems = require('../board-items');
+        const boardItems = require('../unified-rule-processor');
         processBoardItemRules = boardItems.processBoardItemRules;
     });
 

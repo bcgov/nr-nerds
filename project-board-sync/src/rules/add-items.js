@@ -1,6 +1,6 @@
 const { isItemInProject, addItemToProject, getRecentItems } = require('../github/api');
 const { log } = require('../utils/log');
-const { processBoardItemRules } = require('./processors/board-items');
+const { processBoardItemRules } = require('./processors/unified-rule-processor');
 
 /**
  * Implementation of Rule Set 1: Which Items are Added to the Project Board?

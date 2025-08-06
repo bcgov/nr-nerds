@@ -22,7 +22,7 @@ const mockRules = {
 require('../../../config/board-rules').loadBoardRules = () => mockRules;
 
 // Now require the module under test
-const { processBoardItemRules } = require('../board-items');
+const { processBoardItemRules } = require('../unified-rule-processor');
 
 // Set up test env
 process.env.GITHUB_AUTHOR = 'test-user';

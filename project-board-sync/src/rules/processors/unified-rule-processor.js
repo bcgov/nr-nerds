@@ -173,23 +173,23 @@ async function processRuleType(item, ruleType) {
 
 // Backward compatibility functions
 async function processBoardItemRules(item) {
-    return processRuleType(item, 'board_items');
+    return await processRuleType(item, 'board_items');
 }
 
-function processColumnRules(item) {
-    return processRuleType(item, 'columns');
+async function processColumnRules(item) {
+    return await processRuleType(item, 'columns');
 }
 
-function processSprintRules(item) {
-    return processRuleType(item, 'sprints');
+async function processSprintRules(item) {
+    return await processRuleType(item, 'sprints');
 }
 
-function processAssigneeRules(item) {
-    return processRuleType(item, 'assignees');
+async function processAssigneeRules(item) {
+    return await processRuleType(item, 'assignees');
 }
 
-function processLinkedIssueRules(item) {
-    return processRuleType(item, 'linked_issues');
+async function processLinkedIssueRules(item) {
+    return await processRuleType(item, 'linked_issues');
 }
 
 module.exports = {

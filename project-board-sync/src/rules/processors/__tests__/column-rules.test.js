@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { processColumnRules } = require('../column-rules');
+const { processColumnRules } = require('../unified-rule-processor');
 const { setupTestEnvironment } = require('../../../../test/setup');
 const { loadBoardRules } = require('../../../config/board-rules');
 
@@ -10,7 +10,7 @@ test('processColumnRules', async (t) => {
     const config = await loadBoardRules();
     const monitoredUser = config.monitoredUser;
 
-    await t.test('sets PR column to Active when no column set', () => {
+    await t.test('sets PR column to Active when no column set', async () => {
         const pr = {
             __typename: 'PullRequest',
             author: { login: monitoredUser },
@@ -20,14 +20,14 @@ test('processColumnRules', async (t) => {
             }
         };
 
-        const actions = processColumnRules(pr);
+        const actions = await processColumnRules(pr);
 
         assert.equal(actions.length, 1, 'should set column');
         assert.equal(actions[ 0 ].action, 'set_column: Active', 'should set to Active');
         assert.equal(actions[ 0 ].params.item, pr, 'should include PR in params');
     });
 
-    await t.test('sets PR column to Active when in New column', () => {
+    await t.test('sets PR column to Active when in New column', async () => {
         const pr = {
             __typename: 'PullRequest',
             author: { login: monitoredUser },
@@ -37,14 +37,14 @@ test('processColumnRules', async (t) => {
             }
         };
 
-        const actions = processColumnRules(pr);
+        const actions = await processColumnRules(pr);
 
         assert.equal(actions.length, 1, 'should set column');
         assert.equal(actions[ 0 ].action, 'set_column: Active', 'should set to Active');
         assert.equal(actions[ 0 ].params.item, pr, 'should include PR in params');
     });
 
-    await t.test('sets Issue column to New when no column set', () => {
+    await t.test('sets Issue column to New when no column set', async () => {
         const issue = {
             __typename: 'Issue',
             author: { login: monitoredUser },
@@ -54,14 +54,14 @@ test('processColumnRules', async (t) => {
             }
         };
 
-        const actions = processColumnRules(issue);
+        const actions = await processColumnRules(issue);
 
         assert.equal(actions.length, 1, 'should set column');
         assert.equal(actions[ 0 ].action, 'set_column: New', 'should set to New');
         assert.equal(actions[ 0 ].params.item, issue, 'should include Issue in params');
     });
 
-    await t.test('skips PR when column is already set except New', () => {
+    await t.test('skips PR when column is already set except New', async () => {
         const pr = {
             __typename: 'PullRequest',
             author: { login: monitoredUser },
@@ -71,12 +71,12 @@ test('processColumnRules', async (t) => {
             }
         };
 
-        const actions = processColumnRules(pr);
+        const actions = await processColumnRules(pr);
 
         assert.equal(actions.length, 0, 'should skip when column already set');
     });
 
-    await t.test('skips Issue when column is already set', () => {
+    await t.test('skips Issue when column is already set', async () => {
         const issue = {
             __typename: 'Issue',
             author: { login: monitoredUser },
@@ -86,7 +86,7 @@ test('processColumnRules', async (t) => {
             }
         };
 
-        const actions = processColumnRules(issue);
+        const actions = await processColumnRules(issue);
 
         assert.equal(actions.length, 0, 'should skip when column already set');
     });

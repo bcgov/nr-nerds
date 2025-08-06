@@ -1,6 +1,6 @@
 const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
-const { processAssigneeRules } = require('./processors/assignee-rules');
+const { processAssigneeRules } = require('./processors/unified-rule-processor');
 
 /**
  * Get details about a project item including its linked content

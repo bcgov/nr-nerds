@@ -12,7 +12,7 @@ const { octokit } = require('../github/api');
 const { log } = require('../utils/log');
 const { getItemColumn, setItemColumn } = require('../github/api');
 const { getItemAssignees, setItemAssignees } = require('./assignees');
-const { processLinkedIssueRules } = require('./processors/linked-issues-rules');
+const { processLinkedIssueRules } = require('./processors/unified-rule-processor');
 
 /**
  * Process linked issues using rule-based system
