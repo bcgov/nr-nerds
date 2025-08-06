@@ -23,12 +23,15 @@ function loadBoardRules(context = {}) {
             repositories: config.automation.repository_scope.repositories
         };
 
-        // Extract monitored user from structured format for backward compatibility
-        const monitoredUser = getMonitoredUser(config.automation);
-        if (monitoredUser) {
-            config.monitoredUser = monitoredUser;
+        // Extract monitored users from structured format for backward compatibility
+        const monitoredUsers = getMonitoredUsers(config.automation);
+        if (monitoredUsers && monitoredUsers.length > 0) {
+            // For backward compatibility, use the first user as the primary monitored user
+            config.monitoredUser = monitoredUsers[0];
+            // Store the full array for new functionality
+            config.monitoredUsers = monitoredUsers;
         }
-        // Note: If no monitored user is configured, config.monitoredUser will be undefined
+        // Note: If no monitored users are configured, config.monitoredUser will be undefined
         // This is handled gracefully by the rule processors
     }
 
@@ -49,18 +52,18 @@ function mergeRuleScopes(automation) {
         assignees: []
     };
 
-    // Check if monitored user is properly configured
-    const monitoredUser = getMonitoredUser(automation);
+    // Check if monitored users are properly configured
+    const monitoredUsers = getMonitoredUsers(automation);
     
-    if (monitoredUser) {
-        // Merge user scope rules only if monitored user is configured
+    if (monitoredUsers && monitoredUsers.length > 0) {
+        // Merge user scope rules only if monitored users are configured
         if (automation.user_scope?.rules) {
             mergeRuleGroup(merged, automation.user_scope.rules);
         }
     } else {
         // Log warning and skip user-scope rules
-        console.warn('⚠️  No monitored user configured. Skipping user-scope rules (board_items, assignees that depend on user).');
-        console.warn('   To enable user-based rules, configure monitored_user in automation.user_scope');
+        console.warn('⚠️  No monitored users configured. Skipping user-scope rules (board_items, assignees that depend on users).');
+        console.warn('   To enable user-based rules, configure monitored_users in automation.user_scope');
     }
 
     // Merge repository scope rules (always included)
@@ -72,24 +75,29 @@ function mergeRuleScopes(automation) {
 }
 
 /**
- * Extract monitored user from automation configuration
+ * Extract monitored users from automation configuration
  * @param {object} automation The automation configuration
- * @returns {string|null} The monitored user name or null if not configured
+ * @returns {Array<string>|null} The monitored users array or null if not configured
  */
-function getMonitoredUser(automation) {
-    if (!automation.user_scope?.monitored_user) {
+function getMonitoredUsers(automation) {
+    if (!automation.user_scope?.monitored_users) {
         return null;
     }
 
-    const monitoredUserConfig = automation.user_scope.monitored_user;
+    const monitoredUsers = automation.user_scope.monitored_users;
     
-    // Only support static user configuration for security and predictability
-    if (monitoredUserConfig.type === 'static') {
-        return monitoredUserConfig.name;
-    } else {
-        console.warn(`⚠️  Unsupported monitored_user type: ${monitoredUserConfig.type}. Only 'static' is supported for security.`);
-        return null;
+    // If it's an array of strings, use it directly
+    if (Array.isArray(monitoredUsers) && monitoredUsers.every(user => typeof user === 'string')) {
+        return monitoredUsers;
     }
+    
+    // Legacy support for single user object format (with warning)
+    if (typeof monitoredUsers === 'object' && monitoredUsers.type === 'static') {
+        console.warn('⚠️  Legacy monitored_user object format detected. Consider using monitored_users array format.');
+        return [monitoredUsers.name];
+    }
+    
+    return null;
 }
 
 /**

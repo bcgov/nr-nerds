@@ -25,16 +25,12 @@ const schema = {
       properties: {
         user_scope: {
           type: 'object',
-          required: [ 'monitored_user', 'rules' ],
+          required: [ 'monitored_users', 'rules' ],
           properties: {
-            monitored_user: {
-              type: 'object',
-              required: [ 'name', 'type', 'description' ],
-              properties: {
-                name: { type: 'string' },
-                type: { type: 'string', enum: [ 'static' ] },
-                description: { type: 'string' }
-              }
+            monitored_users: {
+              type: 'array',
+              items: { type: 'string' },
+              minItems: 1
             },
             rules: { $ref: '#/definitions/ruleGroups' }
           }

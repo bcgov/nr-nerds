@@ -6,28 +6,28 @@ project:
   id: "PVT_kwDOAA37OM4AFuzg" # Will be configurable via URL in future
 
 automation:
-  # Rules that follow the user across all repositories
+  # Rules that follow users across all repositories
   user_scope:
-    monitored_user:
-      name: "DerekRoberts"
-      type: "static"
-      description: "Primary developer for project board automation"
+    monitored_users:
+      - DerekRoberts
+      - SomebodyElse
+      - SomebodyElse2
     rules:
       # Board addition rules
       board_items:
         - name: "authored_pull_requests"
-          description: "Add pull requests authored by monitored user"
+          description: "Add pull requests authored by any monitored user"
           trigger:
             type: "PullRequest"
-            condition: "item.author === monitored.user"
+            condition: "monitored.users.includes(item.author)"
           action: "add_to_board"
           skip_if: "item.inProject"
 
         - name: "assigned_pull_requests"
-          description: "Add pull requests assigned to monitored user"
+          description: "Add pull requests assigned to any monitored user"
           trigger:
             type: "PullRequest"
-            condition: "item.assignees.includes(monitored.user)"
+            condition: "item.assignees.some(assignee => monitored.users.includes(assignee))"
           action: "add_to_board"
           skip_if: "item.inProject"
 
@@ -37,7 +37,7 @@ automation:
           description: "Add PR author as assignee"
           trigger:
             type: "PullRequest"
-            condition: "item.author === monitored.user"
+            condition: "monitored.users.includes(item.author)"
           action: "add_assignee"
           value: "item.author"
           skip_if: "item.assignees.includes(item.author)"
@@ -51,7 +51,7 @@ automation:
       - quickstart-openshift
       - quickstart-openshift-backends
       - quickstart-openshift-helpers
-    
+
     rules:
       # Board addition rules
       board_items:
