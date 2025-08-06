@@ -39,8 +39,9 @@ async function processRuleType(item, ruleType) {
                     }
                 }
 
-                // Skip rule if conditions not met
-                if (rule.skip_if && validator.validateSkipRule(item, rule.skip_if)) {
+                // Skip rule if conditions not met (backward compatibility for skipIf/skip_if)
+                const skipCondition = rule.skip_if ?? rule.skipIf;
+                if (skipCondition && validator.validateSkipRule(item, skipCondition)) {
                     continue;
                 }
 
