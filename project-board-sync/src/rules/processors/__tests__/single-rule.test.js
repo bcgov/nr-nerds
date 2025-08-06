@@ -66,7 +66,7 @@ test('PR authored by monitored user rule', async (t) => {
 
         // Import module under test
         try {
-            const boardItems = require('../board-items');
+            const boardItems = require('../unified-rule-processor');
             processBoardItemRules = boardItems.processBoardItemRules;
         } catch (err) {
             console.error('Failed to load board-items:', err);

@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { processBoardItemRules } = require('../board-items');
+const { processBoardItemRules } = require('../unified-rule-processor');
 const { processColumnRules } = require('../column-rules');
 const { processSprintRules } = require('../sprint-rules');
 const { setupTestEnvironment } = require('../../../../test/setup');

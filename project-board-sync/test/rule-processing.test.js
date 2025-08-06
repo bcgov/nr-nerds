@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { processBoardItemRules } = require('../src/rules/processors/board-items');
+const { processBoardItemRules } = require('../src/rules/processors/unified-rule-processor');
 
 // Set up test environment
 process.env.GITHUB_AUTHOR = 'test-user';
