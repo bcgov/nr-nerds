@@ -83,18 +83,13 @@ function getMonitoredUser(automation) {
 
     const monitoredUserConfig = automation.user_scope.monitored_user;
     
+    // Only support static user configuration for security and predictability
     if (monitoredUserConfig.type === 'static') {
         return monitoredUserConfig.name;
-    } else if (monitoredUserConfig.type === 'env') {
-        const envValue = process.env[monitoredUserConfig.name];
-        if (!envValue) {
-            console.warn(`⚠️  Environment variable ${monitoredUserConfig.name} is not set`);
-            return null;
-        }
-        return envValue;
+    } else {
+        console.warn(`⚠️  Unsupported monitored_user type: ${monitoredUserConfig.type}. Only 'static' is supported for security.`);
+        return null;
     }
-    
-    return null;
 }
 
 /**

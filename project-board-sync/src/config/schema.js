@@ -32,7 +32,7 @@ const schema = {
               required: [ 'name', 'type', 'description' ],
               properties: {
                 name: { type: 'string' },
-                type: { type: 'string', enum: [ 'env', 'static' ] },
+                type: { type: 'string', enum: [ 'static' ] },
                 description: { type: 'string' }
               }
             },
