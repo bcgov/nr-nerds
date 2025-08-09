@@ -208,8 +208,7 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
     if (
       message.includes('No active sprint') ||
       message.includes('field(name: "Sprint")') ||
-      message.includes('Cannot read properties of undefined') ||
-      message.includes('Cannot read property')
+      message.includes('Cannot read properties of undefined')
     ) {
       log.info('  • Skip: No active sprint or Sprint field not configured');
       return {

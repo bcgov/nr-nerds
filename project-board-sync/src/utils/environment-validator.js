@@ -94,14 +94,24 @@ class EnvironmentValidator {
    * @returns {Object} Validated environment configuration
    */
   static validateOptional() {
-    const rules = loadBoardRules();
+    let rules;
+    try {
+      rules = loadBoardRules();
+    } catch (err) {
+      throw new Error(
+        'Failed to load board rules from config/rules.yml: ' + err.message + '\n' +
+        'PROJECT_ID not provided and no project.id found in config/rules.yml. ' +
+        'Set PROJECT_ID or add project.id to config.'
+      );
+    }
     const projectIdFromConfig = rules?.project?.id;
     const projectId = process.env.PROJECT_ID || projectIdFromConfig;
 
     if (!projectId) {
       throw new Error(
         'PROJECT_ID not provided and no project.id found in config/rules.yml. ' +
-        'Set PROJECT_ID or add project.id to config.'
+        'Set PROJECT_ID or add project.id to config. ' +
+        'Also ensure that config/rules.yml is valid and contains a project.id property.'
       );
     }
 
