@@ -4,6 +4,7 @@
  */
 
 const { log } = require('./log');
+const { loadBoardRules } = require('../config/board-rules');
 
 class EnvironmentValidator {
   /**
@@ -93,17 +94,36 @@ class EnvironmentValidator {
    * @returns {Object} Validated environment configuration
    */
   static validateOptional() {
-    const config = {
-      projectId: process.env.PROJECT_ID || 'PVT_kwDOAA37OM4AFuzg',
+    let rules;
+    try {
+      rules = loadBoardRules();
+    } catch (err) {
+      throw new Error(
+        'Failed to load board rules from config/rules.yml: ' + err.message + '\n' +
+        'PROJECT_ID not provided and no project.id found in config/rules.yml. ' +
+        'Set PROJECT_ID or add project.id to config.'
+      );
+    }
+    const projectIdFromConfig = rules?.project?.id;
+    const projectId = process.env.PROJECT_ID || projectIdFromConfig;
+
+    if (!projectId) {
+      throw new Error(
+        'PROJECT_ID not provided and no project.id found in config/rules.yml. ' +
+        'Set PROJECT_ID or add project.id to config. ' +
+        'Also ensure that config/rules.yml is valid and contains a project.id property.'
+      );
+    }
+
+    if (!process.env.PROJECT_ID) {
+      log.info(`PROJECT_ID not set; using config project.id: ${projectId}`);
+    }
+
+    return {
+      projectId,
       verbose: process.env.VERBOSE === 'true',
       strictMode: process.env.STRICT_MODE === 'true'
     };
-
-    if (!process.env.PROJECT_ID) {
-      log.warning('No PROJECT_ID provided, using default from rules.yml: PVT_kwDOAA37OM4AFuzg');
-    }
-
-    return config;
   }
 
   /**

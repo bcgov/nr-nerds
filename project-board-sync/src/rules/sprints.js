@@ -87,7 +87,7 @@ async function getCurrentSprint(projectId) {
     }
   `, { projectId });
 
-  const iterations = result.node.field.configuration.iterations;
+  const iterations = result?.node?.field?.configuration?.iterations || [];
   log.info(`  • Found ${iterations.length} sprints`);
   
   const currentSprint = iterations.find(sprint => {
@@ -101,7 +101,7 @@ async function getCurrentSprint(projectId) {
   });
 
   if (!currentSprint) {
-    log.error('  • No active sprint found matching current date');
+    log.warning('  • No active sprint found matching current date');
     throw new Error('No active sprint found');
   }
 
@@ -203,8 +203,22 @@ async function processSprintAssignment(item, projectItemId, projectId, currentCo
     };
 
   } catch (error) {
-    log.error(`  • Error: Failed to process sprint assignment: ${error.message}`);
-    log.error(error.stack);
+    const message = error?.message || '';
+    // Gracefully skip if there is no sprint configured or no active sprint
+    if (
+      message.includes('No active sprint') ||
+      message.includes('field(name: "Sprint")') ||
+      message.includes('Cannot read properties of undefined')
+    ) {
+      log.info('  • Skip: No active sprint or Sprint field not configured');
+      return {
+        changed: false,
+        reason: 'No active sprint or Sprint field not configured'
+      };
+    }
+
+    log.error(`  • Error: Failed to process sprint assignment: ${message}`);
+    if (error.stack) log.error(error.stack);
     throw error;
   }
 }
