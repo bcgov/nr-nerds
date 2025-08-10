@@ -104,9 +104,34 @@ class EnvironmentValidator {
       }
       
       const [, org, projectNumber] = urlMatch;
+      return await this.resolveProjectFromNumber(org, parseInt(projectNumber));
+      
+    } catch (error) {
+      if (error.message.includes('Project not found')) {
+        throw error;
+      } else if (error.message.includes('Invalid project URL')) {
+        throw error;
+      } else {
+        throw new Error(
+          `Failed to resolve project from URL: ${error.message}\n` +
+          `Please check the URL is correct and you have access to the project.`
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolve project ID from organization and project number
+   * @param {string} org - Organization name
+   * @param {number} projectNumber - Project number
+   * @returns {Promise<string>} Project ID
+   * @throws {Error} If project not found
+   */
+  static async resolveProjectFromNumber(org, projectNumber) {
+    try {
       const { graphql } = require('../github/api');
       
-      log.info(`Resolving project ID from URL: ${org}/projects/${projectNumber}`);
+      log.info(`Resolving project ID: ${org}/projects/${projectNumber}`);
       
       const result = await graphql(`
         query($org: String!, $number: Int!) {
@@ -117,10 +142,10 @@ class EnvironmentValidator {
             }
           }
         }
-      `, { org, number: parseInt(projectNumber) });
+      `, { org, number: projectNumber });
       
       if (!result.organization?.projectV2?.id) {
-        throw new Error(`Project not found: ${org}/projects/${projectNumber}. Check the URL and ensure you have access to this project.`);
+        throw new Error(`Project not found: ${org}/projects/${projectNumber}. Check the project number and ensure you have access to this project.`);
       }
       
       const projectId = result.organization.projectV2.id;
@@ -132,12 +157,10 @@ class EnvironmentValidator {
     } catch (error) {
       if (error.message.includes('Project not found')) {
         throw error;
-      } else if (error.message.includes('Invalid project URL')) {
-        throw error;
       } else {
         throw new Error(
-          `Failed to resolve project from URL: ${error.message}\n` +
-          `Please check the URL is correct and you have access to the project.`
+          `Failed to resolve project from number: ${error.message}\n` +
+          `Please check the project number is correct and you have access to the project.`
         );
       }
     }
@@ -159,7 +182,7 @@ class EnvironmentValidator {
       );
     }
     
-    // Check for project URL first, then direct ID, then config
+    // Check for project configuration in order of preference
     let projectId = process.env.PROJECT_ID;
     let projectSource = 'PROJECT_ID environment variable';
     
@@ -169,10 +192,13 @@ class EnvironmentValidator {
     }
     
     if (!projectId) {
-      // Check config for project ID or URL
+      // Check config for project configuration
       if (rules?.project?.url) {
         projectId = await this.resolveProjectFromUrl(rules.project.url);
         projectSource = 'config/rules.yml project.url';
+      } else if (rules?.project?.number && rules?.project?.organization) {
+        projectId = await this.resolveProjectFromNumber(rules.project.organization, rules.project.number);
+        projectSource = 'config/rules.yml project.number';
       } else if (rules?.project?.id) {
         projectId = rules.project.id;
         projectSource = 'config/rules.yml project.id';
@@ -182,11 +208,12 @@ class EnvironmentValidator {
     if (!projectId) {
       throw new Error(
         'No project specified. Please provide one of:\n' +
-        '  - PROJECT_URL environment variable (e.g., https://github.com/orgs/bcgov/projects/16)\n' +
+        '  - PROJECT_URL environment variable (e.g., https://github.com/orgs/bcgov/projects/1)\n' +
         '  - PROJECT_ID environment variable (e.g., PVT_kwDOAA37OM4AFuzg)\n' +
-        '  - project.url in config/rules.yml (e.g., https://github.com/orgs/bcgov/projects/16)\n' +
+        '  - project.url in config/rules.yml (e.g., https://github.com/orgs/bcgov/projects/1)\n' +
+        '  - project.number in config/rules.yml (e.g., 1 for https://github.com/orgs/bcgov/projects/1)\n' +
         '  - project.id in config/rules.yml (e.g., PVT_kwDOAA37OM4AFuzg)\n\n' +
-        'For GitHub project URLs, the system will automatically resolve the project ID.'
+        'For GitHub project URLs or numbers, the system will automatically resolve the project ID.'
       );
     }
 

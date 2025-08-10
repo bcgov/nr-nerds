@@ -16,11 +16,14 @@ const schema = {
       type: 'object',
       properties: {
         id: { type: 'string' },
-        url: { type: 'string' }
+        url: { type: 'string' },
+        number: { type: 'integer', minimum: 1 },
+        organization: { type: 'string' }
       },
       oneOf: [
         { required: [ 'id' ] },
-        { required: [ 'url' ] }
+        { required: [ 'url' ] },
+        { required: [ 'number', 'organization' ] }
       ]
     },
     automation: {

@@ -3,7 +3,8 @@
 # Changes here will be applied on the next sync run.
 
 project:
-  url: "https://github.com/orgs/bcgov/projects/1" # Dynamic project resolution
+  number: 1 # Project number from https://github.com/orgs/bcgov/projects/1
+  organization: bcgov # Organization name
 
 automation:
   # Rules that follow users across all repositories
