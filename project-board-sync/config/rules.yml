@@ -3,7 +3,7 @@
 # Changes here will be applied on the next sync run.
 
 project:
-  number: 1 # Project number from https://github.com/orgs/bcgov/projects/1
+  number: 16 # Project number from https://github.com/orgs/bcgov/projects/16
   organization: bcgov # Organization name
 
 automation:
