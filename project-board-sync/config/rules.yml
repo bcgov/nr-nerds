@@ -3,8 +3,7 @@
 # Changes here will be applied on the next sync run.
 
 project:
-  number: 16 # Project number from https://github.com/orgs/bcgov/projects/16
-  organization: bcgov # Organization name
+  url: "https://github.com/orgs/bcgov/projects/16" # Project URL
 
 automation:
   # Rules that follow users across all repositories
