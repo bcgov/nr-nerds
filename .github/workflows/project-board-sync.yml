@@ -73,18 +73,18 @@ jobs:
         working-directory: project-board-sync
         run: npm run start
 
-      - name: Notify Microsoft Teams on failure
-        if: failure() && github.event_name != 'pull_request'
-        env:
-          TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
-        run: |
-          MESSAGE=":x: Project Board Sync failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
-          PAYLOAD=$(jq -nc \
-            --arg type "MessageCard" \
-            --arg context "http://schema.org/extensions" \
-            --arg summary "Project Board Sync failed" \
-            --arg themeColor "FF0000" \
-            --arg title "Project Board Sync failed" \
-            --arg text "$MESSAGE" \
-            '{ "@type": $type, "@context": $context, summary: $summary, themeColor: $themeColor, title: $title, text: $text }')
-          curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
+      # - name: Notify Microsoft Teams on failure
+      #   if: failure() && github.event_name != 'pull_request'
+      #   env:
+      #     TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      #   run: |
+      #     MESSAGE=":x: Project Board Sync failed on ${{ github.repository }} (${{ github.workflow }}) [Run ${{ github.run_id }}]. See logs for details."
+      #     PAYLOAD=$(jq -nc \
+      #       --arg type "MessageCard" \
+      #       --arg context "http://schema.org/extensions" \
+      #       --arg summary "Project Board Sync failed" \
+      #       --arg themeColor "FF0000" \
+      #       --arg title "Project Board Sync failed" \
+      #       --arg text "$MESSAGE" \
+      #       '{ "@type": $type, "@context": $context, summary: $summary, themeColor: $themeColor, title: $title, text: $text }')
+      #     curl -H "Content-Type: application/json" -d "$PAYLOAD" "$TEAMS_WEBHOOK_URL"
