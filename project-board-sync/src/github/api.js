@@ -254,11 +254,11 @@ async function getRecentItems(org, repos, monitoredUser) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
   // Search for items in monitored repositories
-  const repoQueries = repos.map(repo => `repo:${org}/${repo} updated:>${since}`);
+  const repoQueries = repos.map(repo => `repo:${org}/${repo} created:>${since}`);
   const repoSearchQuery = repoQueries.join(' ');
   
   // Search for PRs authored by monitored user in ANY repository
-  const authorSearchQuery = `author:${monitoredUser} updated:>${since}`;
+  const authorSearchQuery = `author:${monitoredUser} created:>${since}`;
 
   const results = [];
 

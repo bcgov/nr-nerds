@@ -40,14 +40,12 @@ jobs:
         run: |
           echo "Project Configuration:"
           echo "  PROJECT_URL: ${{ github.event.inputs.project_url || 'Not set' }}"
-          echo "  PROJECT_ID: ${{ github.event.inputs.project_id || 'Not set' }}"
           echo "  VERBOSE: ${{ github.event.inputs.verbose || 'true' }}"
           echo "  GITHUB_AUTHOR: ${{ github.actor }}"
           echo ""
           echo "The system will use the first available configuration in this order:"
           echo "  1. PROJECT_URL (if set)"
-          echo "  2. PROJECT_ID (if set)" 
-          echo "  3. project.id from config/rules.yml (fallback)"
+          echo "  2. project.url from config/rules.yml (fallback)"
         
       - name: Run Validation
         env:
