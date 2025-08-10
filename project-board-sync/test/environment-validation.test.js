@@ -50,7 +50,7 @@ test('Environment validation works correctly', async (t) => {
   
   // Test 4: Optional variables validation
   try {
-    const config = EnvironmentValidator.validateOptional();
+    const config = await EnvironmentValidator.validateOptional();
     assert(config.projectId, 'Should return project ID');
     assert(typeof config.verbose === 'boolean', 'Should return verbose flag');
     assert(typeof config.strictMode === 'boolean', 'Should return strict mode flag');
