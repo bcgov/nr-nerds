@@ -10,10 +10,6 @@ on:
         description: 'GitHub project URL (e.g., https://github.com/orgs/bcgov/projects/16)'
         required: false
         default: 'https://github.com/orgs/bcgov/projects/16'
-      project_id:
-        description: 'GitHub project ID (e.g., PVT_kwDOAA37OM4AFuzg)'
-        required: false
-        default: 'PVT_kwDOAA37OM4AFuzg'
       verbose:
         description: 'Enable verbose logging'
         required: false
@@ -58,7 +54,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_AUTHOR: ${{ github.actor }}
           PROJECT_URL: ${{ github.event.inputs.project_url || '' }}
-          PROJECT_ID: ${{ github.event.inputs.project_id || '' }}
           VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
         working-directory: project-board-sync
         run: npm run validate
@@ -68,7 +63,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_AUTHOR: ${{ github.actor }}
           PROJECT_URL: ${{ github.event.inputs.project_url || '' }}
-          PROJECT_ID: ${{ github.event.inputs.project_id || '' }}
           VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
         working-directory: project-board-sync
         run: npm run start
