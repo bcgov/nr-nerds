@@ -14,10 +14,14 @@ const schema = {
   properties: {
     project: {
       type: 'object',
-      required: [ 'id' ],
       properties: {
-        id: { type: 'string' }
-      }
+        id: { type: 'string' },
+        url: { type: 'string' }
+      },
+      oneOf: [
+        { required: [ 'id' ] },
+        { required: [ 'url' ] }
+      ]
     },
     automation: {
       type: 'object',

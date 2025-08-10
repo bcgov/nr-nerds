@@ -20,6 +20,31 @@ All automation is configured in `config/rules.yml`. The configuration includes:
 - Business rules for automation
 - Performance settings
 
+### Project Configuration
+
+The tool supports multiple ways to specify the GitHub project:
+
+1. **Project URL (Recommended)**: Use the GitHub project URL
+   ```bash
+   export PROJECT_URL=https://github.com/orgs/bcgov/projects/16
+   ```
+   The system will automatically resolve the project ID from the URL.
+
+2. **Project ID**: Use the GitHub project ID directly
+   ```bash
+   export PROJECT_ID=PVT_kwDOAA37OM4AFuzg
+   ```
+
+3. **Configuration File**: Add to `config/rules.yml`
+   ```yaml
+   project:
+     url: https://github.com/orgs/bcgov/projects/16
+     # or
+     id: PVT_kwDOAA37OM4AFuzg
+   ```
+
+The URL resolution feature automatically extracts the organization and project number from GitHub project URLs and resolves them to the correct project ID via the GitHub API.
+
 See `TECHNICAL.md` for implementation details and `CONTRIBUTING.md` for development guidelines.
 
 ## Files
@@ -46,6 +71,19 @@ Before running the full sync, you can validate your environment and configuratio
 export GITHUB_TOKEN=your_github_token
 export GITHUB_AUTHOR=your_github_username
 
+# Optionally set project (choose one method):
+# Method 1: Use project URL (recommended)
+export PROJECT_URL=https://github.com/orgs/bcgov/projects/16
+
+# Method 2: Use project ID directly
+export PROJECT_ID=PVT_kwDOAA37OM4AFuzg
+
+# Method 3: Configure in config/rules.yml
+# project:
+#   url: https://github.com/orgs/bcgov/projects/16
+#   # or
+#   id: PVT_kwDOAA37OM4AFuzg
+
 # Run just the preflight checks to validate configuration
 node tests/test-preflight-checks.js
 ```
@@ -68,6 +106,19 @@ To run the project sync automation:
 # Set required environment variables
 export GITHUB_TOKEN=your_github_token
 export GITHUB_AUTHOR=your_github_username
+
+# Optionally set project (choose one method):
+# Method 1: Use project URL (recommended)
+export PROJECT_URL=https://github.com/orgs/bcgov/projects/16
+
+# Method 2: Use project ID directly
+export PROJECT_ID=PVT_kwDOAA37OM4AFuzg
+
+# Method 3: Configure in config/rules.yml
+# project:
+#   url: https://github.com/orgs/bcgov/projects/16
+#   # or
+#   id: PVT_kwDOAA37OM4AFuzg
 
 # Run with verbose output (recommended for troubleshooting)
 VERBOSE=true node project-board-sync.js

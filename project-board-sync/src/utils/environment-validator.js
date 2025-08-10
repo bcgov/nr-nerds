@@ -90,10 +90,64 @@ class EnvironmentValidator {
   }
 
   /**
-   * Validate optional environment variables with defaults
-   * @returns {Object} Validated environment configuration
+   * Resolve project ID from GitHub project URL
+   * @param {string} url - GitHub project URL
+   * @returns {Promise<string>} Project ID
+   * @throws {Error} If URL is invalid or project not found
    */
-  static validateOptional() {
+  static async resolveProjectFromUrl(url) {
+    try {
+      // Extract organization and project number from URL
+      const urlMatch = url.match(/^https:\/\/github\.com\/orgs\/([^\/]+)\/projects\/(\d+)$/);
+      if (!urlMatch) {
+        throw new Error(`Invalid project URL format. Expected: https://github.com/orgs/org/projects/number`);
+      }
+      
+      const [, org, projectNumber] = urlMatch;
+      const { graphql } = require('../github/api');
+      
+      log.info(`Resolving project ID from URL: ${org}/projects/${projectNumber}`);
+      
+      const result = await graphql(`
+        query($org: String!, $number: Int!) {
+          organization(login: $org) {
+            projectV2(number: $number) {
+              id
+              title
+            }
+          }
+        }
+      `, { org, number: parseInt(projectNumber) });
+      
+      if (!result.organization?.projectV2?.id) {
+        throw new Error(`Project not found: ${org}/projects/${projectNumber}. Check the URL and ensure you have access to this project.`);
+      }
+      
+      const projectId = result.organization.projectV2.id;
+      const projectTitle = result.organization.projectV2.title;
+      
+      log.info(`✓ Resolved project: "${projectTitle}" (${projectId})`);
+      return projectId;
+      
+    } catch (error) {
+      if (error.message.includes('Project not found')) {
+        throw error;
+      } else if (error.message.includes('Invalid project URL')) {
+        throw error;
+      } else {
+        throw new Error(
+          `Failed to resolve project from URL: ${error.message}\n` +
+          `Please check the URL is correct and you have access to the project.`
+        );
+      }
+    }
+  }
+
+  /**
+   * Validate optional environment variables with defaults
+   * @returns {Promise<Object>} Validated environment configuration
+   */
+  static async validateOptional() {
     let rules;
     try {
       rules = loadBoardRules();
@@ -104,19 +158,40 @@ class EnvironmentValidator {
         'Set PROJECT_ID or add project.id to config.'
       );
     }
-    const projectIdFromConfig = rules?.project?.id;
-    const projectId = process.env.PROJECT_ID || projectIdFromConfig;
+    
+    // Check for project URL first, then direct ID, then config
+    let projectId = process.env.PROJECT_ID;
+    let projectSource = 'PROJECT_ID environment variable';
+    
+    if (!projectId && process.env.PROJECT_URL) {
+      projectId = await this.resolveProjectFromUrl(process.env.PROJECT_URL);
+      projectSource = 'PROJECT_URL environment variable';
+    }
+    
+    if (!projectId) {
+      // Check config for project ID or URL
+      if (rules?.project?.url) {
+        projectId = await this.resolveProjectFromUrl(rules.project.url);
+        projectSource = 'config/rules.yml project.url';
+      } else if (rules?.project?.id) {
+        projectId = rules.project.id;
+        projectSource = 'config/rules.yml project.id';
+      }
+    }
 
     if (!projectId) {
       throw new Error(
-        'PROJECT_ID not provided and no project.id found in config/rules.yml. ' +
-        'Set PROJECT_ID or add project.id to config. ' +
-        'Also ensure that config/rules.yml is valid and contains a project.id property.'
+        'No project specified. Please provide one of:\n' +
+        '  - PROJECT_URL environment variable (e.g., https://github.com/orgs/bcgov/projects/16)\n' +
+        '  - PROJECT_ID environment variable (e.g., PVT_kwDOAA37OM4AFuzg)\n' +
+        '  - project.url in config/rules.yml (e.g., https://github.com/orgs/bcgov/projects/16)\n' +
+        '  - project.id in config/rules.yml (e.g., PVT_kwDOAA37OM4AFuzg)\n\n' +
+        'For GitHub project URLs, the system will automatically resolve the project ID.'
       );
     }
 
-    if (!process.env.PROJECT_ID) {
-      log.info(`PROJECT_ID not set; using config project.id: ${projectId}`);
+    if (projectSource !== 'PROJECT_ID environment variable') {
+      log.info(`Project ID resolved from ${projectSource}: ${projectId}`);
     }
 
     return {
@@ -143,7 +218,7 @@ class EnvironmentValidator {
     log.info('✓ GitHub token validated');
     
     // Step 3: Validate optional variables
-    const config = this.validateOptional();
+    const config = await this.validateOptional();
     log.info('✓ Optional environment variables validated');
     
     // Verify GITHUB_AUTHOR matches token user (optional check)
