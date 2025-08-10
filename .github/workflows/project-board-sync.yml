@@ -51,6 +51,7 @@ jobs:
         
       - name: Run Validation
         env:
+          GITHUB_AUTHOR: ${{ github.actor }}
           PROJECT_URL: ${{ github.event.inputs.project_url || '' }}
           VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
         working-directory: project-board-sync
@@ -58,6 +59,7 @@ jobs:
        
       - name: Run Project Board Sync
         env:
+          GITHUB_AUTHOR: ${{ github.actor }}
           PROJECT_URL: ${{ github.event.inputs.project_url || '' }}
           VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
         working-directory: project-board-sync
