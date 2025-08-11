@@ -47,7 +47,7 @@ jobs:
         
       - name: Run Validation
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_AUTHOR: ${{ github.actor }}
           PROJECT_URL: https://github.com/orgs/bcgov/projects/16
           VERBOSE: true
@@ -56,7 +56,7 @@ jobs:
        
       - name: Run Project Board Sync
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_AUTHOR: ${{ github.actor }}
           PROJECT_URL: https://github.com/orgs/bcgov/projects/16
           VERBOSE: true
