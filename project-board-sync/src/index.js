@@ -53,6 +53,7 @@ const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues-processor');
 const { StepVerification } = require('./utils/verification-steps');
 const { EnvironmentValidator } = require('./utils/environment-validator');
+const { getProjectItems, getItemDetails, getItemColumn } = require('./github/api');
 
 // Initialize environment validation steps
 const envValidator = new StepVerification([
@@ -246,6 +247,10 @@ async function main() {
       }
     }
 
+    // NEW: Process sprint assignments for existing items on the board
+    log.info('Processing sprint assignments for existing project items...');
+    await processExistingItemsSprintAssignments(context.projectId);
+
     // Print final status and handle errors
     const endTime = new Date();
     const duration = (endTime - startTime) / 1000;
@@ -273,6 +278,72 @@ async function main() {
     log.error(error);
     log.printSummary();
     process.exit(1);
+  }
+}
+
+/**
+ * Process sprint assignments for existing items on the project board
+ * This fixes Issue #135: existing project items not getting sprint updates
+ */
+async function processExistingItemsSprintAssignments(projectId) {
+  try {
+    // Get all items currently on the project board
+    const projectItems = await getProjectItems(projectId);
+    log.info(`Found ${projectItems.size} existing items on project board`);
+
+    let processedCount = 0;
+    let updatedCount = 0;
+
+    // Process each existing item
+    for (const [itemNodeId, projectItemId] of projectItems) {
+      try {
+        // Get item details including current column
+        const itemDetails = await getItemDetails(projectItemId);
+        if (!itemDetails || !itemDetails.content) {
+          continue;
+        }
+
+        const { content, type } = itemDetails;
+        const currentColumn = await getItemColumn(projectId, projectItemId);
+        
+        // Only process items in eligible columns (Next, Active, Done, Waiting)
+        const eligibleColumns = ['Next', 'Active', 'Done', 'Waiting'];
+        if (!eligibleColumns.includes(currentColumn)) {
+          continue;
+        }
+
+        // Create item object for sprint processing
+        const item = {
+          __typename: type,
+          number: content.number,
+          repository: content.repository,
+          id: itemNodeId
+        };
+
+        // Process sprint assignment
+        const sprintResult = await processSprintAssignment(
+          item,
+          projectItemId,
+          projectId,
+          currentColumn
+        );
+
+        processedCount++;
+        if (sprintResult.changed) {
+          updatedCount++;
+          log.info(`Updated sprint for existing ${type} #${content.number} to ${sprintResult.newSprint}`);
+        }
+
+      } catch (error) {
+        log.error(`Failed to process sprint for existing item ${itemNodeId}: ${error.message}`);
+      }
+    }
+
+    log.info(`Processed ${processedCount} existing items, updated ${updatedCount} sprint assignments`);
+
+  } catch (error) {
+    log.error(`Failed to process existing items sprint assignments: ${error.message}`);
+    throw error;
   }
 }
 
