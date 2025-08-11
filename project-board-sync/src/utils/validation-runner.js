@@ -46,11 +46,6 @@ class ValidationRunner {
       }
 
       if (!hasEnvProject && !hasConfigProject) {
-        throw new Error(`No project configuration found. Please provide one of:
-  - PROJECT_ID environment variable
-  - PROJECT_URL environment variable  
-  - project.id in config/rules.yml
-  - project.url in config/rules.yml
         throw new Error(
           'No project configuration found. Please provide one of:\n' +
           '  - PROJECT_ID environment variable\n' +
