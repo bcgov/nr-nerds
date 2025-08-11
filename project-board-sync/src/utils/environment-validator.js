@@ -5,6 +5,7 @@
 
 const { log } = require('./log');
 const { loadBoardRules } = require('../config/board-rules');
+const path = require('path');
 
 class EnvironmentValidator {
   /**
@@ -45,6 +46,8 @@ class EnvironmentValidator {
     try {
       const { graphql } = require('../github/api');
       
+      log.info('Testing GitHub token with viewer query...');
+      
       const result = await graphql(`
         query {
           viewer {
@@ -66,6 +69,9 @@ class EnvironmentValidator {
       return result.viewer.login;
       
     } catch (error) {
+      log.error(`GitHub token validation error: ${error.message}`);
+      log.error(`Error stack: ${error.stack}`);
+      
       if (error.message.includes('Bad credentials')) {
         throw new Error(
           `GitHub token validation failed: Invalid or expired token\n` +
@@ -130,6 +136,9 @@ class EnvironmentValidator {
       return projectId;
       
     } catch (error) {
+      log.error(`Project resolution error: ${error.message}`);
+      log.error(`Error stack: ${error.stack}`);
+      
       if (error.message.includes('Project not found')) {
         throw error;
       } else if (error.message.includes('Invalid project URL')) {
@@ -207,6 +216,20 @@ class EnvironmentValidator {
    * @throws {Error} If validation fails
    */
   static async validateAll() {
+    log.info('=== ENVIRONMENT DEBUG ===');
+    log.info(`Working Directory: ${process.cwd()}`);
+    log.info(`Node Version: ${process.version}`);
+    log.info(`Platform: ${process.platform}`);
+    log.info(`GITHUB_TOKEN: ${process.env.GITHUB_TOKEN ? 'SET' : 'NOT SET'}`);
+    log.info(`GITHUB_AUTHOR: ${process.env.GITHUB_AUTHOR || 'NOT SET'}`);
+    log.info(`PROJECT_URL: ${process.env.PROJECT_URL || 'NOT SET'}`);
+    
+    // Test file access
+    const fs = require('fs');
+    const configPath = path.join(process.cwd(), 'config/rules.yml');
+    log.info(`Config file exists: ${fs.existsSync(configPath)}`);
+    log.info(`Config path: ${configPath}`);
+    
     log.info('Validating environment variables...');
     
     // Step 1: Check for required variables
