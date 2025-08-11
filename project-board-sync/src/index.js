@@ -299,7 +299,7 @@ async function processExistingItemsSprintAssignments(projectId) {
   try {
     // Get all items currently on the project board
     const projectItems = await getProjectItems(projectId);
-    log.info(`Found ${projectItems.size} total items on project board (not all will be processed)`);
+    log.info(`Found ${projectItems.size} existing items on project board`);
 
     let processedCount = 0;
     let updatedCount = 0;
