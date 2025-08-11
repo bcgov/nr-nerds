@@ -217,18 +217,6 @@ class EnvironmentValidator {
    * @throws {Error} If validation fails
    */
   static async validateAll() {
-    log.info('=== ENVIRONMENT DEBUG ===');
-    log.info(`Working Directory: ${process.cwd()}`);
-    log.info(`Node Version: ${process.version}`);
-    log.info(`Platform: ${process.platform}`);
-    log.info(`GITHUB_TOKEN: ${process.env.GITHUB_TOKEN ? 'SET' : 'NOT SET'}`);
-    log.info(`GITHUB_AUTHOR: ${process.env.GITHUB_AUTHOR || 'NOT SET'}`);
-    log.info(`PROJECT_URL: ${process.env.PROJECT_URL || 'NOT SET'}`);
-    
-    // Test file access
-    const configPath = path.join(process.cwd(), 'config/rules.yml');
-    log.info(`Config file exists: ${fs.existsSync(configPath)}`);
-    log.info(`Config path: ${configPath}`);
     if (process.env.DEBUG === 'true') {
       log.info('=== ENVIRONMENT DEBUG ===');
       log.info(`Working Directory: ${process.cwd()}`);
@@ -243,6 +231,7 @@ class EnvironmentValidator {
       log.info(`Config file exists: ${fs.existsSync(configPath)}`);
       log.info(`Config path: ${configPath}`);
     }
+    
     log.info('Validating environment variables...');
     
     // Step 1: Check for required variables
