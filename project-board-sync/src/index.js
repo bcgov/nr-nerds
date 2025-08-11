@@ -53,7 +53,8 @@ const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues-processor');
 const { StepVerification } = require('./utils/verification-steps');
 const { EnvironmentValidator } = require('./utils/environment-validator');
-const { getProjectItems, getItemDetails, getItemColumn } = require('./github/api');
+const { getProjectItems, getItemColumn } = require('./github/api');
+const { getItemDetails } = require('./rules/assignees');
 
 // Initialize environment validation steps
 const envValidator = new StepVerification([
