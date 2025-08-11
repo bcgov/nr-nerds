@@ -30,17 +30,30 @@ class ValidationRunner {
       const loader = new ConfigLoader();
       const config = loader.load(path.join(process.cwd(), 'config/rules.yml'));
       
-      // Verify project ID consistency
+      // Verify project configuration (supports URL, ID, or number)
       const configProjectId = config.project?.id;
+      const configProjectUrl = config.project?.url;
+      const configProjectNumber = config.project?.number;
       const envProjectId = process.env.PROJECT_ID;
-      const defaultProjectId = 'PVT_kwDOAA37OM4AFuzg';
+      const envProjectUrl = process.env.PROJECT_URL;
+
+      // Check for project configuration
+      const hasConfigProject = configProjectId || configProjectUrl || configProjectNumber;
+      const hasEnvProject = envProjectId || envProjectUrl;
 
       if (envProjectId && configProjectId && envProjectId !== configProjectId) {
         throw new Error(`Project ID mismatch: environment has "${envProjectId}" but config has "${configProjectId}"`);
       }
 
-      if (!envProjectId && configProjectId !== defaultProjectId) {
-        throw new Error(`Default project ID mismatch: config has "${configProjectId}" but expected "${defaultProjectId}"`);
+      if (!hasEnvProject && !hasConfigProject) {
+        throw new Error(
+          'No project configuration found. Please provide one of:\n' +
+          '  - PROJECT_ID environment variable\n' +
+          '  - PROJECT_URL environment variable\n' +
+          '  - project.id in config/rules.yml\n' +
+          '  - project.url in config/rules.yml\n' +
+          '  - project.number in config/rules.yml'
+        );
       }
 
       results.config = true;

@@ -39,31 +39,27 @@ jobs:
       - name: Show Project Configuration
         run: |
           echo "Project Configuration:"
-          echo "  PROJECT_URL: ${{ github.event.inputs.project_url || 'Not set' }}"
-          echo "  PROJECT_ID: ${{ github.event.inputs.project_id || 'Not set' }}"
-          echo "  VERBOSE: ${{ github.event.inputs.verbose || 'true' }}"
+          echo "  PROJECT_URL: https://github.com/orgs/bcgov/projects/16"
+          echo "  VERBOSE: true"
           echo "  GITHUB_AUTHOR: ${{ github.actor }}"
           echo ""
-          echo "The system will use the first available configuration in this order:"
-          echo "  1. PROJECT_URL (if set)"
-          echo "  2. PROJECT_ID (if set)" 
-          echo "  3. project.id from config/rules.yml (fallback)"
+          echo "Using hardcoded project URL for development"
         
       - name: Run Validation
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_AUTHOR: ${{ github.actor }}
-          PROJECT_URL: ${{ github.event.inputs.project_url || '' }}
-          VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
+          PROJECT_URL: https://github.com/orgs/bcgov/projects/16
+          VERBOSE: true
         working-directory: project-board-sync
         run: npm run validate
        
       - name: Run Project Board Sync
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.PROJECT_SYNC_TOKEN }}
           GITHUB_AUTHOR: ${{ github.actor }}
-          PROJECT_URL: ${{ github.event.inputs.project_url || '' }}
-          VERBOSE: ${{ github.event.inputs.verbose || 'true' }}
+          PROJECT_URL: https://github.com/orgs/bcgov/projects/16
+          VERBOSE: true
         working-directory: project-board-sync
         run: npm run start
 

@@ -3,7 +3,7 @@
 # Changes here will be applied on the next sync run.
 
 project:
-  id: "PVT_kwDOAA37OM4AFuzg" # Will be configurable via URL in future
+  url: "https://github.com/orgs/bcgov/projects/16" # Project URL for dynamic resolution
 
 automation:
   # Rules that follow users across all repositories
