@@ -53,7 +53,7 @@ const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues-processor');
 const { StepVerification } = require('./utils/verification-steps');
 const { EnvironmentValidator } = require('./utils/environment-validator');
-const { getProjectItems, getItemColumn } = require('./github/api');
+const { getProjectItems } = require('./github/api');
 const { getItemDetails } = require('./rules/assignees');
 
 // Initialize environment validation steps
@@ -299,7 +299,7 @@ async function processExistingItemsSprintAssignments(projectId) {
   try {
     // Get all items currently on the project board
     const projectItems = await getProjectItems(projectId);
-    log.info(`Found ${projectItems.size} existing items on project board`);
+    log.info(`Found ${projectItems.size} total items on project board (not all will be processed)`);
 
     let processedCount = 0;
     let updatedCount = 0;
