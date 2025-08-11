@@ -225,7 +225,6 @@ class EnvironmentValidator {
     log.info(`PROJECT_URL: ${process.env.PROJECT_URL || 'NOT SET'}`);
     
     // Test file access
-    const fs = require('fs');
     const configPath = path.join(process.cwd(), 'config/rules.yml');
     log.info(`Config file exists: ${fs.existsSync(configPath)}`);
     log.info(`Config path: ${configPath}`);
