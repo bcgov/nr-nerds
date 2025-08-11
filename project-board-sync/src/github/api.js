@@ -482,5 +482,6 @@ module.exports = {
   getItemColumn,
   setItemColumn,
   getFieldId,
-  getColumnOptionId
+  getColumnOptionId,
+  getProjectItems
 };
