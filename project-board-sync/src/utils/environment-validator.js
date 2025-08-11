@@ -6,6 +6,7 @@
 const { log } = require('./log');
 const { loadBoardRules } = require('../config/board-rules');
 const path = require('path');
+const fs = require('fs');
 
 class EnvironmentValidator {
   /**
