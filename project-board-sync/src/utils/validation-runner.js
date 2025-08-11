@@ -51,7 +51,14 @@ class ValidationRunner {
   - PROJECT_URL environment variable  
   - project.id in config/rules.yml
   - project.url in config/rules.yml
-  - project.number in config/rules.yml`);
+        throw new Error(
+          'No project configuration found. Please provide one of:\n' +
+          '  - PROJECT_ID environment variable\n' +
+          '  - PROJECT_URL environment variable\n' +
+          '  - project.id in config/rules.yml\n' +
+          '  - project.url in config/rules.yml\n' +
+          '  - project.number in config/rules.yml'
+        );
       }
 
       results.config = true;
