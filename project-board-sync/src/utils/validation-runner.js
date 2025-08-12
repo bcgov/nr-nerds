@@ -23,16 +23,6 @@ class ValidationRunner {
     try {
       // 1. Environment validation
       try {
-        // Add debug info for workflow troubleshooting
-        if (process.env.CI || process.env.GITHUB_ACTIONS) {
-          log.info('🔍 CI Environment Debug:');
-          log.info(`  Working Directory: ${process.cwd()}`);
-          log.info(`  Node Version: ${process.version}`);
-          log.info(`  GITHUB_TOKEN: ${process.env.GITHUB_TOKEN ? 'SET' : 'NOT SET'}`);
-          log.info(`  GITHUB_AUTHOR: ${process.env.GITHUB_AUTHOR || 'NOT SET'}`);
-          log.info(`  PROJECT_URL: ${process.env.PROJECT_URL || 'NOT SET'}`);
-        }
-        
         await validateEnvironment();
         results.environment = true;
         log.info('✓ Environment validation passed');
