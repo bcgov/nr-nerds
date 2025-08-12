@@ -31,11 +31,11 @@ class ValidationRunner {
         if (
           process.env.CI || 
           process.env.GITHUB_ACTIONS || 
-          (typeof error.code !== 'undefined' && (
-            error.code === 'RATE_LIMITED' ||
-            error.code === 401 ||
-            error.code === 403
-          )) ||
+                  (typeof error.code !== 'undefined' && (
+          error.code === 'RATE_LIMITED' ||
+          error.code === '401' ||
+          error.code === '403'
+        )) ||
           (typeof error.name !== 'undefined' && (
             error.name === 'RateLimitError' ||
             error.name === 'TokenError'
