@@ -96,14 +96,6 @@ function classifyError(error) {
     }
   }
   
-  // For legacy string errors, use standardized classification (fallback)
-  const errorMessage = (error && error.message ? error.message : String(error)).toLowerCase();
-  if (errorMessage.includes('was not added to project') || 
-      errorMessage.includes('item not added to project') ||
-      errorMessage.includes('not added to project')) {
-    return { isCritical: false, type: 'item_not_added' };
-  }
-  
   // Default to critical for unknown errors
   return { isCritical: true, type: 'unknown' };
 }
@@ -347,6 +339,13 @@ async function main() {
     }
 
   } catch (error) {
+    // Handle rate limits gracefully
+    if (error.message && error.message.includes('rate limit')) {
+      log.error('GitHub rate limit exceeded. Please wait a few minutes and try again.');
+      log.error(`Rate limit error: ${error.message}`);
+      process.exit(0); // Exit gracefully for rate limits
+    }
+    
     log.error(error);
     log.printSummary();
     process.exit(1);
@@ -414,6 +413,13 @@ async function processExistingItemsSprintAssignments(projectId) {
     log.info(`Processed ${processedCount} existing items, updated ${updatedCount} sprint assignments`);
 
   } catch (error) {
+    // Handle rate limits gracefully
+    if (error.message && error.message.includes('rate limit')) {
+      log.error('GitHub rate limit exceeded during existing items processing. Continuing with partial results.');
+      log.error(`Rate limit error: ${error.message}`);
+      return; // Continue gracefully instead of throwing
+    }
+    
     log.error(`Failed to process existing items sprint assignments: ${error.message}`);
     throw error;
   }
