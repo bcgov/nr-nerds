@@ -86,8 +86,18 @@ function classifyError(error) {
     return { isCritical: true, type: 'critical' };
   }
   
-  // For legacy string errors, use standardized classification
-  const errorMessage = String(error).toLowerCase();
+  // Use error.code property for classification if available
+  if (error && typeof error.code === 'string') {
+    if (error.code === 'ITEM_NOT_ADDED') {
+      return { isCritical: false, type: 'item_not_added' };
+    }
+    if (error.code === 'CRITICAL_ERROR') {
+      return { isCritical: true, type: 'critical' };
+    }
+  }
+  
+  // For legacy string errors, use standardized classification (fallback)
+  const errorMessage = (error && error.message ? error.message : String(error)).toLowerCase();
   if (errorMessage.includes('was not added to project') || 
       errorMessage.includes('item not added to project') ||
       errorMessage.includes('not added to project')) {

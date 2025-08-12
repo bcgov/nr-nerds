@@ -28,7 +28,23 @@ class ValidationRunner {
         log.info('✓ Environment validation passed');
       } catch (error) {
         // In CI environment or when rate limited, be more lenient with validation
-        if (process.env.CI || process.env.GITHUB_ACTIONS || error.message.includes('rate limit') || error.message.includes('token')) {
+        if (
+          process.env.CI || 
+          process.env.GITHUB_ACTIONS || 
+          (typeof error.code !== 'undefined' && (
+            error.code === 'RATE_LIMITED' ||
+            error.code === 401 ||
+            error.code === 403
+          )) ||
+          (typeof error.name !== 'undefined' && (
+            error.name === 'RateLimitError' ||
+            error.name === 'TokenError'
+          )) ||
+          (error.message && (
+            error.message.includes('rate limit') ||
+            error.message.includes('token')
+          ))
+        ) {
           log.info(`⚠️  Environment validation failed: ${error.message}`);
           log.info('⚠️  Proceeding with basic validation only');
           results.environment = true; // Mark as passed to continue
