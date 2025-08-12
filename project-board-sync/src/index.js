@@ -339,11 +339,11 @@ async function main() {
     }
 
   } catch (error) {
-    // Handle rate limits gracefully
+    // Handle rate limits as temporary failures
     if (error.message && error.message.includes('rate limit')) {
-      log.error('GitHub rate limit exceeded. Please wait a few minutes and try again.');
+      log.error('GitHub rate limit exceeded. This is a temporary failure - please retry in a few minutes.');
       log.error(`Rate limit error: ${error.message}`);
-      process.exit(0); // Exit gracefully for rate limits
+      process.exit(1); // Still a failure, but temporary
     }
     
     log.error(error);
@@ -413,11 +413,11 @@ async function processExistingItemsSprintAssignments(projectId) {
     log.info(`Processed ${processedCount} existing items, updated ${updatedCount} sprint assignments`);
 
   } catch (error) {
-    // Handle rate limits gracefully
+    // Handle rate limits as temporary failures
     if (error.message && error.message.includes('rate limit')) {
-      log.error('GitHub rate limit exceeded during existing items processing. Continuing with partial results.');
+      log.error('GitHub rate limit exceeded during existing items processing. This is a temporary failure.');
       log.error(`Rate limit error: ${error.message}`);
-      return; // Continue gracefully instead of throwing
+      throw error; // Re-throw to fail the workflow
     }
     
     log.error(`Failed to process existing items sprint assignments: ${error.message}`);
