@@ -56,6 +56,48 @@ const { EnvironmentValidator } = require('./utils/environment-validator');
 const { getProjectItems, getItemColumn } = require('./github/api');
 const { getItemDetails } = require('./rules/assignees');
 
+// Custom error classes for robust error handling
+class ItemNotAddedError extends Error {
+  constructor(message, itemType, itemNumber) {
+    super(message);
+    this.name = 'ItemNotAddedError';
+    this.code = 'ITEM_NOT_ADDED';
+    this.itemType = itemType;
+    this.itemNumber = itemNumber;
+  }
+}
+
+class CriticalError extends Error {
+  constructor(message, originalError) {
+    super(message);
+    this.name = 'CriticalError';
+    this.code = 'CRITICAL_ERROR';
+    this.originalError = originalError;
+  }
+}
+
+// Error classification helper
+function classifyError(error) {
+  // If it's already a typed error, use its classification
+  if (error instanceof ItemNotAddedError) {
+    return { isCritical: false, type: 'item_not_added' };
+  }
+  if (error instanceof CriticalError) {
+    return { isCritical: true, type: 'critical' };
+  }
+  
+  // For legacy string errors, use standardized classification
+  const errorMessage = String(error).toLowerCase();
+  if (errorMessage.includes('was not added to project') || 
+      errorMessage.includes('item not added to project') ||
+      errorMessage.includes('not added to project')) {
+    return { isCritical: false, type: 'item_not_added' };
+  }
+  
+  // Default to critical for unknown errors
+  return { isCritical: true, type: 'unknown' };
+}
+
 // Initialize environment validation steps
 const envValidator = new StepVerification([
   'TOKEN_CONFIGURED',
@@ -270,18 +312,28 @@ async function main() {
       StateVerifier.printReports();
     }
 
-    // Only exit with error code for critical errors, not "item not added" errors
-    const criticalErrors = errors.filter(error => {
-      const errorMessage = String(error);
-      return !errorMessage.includes('was not added to project') && 
-             !errorMessage.includes('Item not added to project');
-    });
+    // Robust error classification - no more fragile string matching
+    const errorClassifications = errors.map(error => ({
+      error,
+      classification: classifyError(error)
+    }));
+    
+    const criticalErrors = errorClassifications
+      .filter(({ classification }) => classification.isCritical)
+      .map(({ error }) => error);
+    
+    const nonCriticalErrors = errorClassifications
+      .filter(({ classification }) => !classification.isCritical)
+      .map(({ error }) => error);
     
     if (criticalErrors.length > 0) {
       log.error(`Critical errors occurred: ${criticalErrors.length}`);
+      criticalErrors.forEach(error => {
+        log.error(`Critical error: ${error.message || error}`);
+      });
       process.exit(1);
-    } else if (errors.length > 0) {
-      log.info(`Completed with ${errors.length} non-critical errors (items not added to project)`);
+    } else if (nonCriticalErrors.length > 0) {
+      log.info(`Completed with ${nonCriticalErrors.length} non-critical errors (items not added to project)`);
     }
 
   } catch (error) {
@@ -367,5 +419,8 @@ if (require.main === module) {
 
 module.exports = {
   main,
-  validateEnvironment
+  validateEnvironment,
+  ItemNotAddedError,
+  CriticalError,
+  classifyError
 };
