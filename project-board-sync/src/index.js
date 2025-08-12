@@ -53,7 +53,7 @@ const { processAssignees } = require('./rules/assignees');
 const { processLinkedIssues } = require('./rules/linked-issues-processor');
 const { StepVerification } = require('./utils/verification-steps');
 const { EnvironmentValidator } = require('./utils/environment-validator');
-const { getProjectItems } = require('./github/api');
+const { getProjectItems, getItemColumn } = require('./github/api');
 const { getItemDetails } = require('./rules/assignees');
 
 // Initialize environment validation steps
@@ -270,9 +270,18 @@ async function main() {
       StateVerifier.printReports();
     }
 
-    // Exit with error code if any errors occurred
-    if (errors.length > 0) {
+    // Only exit with error code for critical errors, not "item not added" errors
+    const criticalErrors = errors.filter(error => {
+      const errorMessage = String(error);
+      return !errorMessage.includes('was not added to project') && 
+             !errorMessage.includes('Item not added to project');
+    });
+    
+    if (criticalErrors.length > 0) {
+      log.error(`Critical errors occurred: ${criticalErrors.length}`);
       process.exit(1);
+    } else if (errors.length > 0) {
+      log.info(`Completed with ${errors.length} non-critical errors (items not added to project)`);
     }
 
   } catch (error) {
