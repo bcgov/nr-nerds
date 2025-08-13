@@ -27,29 +27,30 @@ class ValidationRunner {
         results.environment = true;
         log.info('✓ Environment validation passed');
       } catch (error) {
-        // In CI environment or when rate limited, be more lenient with validation
-        if (
-          process.env.CI || 
-          process.env.GITHUB_ACTIONS || 
-                  (typeof error.code !== 'undefined' && (
-          error.code === 'RATE_LIMITED' ||
-          error.code === '401' ||
-          error.code === '403'
-        )) ||
-          (typeof error.name !== 'undefined' && (
-            error.name === 'RateLimitError' ||
-            error.name === 'TokenError'
-          )) ||
-          (error.message && (
-            error.message.includes('rate limit') ||
-            error.message.includes('token')
-          ))
-        ) {
-          log.info(`⚠️  Environment validation failed: ${error.message}`);
+        // Be lenient only in CI/GitHub Actions, or on rate limit errors.
+        const isCI = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
+        const isRateLimit = (
+          (typeof error.code !== 'undefined' && error.code === 'RATE_LIMITED') ||
+          (typeof error.name !== 'undefined' && error.name === 'RateLimitError') ||
+          (error.message && error.message.toLowerCase().includes('rate limit'))
+        );
+        const isAuthError = (
+          (typeof error.code !== 'undefined' && (error.code === '401' || error.code === '403')) ||
+          (typeof error.name !== 'undefined' && error.name === 'TokenError')
+        );
+
+        if (isCI && (isAuthError || isRateLimit)) {
+          log.info(`⚠️  Environment validation failed in CI: ${error.message}`);
           log.info('⚠️  Proceeding with basic validation only');
-          results.environment = true; // Mark as passed to continue
+          results.environment = true;
+        } else if (isRateLimit) {
+          // Allow local development to proceed when rate limited
+          log.info(`⚠️  Environment validation rate-limited: ${error.message}`);
+          log.info('⚠️  Proceeding with basic validation only');
+          results.environment = true;
         } else {
-          throw error; // Re-throw for local development
+          // Missing/invalid token locally should fail hard
+          throw error;
         }
       }
 
