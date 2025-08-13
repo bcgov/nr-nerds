@@ -29,14 +29,15 @@ class ValidationRunner {
       } catch (error) {
         // Be lenient only in CI/GitHub Actions, or on rate limit errors.
         const isCI = Boolean(process.env.CI || process.env.GITHUB_ACTIONS);
+        const lowerMessage = error.message?.toLowerCase();
         const isRateLimit = (
-          (typeof error.code !== 'undefined' && error.code === 'RATE_LIMITED') ||
-          (typeof error.name !== 'undefined' && error.name === 'RateLimitError') ||
-          (error.message && error.message.toLowerCase().includes('rate limit'))
+          error.code === 'RATE_LIMITED' ||
+          error.name === 'RateLimitError' ||
+          (lowerMessage && lowerMessage.includes('rate limit'))
         );
         const isAuthError = (
-          (typeof error.code !== 'undefined' && (error.code === '401' || error.code === '403')) ||
-          (typeof error.name !== 'undefined' && error.name === 'TokenError')
+          error.code === '401' || error.code === '403' ||
+          error.name === 'TokenError'
         );
 
         if (isCI && (isAuthError || isRateLimit)) {
