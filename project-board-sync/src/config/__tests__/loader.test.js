@@ -13,8 +13,12 @@ test('ConfigLoader', async (t) => {
     assert.ok(config.automation, 'has automation section');
     assert.ok(config.technical, 'has technical section');
 
-    // Project settings
-    assert.equal(config.project.id, 'PVT_kwDOAA37OM4AFuzg', 'correct project ID');
+    // Project settings: prefer URL-based configuration which we resolve at runtime
+    assert.equal(
+      config.project.url,
+      'https://github.com/orgs/bcgov/projects/16',
+      'correct project URL'
+    );
 
     // Automation structure
     assert.ok(config.automation.user_scope, 'has user_scope');

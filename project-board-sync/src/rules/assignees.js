@@ -263,7 +263,4 @@ const moduleExports = {
   setItemAssignees,
   getItemDetails
 };
-
-console.log('Exporting from assignees.js:', Object.keys(moduleExports));
-
 module.exports = moduleExports;

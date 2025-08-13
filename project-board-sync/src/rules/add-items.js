@@ -27,6 +27,12 @@ async function processAddItems({ org, repos, monitoredUser, projectId }) {
 
   for (const item of items) {
     try {
+      // Guard against incomplete items returned from search
+      if (!item || !item.__typename || !item.repository || !item.repository.nameWithOwner || typeof item.number !== 'number') {
+        log.warning('Skipping item with incomplete data from search results');
+        continue;
+      }
+
       const itemIdentifier = `${item.__typename} #${item.number} (${item.repository.nameWithOwner})`;
       log.info(`\n🔍 Processing: ${itemIdentifier}`, true);
       log.info(`  ├─ Author: ${item.author?.login || 'unknown'}`, true);
