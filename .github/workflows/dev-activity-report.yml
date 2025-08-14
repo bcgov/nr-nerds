@@ -1,0 +1,54 @@
+name: Dev Activity Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      users:
+        description: "Comma-separated GitHub logins"
+        required: true
+      repos:
+        description: "Optional comma-separated repos (owner/name)"
+        required: false
+      org:
+        description: "Org name"
+        default: "bcgov"
+        required: true
+      days:
+        description: "Lookback days"
+        default: "7"
+        required: true
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        working-directory: tools/dev-activity-reporter
+        run: npm install --no-fund --no-audit
+      - name: Generate report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: tools/dev-activity-reporter
+        run: |
+          ORG="${{ github.event.inputs.org || 'bcgov' }}"
+          USERS="${{ github.event.inputs.users || github.actor }}"
+          REPOS="${{ github.event.inputs.repos || '' }}"
+          DAYS="${{ github.event.inputs.days || '7' }}"
+          FROM=$(date -u -d "$DAYS days ago" +%F)
+          TO=$(date -u +%F)
+          if [ -n "$REPOS" ]; then
+            npx tsx src/index.ts --org "$ORG" --users "$USERS" --repos "$REPOS" --from "$FROM" --to "$TO" --format md,json
+          else
+            npx tsx src/index.ts --org "$ORG" --users "$USERS" --from "$FROM" --to "$TO" --format md,json
+          fi
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-activity-report
+          path: tools/dev-activity-reporter/reports/**
