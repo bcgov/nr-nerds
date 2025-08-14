@@ -1,0 +1,19 @@
+{
+  "name": "@bcgov/dev-activity-reporter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "report": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@octokit/core": "^5.0.0",
+    "@octokit/plugin-paginate-graphql": "^5.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.5.0"
+  }
+}
