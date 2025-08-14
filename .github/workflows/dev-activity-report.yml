@@ -29,12 +29,12 @@ jobs:
         with:
           node-version: 20
       - name: Install
-        working-directory: tools/dev-activity-reporter
+        working-directory: packages/dev-activity-reporter
         run: npm install --no-fund --no-audit
       - name: Generate report
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: tools/dev-activity-reporter
+        working-directory: packages/dev-activity-reporter
         run: |
           ORG="${{ github.event.inputs.org || 'bcgov' }}"
           USERS="${{ github.event.inputs.users || github.actor }}"
@@ -43,12 +43,12 @@ jobs:
           FROM=$(date -u -d "$DAYS days ago" +%F)
           TO=$(date -u +%F)
           if [ -n "$REPOS" ]; then
-            npx tsx src/index.ts --org "$ORG" --users "$USERS" --repos "$REPOS" --from "$FROM" --to "$TO" --format md,json
+            npm start -- --org "$ORG" --users "$USERS" --repos "$REPOS" --from "$FROM" --to "$TO" --format md,json
           else
-            npx tsx src/index.ts --org "$ORG" --users "$USERS" --from "$FROM" --to "$TO" --format md,json
+            npm start -- --org "$ORG" --users "$USERS" --from "$FROM" --to "$TO" --format md,json
           fi
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: dev-activity-report
-          path: tools/dev-activity-reporter/reports/**
+          path: packages/dev-activity-reporter/reports/**
