@@ -1,1 +1,0 @@
-{"chunk":4,"numChunks":9,"fileHash":"hpOeWWIAZvnab09d0lSRqhqVpMCI1iVzBWQv3hmbhIQ=","filePath":"project-board-sync/src/rules/columns.js","content":"const { getItemColumn, setItemColumn, isItemInProject, octokit } = require('../github/api');\nasync function processColumnAssignment(item, projectItemId, projectId) {\n  try {"}

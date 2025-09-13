@@ -1,1 +1,0 @@
-{"chunk":5,"numChunks":10,"fileHash":"JyGXkSXfqfji/jvY1IWvGDwkrzgkd6gnhZdRmuKn98M=","filePath":"project-board-sync/src/rules/add-items.js","content":"const { isItemInProject, addItemToProject, getRecentItems } = require('../github/api');\nasync function processAddItems({ org, repos, monitoredUser, projectId }) {\n  for (const item of items) {\n    try {"}

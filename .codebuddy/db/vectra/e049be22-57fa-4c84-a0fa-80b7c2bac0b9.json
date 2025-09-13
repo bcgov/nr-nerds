@@ -1,1 +1,0 @@
-{"chunk":3,"numChunks":7,"fileHash":"0iQzGoAU0H+H6xLyYWfFoCGgiAKMGgRiaRjoHR5A00s=","filePath":"project-board-sync/src/rules/linked-issues-processor.js","content":"/**\nasync function processLinkedIssues(pullRequest, projectId, currentColumn, currentSprint) {\n    for (const linkedIssue of linkedIssueNodes) {"}

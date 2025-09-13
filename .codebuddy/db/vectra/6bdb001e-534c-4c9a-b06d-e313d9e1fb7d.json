@@ -1,1 +1,0 @@
-{"chunk":0,"numChunks":1,"fileHash":"1I6IXMyBkeoBq92rNcddlTdoSh2uuR9gf2rG8/KlDHg=","filePath":"project-board-sync/test/author-assignment.test.js","content":"const { test } = require('node:test');\nconst assert = require('node:assert/strict');\nconst { loadBoardRules } = require('../src/config/board-rules');"}

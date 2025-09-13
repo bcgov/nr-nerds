@@ -1,1 +1,0 @@
-{"chunk":3,"numChunks":9,"fileHash":"1SMexQV3/cYUvQLjmTK3+MQPM8qNRYE/0C/GkyotcYE=","filePath":"project-board-sync/src/rules/processors/validation.js","content":"/**\nclass RuleValidation {\n    validateItemCondition(item, condition) {"}

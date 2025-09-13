@@ -1,1 +1,0 @@
-{"chunk":15,"numChunks":31,"fileHash":"d/sfK61LpWfXclxI64CLwQIr+HeWHt3JRwU/EIB4ZQc=","filePath":"project-board-sync/src/utils/state-verifier.js","content":"/**\nclass StateVerifier {\n  static async verifyCompleteState(item, projectId, expectedState) {"}
