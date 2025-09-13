@@ -1,0 +1,1 @@
+{"chunk":13,"numChunks":15,"fileHash":"+gmoYfdkbC2PV76vr4sp0gIon+P84g0htDef3y71qAc=","filePath":"project-board-sync/src/utils/state-transition-validator.js","content":"/**\nclass StateTransitionValidator {\n  validateStateTransition(item, currentState, newState, context = {}) {\n    try {"}

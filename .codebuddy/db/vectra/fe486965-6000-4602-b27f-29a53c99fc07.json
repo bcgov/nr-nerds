@@ -1,0 +1,1 @@
+{"chunk":1,"numChunks":3,"fileHash":"q6P1wdcdq87nE9ZqAydPkL/AjNkaPHQRkDZzqQIDHzU=","filePath":"project-board-sync/TECHNICAL.md","content":"### Project Board\nDefault board settings (can be overridden via environment):\n- ID: `PVT_kwDOAA37OM4AFuzg`\n- Type: ProjectV2\n- Access: Organization-wide\n\n### Environment Variables\n"}

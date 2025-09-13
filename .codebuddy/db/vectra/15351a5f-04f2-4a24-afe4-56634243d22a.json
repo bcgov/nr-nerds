@@ -1,0 +1,1 @@
+{"chunk":6,"numChunks":7,"fileHash":"0iQzGoAU0H+H6xLyYWfFoCGgiAKMGgRiaRjoHR5A00s=","filePath":"project-board-sync/src/rules/linked-issues-processor.js","content":" linkedIssueNumber,\n                column: finalColumn,\n                assignees: finalAssignees\n            });\n\n        } catch (error) {"}

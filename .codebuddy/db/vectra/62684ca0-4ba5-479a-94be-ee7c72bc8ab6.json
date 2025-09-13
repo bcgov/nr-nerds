@@ -1,0 +1,1 @@
+{"chunk":6,"numChunks":10,"fileHash":"HPT/Ndg6W9FqXJZb751xMISbzyEQOGaKyGUEVxk0MX8=","filePath":"project-board-sync/test/state-transition-validator.test.js","content":"const { test } = require('node:test');\ntest('StateTransitionValidator', async (t) => {\n  await t.test('validates complete state transitions', async () => {"}

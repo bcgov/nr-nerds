@@ -1,0 +1,1 @@
+{"chunk":5,"numChunks":6,"fileHash":"xm9iJXhI0UZ96l+e+GixEyVteM5ZSAxnOCiKlbG9vwo=","filePath":"project-board-sync/src/rules/assignees.js","content":"const { octokit } = require('../github/api');\nconst moduleExports = {\n  processAssignees,\n  getItemAssignees,\n  setItemAssignees,\n  getItemDetails\n};"}

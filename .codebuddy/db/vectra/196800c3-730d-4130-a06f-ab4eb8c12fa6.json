@@ -1,0 +1,1 @@
+{"chunk":0,"numChunks":1,"fileHash":"ttOHrx658vjy35M+oARcPKPDPodacPE4nv27zflhUHY=","filePath":"renovate.json","content":"{\n  \"$schema\": \"https://docs.renovatebot.com/renovate-schema.json\",\n  \"description\": \"Presets from https://github.com/bcgov/renovate-config\",\n  \"extends\": [\n    \"github>bcgov/renovate-config\"\n  ]\n}\n"}

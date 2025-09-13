@@ -1,0 +1,1 @@
+{"chunk":10,"numChunks":11,"fileHash":"a4eyBkBTxsL40WZWrTqbpDNUNOIcSq/nqd3+tEGtmMs=","filePath":"project-board-sync/src/config/__tests__/loader.test.js","content":"[ section ].length > 0, `${section} has rules defined`);\n    }\n    // Technical settings"}

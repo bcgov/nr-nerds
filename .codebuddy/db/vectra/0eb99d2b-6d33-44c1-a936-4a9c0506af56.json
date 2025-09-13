@@ -1,0 +1,1 @@
+{"chunk":3,"numChunks":5,"fileHash":"FMxEEryGSNJRhTM7AQ0K3tHT1LxUl9xbsJrx86caIUc=","filePath":"project-board-sync/src/rules/processors/__tests__/column-rules.test.js","content":"const { test } = require('node:test');\ntest('processColumnRules', async (t) => {"}
