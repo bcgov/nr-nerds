@@ -1,9 +1,10 @@
 import { Octokit } from "@octokit/core";
-import { paginateGraphql } from "@octokit/plugin-paginate-graphql";
+import { paginateGraphQL } from "@octokit/plugin-paginate-graphql";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const MyOctokit = (Octokit as any).plugin(paginateGraphql as any);
+const MyOctokit = Octokit.plugin(paginateGraphQL);
+type OctokitInstance = InstanceType<typeof MyOctokit>;
 
 type Inputs = {
 	org: string;
@@ -44,13 +45,34 @@ function parseArgs(argv: string[]): Inputs {
 	return { org, users, repos: repos.length ? repos : undefined, from, to, format, outDir };
 }
 
-async function searchCount(octo: any, query: string): Promise<number> {
-	const q = `query($q: String!) { search(type: ISSUE, query: $q, first: 1) { issueCount } }`;
-	const res = await octo.graphql(q, { q: query });
-	return (res as any).search.issueCount as number;
+interface SearchCountResponse {
+	search: {
+		issueCount: number;
+	};
 }
 
-async function sumLinesChanged(octo: any, query: string): Promise<number> {
+async function searchCount(octo: OctokitInstance, query: string): Promise<number> {
+	const q = `query($q: String!) { search(type: ISSUE, query: $q, first: 1) { issueCount } }`;
+	const res = await octo.graphql<SearchCountResponse>(q, { q: query });
+	return res.search.issueCount;
+}
+
+interface PullRequestNode {
+	additions: number;
+	deletions: number;
+}
+
+interface SumLinesChangedResponse {
+	search: {
+		pageInfo: {
+			hasNextPage: boolean;
+			endCursor: string | null;
+		};
+		nodes: (PullRequestNode | null)[];
+	};
+}
+
+async function sumLinesChanged(octo: OctokitInstance, query: string): Promise<number> {
 	const q = `query($q: String!, $after: String) {
 		search(type: ISSUE, query: $q, first: 50, after: $after) {
 			pageInfo { hasNextPage endCursor }
@@ -60,7 +82,7 @@ async function sumLinesChanged(octo: any, query: string): Promise<number> {
 	let total = 0;
 	let after: string | null = null;
 	do {
-		const res: any = await octo.graphql(q, { q: query, after });
+		const res: SumLinesChangedResponse = await octo.graphql<SumLinesChangedResponse>(q, { q: query, after });
 		for (const n of res.search.nodes) {
 			if (n && typeof n.additions === "number" && typeof n.deletions === "number") {
 				total += n.additions + n.deletions;
