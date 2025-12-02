@@ -6,6 +6,8 @@ import path from "node:path";
 const MyOctokit = Octokit.plugin(paginateGraphQL);
 type OctokitInstance = InstanceType<typeof MyOctokit>;
 
+const MILLISECONDS_PER_DAY = 86400_000;
+
 type Inputs = {
 	org: string;
 	users: string[];
@@ -38,7 +40,7 @@ function parseArgs(argv: string[]): Inputs {
 	const org = args.get("org") ?? "bcgov";
 	const users = (args.get("users") ?? "").split(",").map(s => s.trim()).filter(Boolean);
 	const repos = (args.get("repos") ?? "").split(",").map(s => s.trim()).filter(Boolean);
-	const from = args.get("from") ?? new Date(Date.now() - 7 * 86400_000).toISOString().slice(0, 10);
+	const from = args.get("from") ?? new Date(Date.now() - 7 * MILLISECONDS_PER_DAY).toISOString().slice(0, 10);
 	const to = args.get("to") ?? new Date().toISOString().slice(0, 10);
 	const format = (args.get("format") ?? "md,json").split(",").map(s => s.trim().toLowerCase()).filter(Boolean) as ("md"|"json")[];
 	const outDir = args.get("outDir") ?? path.join("reports", to);
